@@ -1439,6 +1439,95 @@ fn a_dry_run_names_the_digest_it_would_send_and_sends_nothing() {
     assert!(!tmp.path().join(".yidam/index.lock").exists(), "{said}");
 }
 
+/// Every file under a cache directory, by name relative to it. Empty when it does not exist.
+fn cache_files(cache: &Path) -> Vec<String> {
+    walkdir::WalkDir::new(cache)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .map(|e| {
+            e.path()
+                .strip_prefix(cache)
+                .unwrap_or(e.path())
+                .display()
+                .to_string()
+        })
+        .collect()
+}
+
+/// **A dry run writes nothing, the cache included (#1615).** The cache is machine-wide and
+/// `gc` is what reclaims it, so an object a dry run left there is a write the flag promised
+/// not to make — and a packed index can be a few hundred megabytes.
+#[test]
+fn a_dry_run_leaves_the_cache_as_it_found_it() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"vectors");
+    write(&tmp.path().join(".yidam/bundle.yiz"), b"a bundle");
+
+    let said = run(
+        tmp.path(),
+        &cache,
+        &["vault", "push", "--index", "--bundle", "--dry-run"],
+    )
+    .ok()
+    .said();
+    assert!(said.contains("would send index"), "{said}");
+    assert!(said.contains("would send bundle"), "{said}");
+    assert_eq!(cache_files(&cache), Vec::<String>::new(), "{said}");
+}
+
+/// **A pack that fails leaves no staging file behind (#1615).** The staging file sits in the
+/// cache root under this process's id, so nothing would ever look for it again.
+#[cfg(unix)]
+#[test]
+fn a_pack_that_fails_part_way_leaves_no_staging_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"vectors");
+    // A file the archive cannot read: the archive is already open in the staging file when
+    // the read fails.
+    let unreadable = write(&tmp.path().join(".yidam/index/zz-unreadable"), b"secret");
+    std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let r = run(tmp.path(), &cache, &["vault", "push", "--index"]);
+    std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let said = r.failed().said();
+    assert!(said.contains("zz-unreadable"), "{said}");
+    assert_eq!(cache_files(&cache), Vec::<String>::new(), "{said}");
+}
+
+/// **What was sent before a failure is recorded (#1615).** The index lands in the store; the
+/// bundle after it cannot be packed. Without the index's entry in the lock, nothing else can
+/// find bytes that are in the store.
+#[cfg(unix)]
+#[test]
+fn a_push_that_fails_on_a_later_artifact_records_the_ones_already_sent() {
+    use std::os::unix::fs::PermissionsExt;
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"vectors");
+    let bundle = write(&tmp.path().join(".yidam/bundle.yiz"), b"a bundle");
+    std::fs::set_permissions(&bundle, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let r = run(
+        tmp.path(),
+        &cache,
+        &["vault", "push", "--index", "--bundle"],
+    );
+    std::fs::set_permissions(&bundle, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let said = r.failed().said();
+    assert!(said.contains("sent index"), "the index went first: {said}");
+    let lock = std::fs::read_to_string(tmp.path().join(".yidam/index.lock"))
+        .unwrap_or_else(|e| panic!("the lock must record the index that was sent ({e}): {said}"));
+    assert!(lock.contains("[index]"), "{lock}");
+    assert!(!lock.contains("[bundle]"), "{lock}");
+}
+
 // ── reclaiming, materializing, reporting (#418) ──────────────────────────────
 
 /// `gc` deletes nothing without `--yes`, and says why the list wants reading first.

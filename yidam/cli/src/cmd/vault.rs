@@ -1404,120 +1404,148 @@ fn push_derived(
     let mut lock = vault::load_lock(&root)?;
     let mut changed = false;
 
-    for &d in picked {
-        let (name, cfg) = match vaults.route(d.kind(), None) {
-            Route::To(n, c) => (n, c),
-            Route::Local => {
-                eprintln!("{}: routed to the local cache; nothing to send", d.kind());
+    // The loop is a closure for the reason `push`'s is: an artifact that fails must not jump
+    // over the lock save below it. Each entry is set only once its bytes are in the store, so
+    // what the lock holds after an abort is true, and dropping it would strand bytes that are
+    // already sent where nothing can find them (#1615).
+    let outcome: Result<()> = (|| {
+        for &d in picked {
+            let (name, cfg) = match vaults.route(d.kind(), None) {
+                Route::To(n, c) => (n, c),
+                Route::Local => {
+                    eprintln!("{}: routed to the local cache; nothing to send", d.kind());
+                    continue;
+                }
+                Route::Unroutable(why) => {
+                    eprintln!("{}: {why}", d.kind());
+                    continue;
+                }
+            };
+            if only.is_some_and(|o| o != name) {
                 continue;
             }
-            Route::Unroutable(why) => {
-                eprintln!("{}: {why}", d.kind());
+
+            // The guard, before anything is packed. A refusal here is about what the artifact
+            // *encodes*, not about where it is going, so it costs nothing to ask first and
+            // avoids compressing a few hundred megabytes that were never going to be sent.
+            //
+            // Asked of the policy rather than computed here (RFC-0024). The rule is the same
+            // rule `release.yml` applies to a bundle, and until #440 the two were separate
+            // implementations kept agreeing by a test — which is how #443 happened.
+            let verdict = policies.decide(
+                "disclose/derived",
+                &crate::policy::input::derived(&root, d, &private),
+            )?;
+            if !verdict.allow {
+                // Every reason, not the first. `derived_may_push` could name only one
+                // overlapping path, and somebody about to fix this wants all of them.
+                for denial in &verdict.deny {
+                    println!("refused: {}", denial.msg);
+                }
                 continue;
             }
-        };
-        if only.is_some_and(|o| o != name) {
-            continue;
-        }
 
-        // The guard, before anything is packed. A refusal here is about what the artifact
-        // *encodes*, not about where it is going, so it costs nothing to ask first and
-        // avoids compressing a few hundred megabytes that were never going to be sent.
-        //
-        // Asked of the policy rather than computed here (RFC-0024). The rule is the same rule
-        // `release.yml` applies to a bundle, and until #440 the two were separate
-        // implementations kept agreeing by a test — which is how #443 happened.
-        let verdict = policies.decide(
-            "disclose/derived",
-            &crate::policy::input::derived(&root, d, &private),
-        )?;
-        if !verdict.allow {
-            // Every reason, not the first. `derived_may_push` could name only one overlapping
-            // path, and somebody about to fix this wants all of them.
-            for denial in &verdict.deny {
-                println!("refused: {}", denial.msg);
+            // Packed into the cache, hashed, and pushed from there — the same path a catalog
+            // artifact takes, so `yidam vault verify` covers an index too. The staging file
+            // goes with its guard on every way out of this iteration: it is named for this
+            // process, so one left behind is never looked for again.
+            let staging = Staging(cache.root().join(format!(
+                ".{}.{}.packing",
+                d.kind(),
+                std::process::id()
+            )));
+            vault::pack_to(&root, d, &staging.0)?;
+            let (hash, bytes) = vault::hash_file(&staging.0)?;
+
+            // Before anything is filed: a dry run has its digest from the staging file and
+            // writes nothing, the cache included (#1615).
+            if dry_run {
+                let recorded = lock.get(d).filter(|e| e.sha256 == hash.as_str()).is_some();
+                println!(
+                    "would send {} {hash} ({}) to `{name}`{}",
+                    d.kind(),
+                    human_size(bytes),
+                    if recorded {
+                        " — already recorded"
+                    } else {
+                        ""
+                    }
+                );
+                continue;
             }
-            continue;
-        }
+            cache.put_file(&staging.0, &hash)?;
+            drop(staging);
 
-        // Packed into the cache, hashed, and pushed from there — the same path a catalog
-        // artifact takes, so `yidam vault verify` covers an index too.
-        let staging = cache
-            .root()
-            .join(format!(".{}.{}.packing", d.kind(), std::process::id()));
-        vault::pack_to(&root, d, &staging)?;
-        let (hash, bytes) = vault::hash_file(&staging)?;
-        cache.put_file(&staging, &hash)?;
-        let _ = std::fs::remove_file(&staging);
-
-        let recorded = lock.get(d).filter(|e| e.sha256 == hash.as_str()).is_some();
-        if dry_run {
-            println!(
-                "would send {} {hash} ({}) to `{name}`{}",
-                d.kind(),
-                human_size(bytes),
-                if recorded {
-                    " — already recorded"
-                } else {
-                    ""
-                }
-            );
-            continue;
-        }
-
-        let store = vault::open(name, cfg)?;
-        if store.has(&hash)? {
-            println!("{} {hash} already in `{name}`", d.kind());
-        } else {
-            store.put(&hash, &cache.path_of(&hash))?;
-            println!(
-                "sent {} {hash} ({}) to `{name}`",
-                d.kind(),
-                human_size(bytes)
-            );
-        }
-        let entry = vault::Entry {
-            sha256: hash.as_str().to_string(),
-            bytes,
-            vault: name.to_string(),
-            model: match d {
-                vault::Derived::Index => index_meta(&root, "model_name"),
-                _ => None,
-            },
-        };
-        if lock.get(d) != Some(&entry) {
-            lock.set(d, entry.clone());
-            changed = true;
-            // One commit per artifact, so each carries one verb and one record. A re-run that
-            // sends the same bytes never gets here, because the lock already holds the entry.
-            // That keeps `author`'s contract that nothing changed means no commit.
-            if commit {
-                vault::save_lock(&root, &lock)?;
-                if let Some(c) = crate::cmd::operational::author(
-                    &root,
-                    WHO,
-                    &lock_subject(&root, d, &entry),
-                    &lock_body(&entry),
-                    &[lock_rel(&root)],
-                )? {
-                    println!("committed {} {}", c.sha, c.subject);
+            let store = vault::open(name, cfg)?;
+            if store.has(&hash)? {
+                println!("{} {hash} already in `{name}`", d.kind());
+            } else {
+                store.put(&hash, &cache.path_of(&hash))?;
+                println!(
+                    "sent {} {hash} ({}) to `{name}`",
+                    d.kind(),
+                    human_size(bytes)
+                );
+            }
+            let entry = vault::Entry {
+                sha256: hash.as_str().to_string(),
+                bytes,
+                vault: name.to_string(),
+                model: match d {
+                    vault::Derived::Index => index_meta(&root, "model_name"),
+                    _ => None,
+                },
+            };
+            if lock.get(d) != Some(&entry) {
+                lock.set(d, entry.clone());
+                changed = true;
+                // One commit per artifact, so each carries one verb and one record. A re-run
+                // that sends the same bytes never gets here, because the lock already holds
+                // the entry. That keeps `author`'s contract that nothing changed means no
+                // commit.
+                if commit {
+                    vault::save_lock(&root, &lock)?;
+                    if let Some(c) = crate::cmd::operational::author(
+                        &root,
+                        WHO,
+                        &lock_subject(&root, d, &entry),
+                        &lock_body(&entry),
+                        &[lock_rel(&root)],
+                    )? {
+                        println!("committed {} {}", c.sha, c.subject);
+                    }
                 }
             }
         }
-    }
+        Ok(())
+    })();
 
-    if changed && !dry_run && !commit {
-        vault::save_lock(&root, &lock)?;
-        println!();
-        println!(
-            "{} updated — commit it, or nothing else can find these bytes.",
-            vault::lock_path(&root)
-                .strip_prefix(&root)
-                .unwrap_or(&vault::lock_path(&root))
-                .display()
-        );
+    // Written whether or not the loop finished. The loop's own error is the one returned: it
+    // is the cause, and a lock that then fails to write is its consequence.
+    let saved = if changed && !dry_run && !commit {
+        vault::save_lock(&root, &lock).map(|()| {
+            println!();
+            println!(
+                "{} updated — commit it, or nothing else can find these bytes.",
+                vault::lock_path(&root)
+                    .strip_prefix(&root)
+                    .unwrap_or(&vault::lock_path(&root))
+                    .display()
+            );
+        })
+    } else {
+        Ok(())
+    };
+    outcome.and(saved)
+}
+
+/// A derived artifact's staging file, removed when the guard goes out of scope.
+struct Staging(PathBuf);
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
     }
-    Ok(())
 }
 
 fn pull_derived(at: Option<&Path>, picked: &[vault::Derived], only: Option<&str>) -> Result<()> {
