@@ -454,6 +454,36 @@ fn the_quickstart_break_and_fix_loop_behaves_as_documented() {
     assert_eq!(code, 0, "the gate must pass again after rename: {stdout}");
 }
 
+/// A catalog rename repairs the `target:` edges that name the entry (#1692).
+///
+/// `journalism` writes four of them, each at a path from the node that holds it. The rename
+/// used to list them as prose it could not rewrite and leave all four dangling, so the gate
+/// the module header promises to keep passing failed on the shipped example.
+#[test]
+fn a_catalog_rename_repairs_the_target_edges_into_the_entry() {
+    let ex = Example::materialize("journalism");
+
+    let (stdout, _, code) = ex.run(&["lint"]);
+    assert_eq!(code, 0, "the example must start clean: {stdout}");
+
+    let (stdout, stderr, code) = ex.run(&["rename", "catalog/edgar-filings", "sec-filings"]);
+    assert_eq!(code, 0, "rename failed\n{stdout}\n{stderr}");
+    assert!(
+        !stdout.contains("NOT rewritten"),
+        "an edge is not prose to be checked by hand: {stdout}"
+    );
+    let moved =
+        std::fs::read_to_string(ex.path().join(".yidam/corpus/entity/lorne-vasquez.yml")).unwrap();
+    assert!(
+        moved.contains("target: ../../catalog/sec-filings.md"),
+        "{moved}"
+    );
+    assert!(!moved.contains("edgar-filings"), "{moved}");
+
+    let (stdout, _, code) = ex.run(&["lint"]);
+    assert_eq!(code, 0, "the gate must pass after the rename: {stdout}");
+}
+
 /// The example must not be inherited.
 ///
 /// `yidam clone` copies the template wholesale, excluding only what the caller names. The
