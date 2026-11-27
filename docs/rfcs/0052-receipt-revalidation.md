@@ -297,10 +297,10 @@ declared output, the comparison is made after every occurrence of this run's ful
 replaced with the full `input.commit` of the parent's receipt. When the replaced bytes equal the
 committed ones, and the receipt built from them reproduces the committed receipt, the run
 reproduced its receipt. It writes a note and no commit, as §2.2 says, and the committed output
-keeps the commit it already carries. The step has already written its own bytes, carrying this
-run's commit, so `run` writes the replaced bytes back over each declared output before it
-returns. The working tree then matches the parent, and a later step that reads the file reads
-the committed commit.
+keeps the commit it already carries. The step wrote its bytes, carrying this run's commit, into
+its scratch output directory, and they go no further. `run` touches neither the working tree nor
+the index (RFC-0026 §5), and no commit lands. So a later step in the plan, materialized from the
+parent, reads the committed bytes and the committed commit.
 
 That commit is still true for the consumer. The output says its spans were read at the commit it
 names. The note says a later commit's inputs gave the same answer. The consumer's pin moves only
