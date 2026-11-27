@@ -62,7 +62,7 @@ pub struct Entry {
     /// Whether it prints on the short `--help`, rather than only on `--help-all`.
     ///
     /// The test is **what a reader needs before they know the tool**, which is not the same
-    /// as what anyone uses most. `regen` is on it and the thirteen generators it runs are not:
+    /// as what anyone uses most. `regen` is on it and the generators it runs are not, bar `status`:
     /// one row saying the blocks can be refreshed is the whole of what a first reader needs
     /// to know about that family, and eleven rows above `query` is what #921 measured.
     pub short: bool,
@@ -692,8 +692,8 @@ mod tests {
     /// Eleven `<!-- REGEN -->` generators printed above `graph`, `retrieve` and `query` —
     /// eleven rows of maintenance surface ahead of the commands a reader opened `--help` to
     /// find. What a first reader needs to know about that family is that it can be
-    /// refreshed, which is one row: `regen`, which is not itself a generator and runs all
-    /// eleven.
+    /// refreshed, which is one row: `regen`, which is not itself a generator and runs every
+    /// entry of `GENERATORS`.
     ///
     /// `status` is the one generator on the list, and is there for what it reports rather
     /// than for what it writes — it is how a person sees the repository at all. It is a
