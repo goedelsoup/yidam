@@ -892,7 +892,11 @@ fn task_script_lines(name: &str) -> Vec<String> {
     };
     steps
         .iter()
-        .flat_map(|step| step.lines().map(str::to_string).collect::<Vec<_>>())
+        .flat_map(|step| {
+            step.lines()
+                .map(crate::local_ci::render_mise_env)
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
@@ -1077,7 +1081,8 @@ fn task_commands(name: &str) -> Vec<String> {
         };
         let command = command.trim_matches(|c| c == '"' || c == ',' || c == ' ');
         if !command.is_empty() && command != "[" && command != "]" {
-            out.push(command.to_string());
+            // What cargo is given: the shell expands mise's `[env]` variables in the line.
+            out.push(crate::local_ci::render_mise_env(command));
         }
     }
     assert!(
