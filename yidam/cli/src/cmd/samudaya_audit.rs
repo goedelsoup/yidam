@@ -14,14 +14,10 @@ use crate::paths::samudaya_dir;
 pub const VALID_KINDS: &[&str] = &["axiom", "hint", "constraint", "augmentation"];
 
 fn extract_body(text: &str) -> &str {
-    let body = text.trim_start();
-    let Some(rest) = body.strip_prefix("---\n") else {
-        return text;
-    };
-    let Some(end) = rest.find("\n---") else {
-        return text;
-    };
-    &rest[end + 4..]
+    match crate::parse::split_frontmatter(text.trim_start()) {
+        Ok(Some(split)) => split.body,
+        Ok(None) | Err(_) => text,
+    }
 }
 
 fn has_title(text: &str) -> bool {
@@ -229,6 +225,21 @@ mod tests {
         let body = extract_body(text);
         assert!(body.contains("# Title"));
         assert!(!body.contains("kind:"));
+    }
+
+    /// A CRLF seed's body is found as the parser finds its header (#1618).
+    #[test]
+    fn a_crlf_seed_has_its_title_found_under_its_header() {
+        assert!(has_title(
+            "---\r\nkind: axiom\r\n---\r\n# My Title\r\nBody.\r\n"
+        ));
+        assert!(!has_title(
+            "---\r\nkind: axiom\r\n---\r\nNo heading.\r\n# \r\n"
+        ));
+        assert_eq!(
+            extract_body("---\r\nkind: axiom\r\n---\r\n# T\r\n"),
+            "# T\r\n"
+        );
     }
 
     #[test]

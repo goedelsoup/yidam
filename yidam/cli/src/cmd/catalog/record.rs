@@ -41,27 +41,38 @@ struct Split<'a> {
 
 /// Split a catalog entry, or refuse.
 ///
-/// Mirrors [`crate::parse::parse_frontmatter`]'s delimiters exactly — `---\n` to open and the
-/// first `\n---` to close — so that the block this edits is byte-for-byte the block the
-/// parser read. Two functions disagreeing about where frontmatter ends is how an edit lands
-/// in prose.
+/// Finds the fences with [`crate::parse::split_frontmatter`], the parser's own rule, so that
+/// the block this edits is byte-for-byte the block the parser read. Two functions disagreeing
+/// about where frontmatter ends is how an edit lands in prose.
 ///
 /// Unlike the parser it does **not** `trim_start`. The parser tolerates leading blank lines
 /// because tolerating them costs it nothing; an editor cannot, because it has to put back
-/// what it took apart. A document not starting at `---\n` is refused.
+/// what it took apart. A document not starting at `---\n` is refused, and so is a CRLF one:
+/// the lines this writes end in `\n`, and splicing them in would leave the entry with two line
+/// endings (#1618). An empty block is refused too, since the splice needs a key line to follow.
 fn split(text: &str) -> Result<Split<'_>> {
-    let Some(rest) = text.strip_prefix("---\n") else {
-        bail!(
+    let split = match crate::parse::split_frontmatter(text) {
+        Ok(Some(split)) => split,
+        Ok(None) => bail!(
             "this entry has no frontmatter block starting at the first byte, so there is \
              nowhere to record what was obtained. A catalog entry opens with `---` on line 1."
-        );
+        ),
+        Err(_) => bail!("this entry's frontmatter block is never closed by a `---` line"),
     };
-    let Some(end) = rest.find("\n---") else {
-        bail!("this entry's frontmatter block is never closed by a `---` line");
+    if !text.starts_with("---\n") {
+        bail!(
+            "this entry's opening `---` line does not end in a bare newline (CRLF line \
+             endings, or blanks after the dashes), and the lines this writes do. Save the \
+             entry with LF line endings and run this again."
+        );
+    }
+    // The block's last line ending belongs to the closing fence's side, as `\n---` did.
+    let Some(front) = split.yaml.strip_suffix('\n') else {
+        bail!("this entry's frontmatter block is empty, so there is no key line to write after");
     };
     Ok(Split {
-        front: &rest[..end],
-        rest: &rest[end..],
+        front,
+        rest: &text[split.yaml_offset + front.len()..],
     })
 }
 
@@ -744,6 +755,27 @@ The system of record. **Parameter 00060** is discharge.
         assert!(err.to_string().contains("no frontmatter"), "{err}");
         let err = append_artifacts("---\nname: x\n", &[artifact("aa")]).unwrap_err();
         assert!(err.to_string().contains("never closed"), "{err}");
+    }
+
+    /// A CRLF entry is refused by name rather than as an entry with no frontmatter, which it
+    /// has (#1618); and an empty block, which reads, has no line to write after.
+    #[test]
+    fn a_crlf_or_empty_header_is_refused_for_what_it_is() {
+        let crlf = ENTRY.replace('\n', "\r\n");
+        let err = append_artifacts(&crlf, &[artifact("aa")]).unwrap_err();
+        assert!(err.to_string().contains("CRLF"), "{err}");
+        let err = append_artifacts("---\n---\n", &[artifact("aa")]).unwrap_err();
+        assert!(err.to_string().contains("empty"), "{err}");
+    }
+
+    /// The block ends where the parser's does. A `----:` key at column zero used to close it,
+    /// and a record appended after the key list would have landed below that line.
+    #[test]
+    fn a_line_that_starts_with_three_dashes_is_inside_the_block() {
+        let entry = "---\nname: x\n----: y\nobtained: true\n---\n\n# X\n";
+        let s = split(entry).unwrap();
+        assert_eq!(s.front, "name: x\n----: y\nobtained: true");
+        assert_eq!(rejoin(&s, s.front), entry);
     }
 
     #[test]
