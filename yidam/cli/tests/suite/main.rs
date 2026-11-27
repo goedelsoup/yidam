@@ -57,6 +57,7 @@ mod due;
 mod editor_configs;
 mod elector_commitments;
 mod embed_dry_run;
+mod embed_records;
 mod example_corpus;
 mod first_corpus;
 mod gather;

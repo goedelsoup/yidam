@@ -1,5 +1,7 @@
 use anyhow::Result;
 use serde::Serialize;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 
 use crate::git::head_commit_short;
 use crate::parse::{frontmatter_body, parse_frontmatter};
@@ -390,6 +392,64 @@ fn quantile(sorted: &[usize], p: usize) -> usize {
     sorted[rank - 1]
 }
 
+/// The directory under `.yidam/embeddings/` that holds catalog sources' records.
+///
+/// Named `_catalog` rather than `catalog`: the sibling directories here are named after
+/// ontology classes, and the leading underscore is what keeps a domain that happens to define a
+/// `catalog` class from colliding with this.
+const CATALOG_RECORDS: &str = "_catalog";
+
+/// Where `embed` writes the record for `source`: `<embeddings>/<dir>/<stem>.json`.
+fn record_path(embeddings_dir: &Path, dir: &str, source: &Path) -> PathBuf {
+    let stem = source.file_stem().unwrap_or_default().to_string_lossy();
+    embeddings_dir.join(dir).join(format!("{stem}.json"))
+}
+
+/// Remove every record under `embeddings_dir` that is not in `keep`, and any directory that
+/// leaves empty. Returns how many records were removed.
+///
+/// `.yidam/embeddings/` is what `index-build` reads, all of it: every `.json` under it becomes
+/// a row. So it has to hold exactly what this corpus has now. A node that was deleted, renamed
+/// or moved to another class left its old record here, and the next index carried a row for a
+/// node the corpus no longer had (#1625). `index-push` already mirrors the index this way, and
+/// deletes the rows of nodes this corpus no longer has; this is the same rule one step earlier.
+///
+/// Only `.json` files are touched, because only those are records.
+fn prune_stale(embeddings_dir: &Path, keep: &BTreeSet<PathBuf>) -> Result<usize> {
+    if !embeddings_dir.is_dir() {
+        return Ok(0);
+    }
+    let mut removed = 0usize;
+    let mut dirs = Vec::new();
+    for entry in walkdir::WalkDir::new(embeddings_dir).min_depth(1) {
+        let entry = entry?;
+        let p = entry.path();
+        if entry.file_type().is_dir() {
+            dirs.push(p.to_path_buf());
+        } else if entry.file_type().is_file()
+            && p.extension().is_some_and(|x| x == "json")
+            && !keep.contains(p)
+        {
+            std::fs::remove_file(p)?;
+            removed += 1;
+        }
+    }
+    // Deepest first, so a directory emptied by removing its only subdirectory goes too.
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    for d in dirs {
+        if std::fs::read_dir(&d)?.next().is_none() {
+            std::fs::remove_dir(&d)?;
+        }
+    }
+    Ok(removed)
+}
+
+fn report_pruned(removed: usize) {
+    if removed > 0 {
+        println!("  removed {removed} record(s) of node(s) or source(s) no longer present");
+    }
+}
+
 pub fn embed(root: Option<&std::path::Path>, opts: EmbedOptions) -> Result<()> {
     let root = resolve_root(root)?;
     let corpus_dir = yidam_corpus_dir(&root);
@@ -425,6 +485,11 @@ pub fn embed(root: Option<&std::path::Path>, opts: EmbedOptions) -> Result<()> {
     let read = crate::corpus::Corpus::open(&root);
     let instances = read.nodes();
     if instances.is_empty() && sources.is_empty() {
+        // A corpus emptied since the last run still has that run's records, and `index-build`
+        // would index every one of them.
+        if !opts.dry_run {
+            report_pruned(prune_stale(&embeddings_dir, &BTreeSet::new())?);
+        }
         println!("No corpus instances found in {}.", corpus_dir.display());
         return Ok(());
     }
@@ -447,23 +512,28 @@ pub fn embed(root: Option<&std::path::Path>, opts: EmbedOptions) -> Result<()> {
         String::new()
     };
     let mut footprints = Footprints::default();
+    // Every record this run leaves standing. Anything else under `.yidam/embeddings/` is the
+    // record of a node or source this run did not find, and is removed below (#1625).
+    let mut keep: BTreeSet<PathBuf> = BTreeSet::new();
 
     let mut count = 0;
     let mut skipped = 0usize;
     for node in instances {
         let path = &node.path;
-        if let Some(e) = &node.malformed {
-            eprintln!("[warn] skipping {}: {e}", node.rel);
-            skipped += 1;
-            continue;
-        }
-        let inst = &node.inst;
-
         // `crate::paths::class_of_path` and not a copy of its body: this value is written
         // into every index row and every remote vector, and the query path recomputes the
         // same rule from the file on disk. Two functions were what RFC-0033 §4.5 declined to
         // push a class filter on.
         let class = class_of_path(path);
+        let out = record_path(&embeddings_dir, &class, path);
+        if let Some(e) = &node.malformed {
+            eprintln!("[warn] skipping {}: {e}", node.rel);
+            skipped += 1;
+            // The node is still there, only unreadable, so its last record is kept.
+            keep.insert(out);
+            continue;
+        }
+        let inst = &node.inst;
 
         let label = inst.label.as_deref().unwrap_or("").to_string();
         // Every declared prose field, and since #746 the properties a class flagged too. A
@@ -507,27 +577,20 @@ pub fn embed(root: Option<&std::path::Path>, opts: EmbedOptions) -> Result<()> {
         if opts.dry_run {
             footprints.observe(&corpus, &commit, &record);
         } else {
-            let out_dir = embeddings_dir.join(&class);
-            std::fs::create_dir_all(&out_dir)?;
-            let json_name = path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string()
-                + ".json";
-            std::fs::write(
-                out_dir.join(&json_name),
-                serde_json::to_string_pretty(&record)?,
-            )?;
+            if let Some(dir) = out.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&out, serde_json::to_string_pretty(&record)?)?;
+            keep.insert(out);
         }
         count += 1;
     }
 
     // ── Catalog ──────────────────────────────────────────────────────────────
     //
-    // Written under `_catalog/` rather than `catalog/`: the sibling directories here are
-    // named after ontology classes, and the leading underscore is what keeps a domain that
-    // happens to define a `catalog` class from colliding with this.
+    // Written under [`CATALOG_RECORDS`]. With `--no-catalog` nothing is written there, so the
+    // prune below removes what an earlier run left: the flag says the catalog is not to be
+    // retrievable, and a record left standing would still be indexed.
     let mut source_count = 0usize;
     for path in &sources {
         let text = std::fs::read_to_string(path)?;
@@ -568,12 +631,12 @@ pub fn embed(root: Option<&std::path::Path>, opts: EmbedOptions) -> Result<()> {
         if opts.dry_run {
             footprints.observe(&corpus, &commit, &record);
         } else {
-            let out_dir = embeddings_dir.join("_catalog");
-            std::fs::create_dir_all(&out_dir)?;
-            std::fs::write(
-                out_dir.join(format!("{stem}.json")),
-                serde_json::to_string_pretty(&record)?,
-            )?;
+            let out = record_path(&embeddings_dir, CATALOG_RECORDS, path);
+            if let Some(dir) = out.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&out, serde_json::to_string_pretty(&record)?)?;
+            keep.insert(out);
         }
         source_count += 1;
     }
@@ -599,6 +662,8 @@ pub fn embed(root: Option<&std::path::Path>, opts: EmbedOptions) -> Result<()> {
         );
         return Ok(());
     }
+
+    report_pruned(prune_stale(&embeddings_dir, &keep)?);
 
     if skipped > 0 {
         println!(
@@ -702,6 +767,43 @@ mod tests {
     #[test]
     fn a_dry_run_is_off_by_default() {
         assert!(!EmbedOptions::default().dry_run);
+    }
+
+    /// A record this run did not write is removed, and so is the directory it leaves empty:
+    /// `index-build` reads every `.json` under the directory, so anything left is a row (#1625).
+    #[test]
+    fn a_record_this_run_did_not_write_is_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        let kept = record_path(dir, "entity", Path::new("corpus/entity/kept.yml"));
+        let renamed = record_path(dir, "entity", Path::new("corpus/entity/old-name.yml"));
+        let moved = record_path(dir, "thread", Path::new("corpus/thread/moved.yml"));
+        let source = record_path(dir, CATALOG_RECORDS, Path::new("catalog/gone.md"));
+        let not_a_record = dir.join("entity").join("notes.txt");
+        for p in [&kept, &renamed, &moved, &source, &not_a_record] {
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "{}").unwrap();
+        }
+
+        let keep = BTreeSet::from([kept.clone()]);
+        assert_eq!(prune_stale(dir, &keep).unwrap(), 3);
+        assert!(kept.is_file());
+        assert!(not_a_record.is_file(), "only records are removed");
+        assert!(!renamed.exists() && !moved.exists() && !source.exists());
+        assert!(
+            !dir.join("thread").exists(),
+            "an emptied class directory goes"
+        );
+        assert!(!dir.join(CATALOG_RECORDS).exists());
+        assert!(dir.join("entity").is_dir());
+    }
+
+    #[test]
+    fn pruning_a_directory_that_is_not_there_removes_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("embeddings");
+        assert_eq!(prune_stale(&missing, &BTreeSet::new()).unwrap(), 0);
+        assert!(!missing.exists());
     }
 
     /// Node composition is unchanged — this is a scope change, not a re-embedding of the
