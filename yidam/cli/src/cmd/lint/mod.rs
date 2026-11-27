@@ -1205,13 +1205,15 @@ pub fn lint(root: Option<&std::path::Path>, opts: Options) -> Result<()> {
     }
     report(&all, &opts);
 
-    let d = baseline::gate(&root, &all)?.diff;
-
+    // Before the gate, which reads the baseline: `--warn` reports and exits 0, so a
+    // baseline that does not parse must not be able to fail it (#1623).
     if opts.warn_only {
         let n: usize = all.iter().map(|c| c.violations.len()).sum();
         eprintln!("lint: {n} finding(s) (reported, not failing)");
         return Ok(());
     }
+
+    let d = baseline::gate(&root, &all)?.diff;
 
     if d.is_clean() {
         let n: usize = all.iter().map(|c| c.violations.len()).sum();
@@ -2643,6 +2645,20 @@ decision := {"allow": true, "deny": []}
 
         fs::write(baseline::path(tmp.path()), "entries: [unclosed\n").unwrap();
         assert!(build_report(tmp.path(), &all).is_err());
+    }
+
+    /// `--warn` says it always exits 0; an unreadable baseline used to fail it (#1623).
+    #[test]
+    fn warn_only_does_not_read_the_baseline() {
+        let tmp = clean_repo();
+        fs::write(baseline::path(tmp.path()), "entries: [unclosed\n").unwrap();
+        let warn = Options {
+            warn_only: true,
+            ..Options::default()
+        };
+        assert!(lint(Some(tmp.path()), warn).is_ok());
+        // The gate still refuses the same baseline, so the test is not vacuous.
+        assert!(lint(Some(tmp.path()), Options::default()).is_err());
     }
 
     // ── residence time, end to end ────────────────────────────────────────────
