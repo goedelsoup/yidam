@@ -44,7 +44,8 @@
 
 use std::path::Path;
 
-use super::migrate::MigrateReport;
+use super::migrate::{file_eol, settle_ends, MigrateReport};
+use super::rename::{join_lines, split_lines};
 
 /// The workflow, relative to the repository root.
 pub(crate) const CI: &str = ".github/workflows/ci.yml";
@@ -312,55 +313,63 @@ fn jobs(lines: &[&str]) -> Result<(Vec<Job>, usize), String> {
 
 /// The workflow with its gate jobs inside the region, and which jobs went in.
 fn wrap_ci(text: &str) -> Result<(String, Vec<String>), String> {
-    let lines: Vec<&str> = text.lines().collect();
+    let split = split_lines(text);
+    let eol = file_eol(&split);
+    let lines: Vec<&str> = split.iter().map(|(l, _)| l.as_str()).collect();
     let (all, end) = jobs(&lines)?;
     let gates: Vec<&Job> = GATE_JOBS
         .iter()
         .filter_map(|g| all.iter().find(|j| j.name == *g))
         .collect();
-    let mut region: Vec<&str> = vec![];
+    // Each line carries the ending it had; the lines this adds take the file's.
+    let mut region: Vec<(String, &'static str)> = vec![];
     let open =
         format!("  # {CI_OPEN} placed by `yidam migrate scaffold`; the next re-vendor fills it");
     let close = format!("  # {CI_CLOSE}");
-    region.push(&open);
+    region.push((open, eol));
     for job in &gates {
-        let mut body = &lines[job.start..job.end];
-        while body.last().is_some_and(|l| l.trim().is_empty()) {
+        let mut body = &split[job.start..job.end];
+        while body.last().is_some_and(|(l, _)| l.trim().is_empty()) {
             body = &body[..body.len() - 1];
         }
         region.extend_from_slice(body);
     }
-    region.push(&close);
+    region.push((close, eol));
 
     let at = gates.iter().map(|j| j.start).min().unwrap_or(end);
-    let mut out: Vec<&str> = vec![];
-    for (i, line) in lines.iter().enumerate() {
+    let mut out: Vec<(String, &'static str)> = vec![];
+    for (i, line) in split.iter().enumerate() {
         if i == at {
-            out.extend_from_slice(&region);
             if gates.is_empty() {
                 // An empty region at the end of `jobs:`, separated from the job above it.
-                out.insert(out.len() - region.len(), "");
+                out.push((String::new(), eol));
+                out.extend_from_slice(&region);
             } else {
-                out.push("");
+                out.extend_from_slice(&region);
+                out.push((String::new(), eol));
             }
         }
         if gates.iter().any(|j| (j.start..j.end).contains(&i)) {
             continue;
         }
-        out.push(line);
+        out.push(line.clone());
     }
     if at == lines.len() {
-        out.push("");
+        out.push((String::new(), eol));
         out.extend_from_slice(&region);
     }
-    let mut s = out.join("\n");
-    s.push('\n');
-    Ok((s, gates.iter().map(|j| j.name.clone()).collect()))
+    settle_ends(&mut out, eol, true);
+    Ok((
+        join_lines(&out),
+        gates.iter().map(|j| j.name.clone()).collect(),
+    ))
 }
 
 /// `CLAUDE.md` with the template's sections inside the region, and which headings went in.
 fn wrap_claude(text: &str) -> Result<(String, Vec<String>), String> {
-    let lines: Vec<&str> = text.lines().collect();
+    let split = split_lines(text);
+    let eol = file_eol(&split);
+    let lines: Vec<&str> = split.iter().map(|(l, _)| l.as_str()).collect();
     let headings: Vec<(usize, &str)> = lines
         .iter()
         .enumerate()
@@ -401,23 +410,25 @@ fn wrap_claude(text: &str) -> Result<(String, Vec<String>), String> {
     while end > start && lines[end - 1].trim().is_empty() {
         end -= 1;
     }
-    let mut out: Vec<&str> = vec![];
-    out.extend_from_slice(&lines[..start]);
-    out.push(CLAUDE_OPEN);
-    out.push("");
-    out.extend_from_slice(&lines[start..end]);
-    out.push("");
-    out.push(CLAUDE_CLOSE);
+    // Each line keeps the ending it had; the lines this adds take the file's.
+    let added = |l: &str| (l.to_string(), eol);
+    let mut out: Vec<(String, &'static str)> = vec![];
+    out.extend_from_slice(&split[..start]);
+    out.push(added(CLAUDE_OPEN));
+    out.push(added(""));
+    out.extend_from_slice(&split[start..end]);
+    out.push(added(""));
+    out.push(added(CLAUDE_CLOSE));
     if end < lines.len() {
-        out.push("");
-        let mut rest = &lines[end..];
-        while rest.first().is_some_and(|l| l.trim().is_empty()) {
+        out.push(added(""));
+        let mut rest = &split[end..];
+        while rest.first().is_some_and(|(l, _)| l.trim().is_empty()) {
             rest = &rest[1..];
         }
         out.extend_from_slice(rest);
     }
-    let mut s = out.join("\n");
-    s.push('\n');
+    settle_ends(&mut out, eol, true);
+    let s = join_lines(&out);
     let wrapped = headings[first..=last]
         .iter()
         .map(|(_, h)| h.to_string())
@@ -863,5 +874,27 @@ Domain notes.
             CI_OPEN,
             CI_CLOSE
         ));
+    }
+
+    /// A CRLF file is wrapped to exactly what its LF twin is, with CRLF throughout (#1693).
+    /// Both wraps used to join with `"\n"`, so every line of the file was rewritten.
+    #[test]
+    fn a_crlf_file_is_wrapped_with_its_line_endings() {
+        let crlf = |s: &str| s.replace('\n', "\r\n");
+        let (out, wrapped) = wrap_ci(&crlf(OLD_CI)).unwrap();
+        assert_eq!(out, crlf(&wrap_ci(OLD_CI).unwrap().0));
+        assert_eq!(wrapped, ["privacy", "corpus"]);
+        let (out, wrapped) = wrap_claude(&crlf(OLD_CLAUDE)).unwrap();
+        assert_eq!(out, crlf(&wrap_claude(OLD_CLAUDE).unwrap().0));
+        assert_eq!(wrapped.len(), 2);
+    }
+
+    /// A line moves with its own ending, and an added one takes the file's (#1693).
+    #[test]
+    fn a_mixed_file_keeps_each_lines_ending() {
+        let mixed = OLD_CLAUDE.replace("- a\n", "- a\r\n");
+        let (out, _) = wrap_claude(&mixed).unwrap();
+        assert!(out.contains("- a\r\n"), "{out:?}");
+        assert!(out.contains("- b\n\n<!-- /YIDAM:CLAUDE -->\n"), "{out:?}");
     }
 }

@@ -2204,6 +2204,35 @@ pub fn migrate(op: Operation, dry_run: bool, format: crate::report::Format) -> R
     })
 }
 
+/// The ending a file gives a line it did not have: its first line's, `"\n"` for a file with none.
+///
+/// The writers that add or move lines use this with [`super::rename::split_lines`], so an
+/// untouched line keeps its own ending and a new one takes the file's (#1693).
+pub(crate) fn file_eol(lines: &[(String, &'static str)]) -> &'static str {
+    lines
+        .iter()
+        .map(|(_, eol)| *eol)
+        .find(|eol| !eol.is_empty())
+        .unwrap_or("\n")
+}
+
+/// Give every line but the last an ending, and the last one only when `trailing`.
+///
+/// A line added or moved to the end of a file that had no final newline would otherwise
+/// run into the one before it, or carry an ending the file did not have.
+pub(crate) fn settle_ends(lines: &mut [(String, &'static str)], eol: &'static str, trailing: bool) {
+    let last = lines.len().saturating_sub(1);
+    for (i, (_, e)) in lines.iter_mut().enumerate() {
+        if i < last || trailing {
+            if e.is_empty() {
+                *e = eol;
+            }
+        } else {
+            *e = "";
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

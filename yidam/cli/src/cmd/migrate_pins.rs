@@ -39,8 +39,8 @@ use std::path::Path;
 use anyhow::Result;
 
 use super::lint::pins::{resolve, Lookup, Query};
-use super::migrate::{raw_scalar_on, rel, unquoted, MigrateReport};
-use super::rename::{Edit, Unhandled};
+use super::migrate::{file_eol, raw_scalar_on, rel, settle_ends, unquoted, MigrateReport};
+use super::rename::{join_lines, split_lines, Edit, Unhandled};
 use crate::parse::parse_frontmatter;
 use crate::paths::yidam_catalog_dir;
 use crate::walk::walk_md_files;
@@ -532,25 +532,23 @@ fn locate(
 /// `text` with `edits` inserted, each below its `value:` line at that key's column; `None` when
 /// a line an edit names is no longer a `value:`.
 fn insert(text: &str, edits: &[&Edit]) -> Option<String> {
-    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let mut lines = split_lines(text);
+    let eol = file_eol(&lines);
     let mut below: BTreeMap<usize, Vec<&str>> = BTreeMap::new();
     for e in edits {
         below.entry(e.line).or_default().push(&e.to);
     }
     // From the bottom up, so each line number still names the line it was planned against.
     for (line, adds) in below.into_iter().rev() {
-        let anchor = lines.get(line - 1)?;
+        let (anchor, _) = lines.get(line.checked_sub(1)?)?;
         raw_scalar_on(anchor, "value")?;
         let pad = " ".repeat(key_column(anchor));
         for (k, add) in adds.into_iter().enumerate() {
-            lines.insert(line + k, format!("{pad}{add}"));
+            lines.insert(line + k, (format!("{pad}{add}"), eol));
         }
     }
-    let mut out = lines.join("\n");
-    if text.ends_with('\n') {
-        out.push('\n');
-    }
-    Some(out)
+    settle_ends(&mut lines, eol, text.ends_with('\n'));
+    Some(join_lines(&lines))
 }
 
 /// Whether `text` with `edits` inserted parses to what they meant: every location as it was,
@@ -856,5 +854,52 @@ mod tests {
             "{}",
             r.unhandled[0].text
         );
+    }
+
+    /// A CRLF entry is written back CRLF, the inserted line with it (#1693). The insert used
+    /// to split with `lines()` and join with `"\n"`, so one pin rewrote every line of it.
+    #[test]
+    fn a_pin_keeps_a_crlf_entrys_line_endings() {
+        let full = "4f5a52d".to_string() + &"0".repeat(33);
+        let text = entry(
+            "  - kind: file\n    value: src/a.rs\n    description: a\n",
+            "Read at 4f5a52d.",
+        )
+        .replace('\n', "\r\n");
+        let out = insert(&text, &pin(6, &full, None).iter().collect::<Vec<_>>()).unwrap();
+        let expect = text.replace(
+            "    value: src/a.rs\r\n",
+            &format!("    value: src/a.rs\r\n    commit: {full}\r\n"),
+        );
+        assert_eq!(out, expect);
+        assert_eq!(out.matches('\n').count(), out.matches("\r\n").count());
+    }
+
+    /// A file with both endings keeps each line's own, and the inserted line takes the first
+    /// line's, as `rename`'s `moved-from:` line does (#1693). An LF file is byte for byte as
+    /// before, with or without a last newline.
+    #[test]
+    fn a_pin_in_a_mixed_or_unterminated_file_keeps_each_lines_ending() {
+        let full = "4f5a52d".to_string() + &"0".repeat(33);
+        let edits = pin(2, &full, None);
+        let edits: Vec<&Edit> = edits.iter().collect();
+        let mixed = "---\r\n  - value: a\nkind: file\r\n";
+        assert_eq!(
+            insert(mixed, &edits).unwrap(),
+            format!("---\r\n  - value: a\n    commit: {full}\r\nkind: file\r\n")
+        );
+        let bare = "---\n  - value: a";
+        assert_eq!(
+            insert(bare, &edits).unwrap(),
+            format!("---\n  - value: a\n    commit: {full}")
+        );
+    }
+
+    /// Line 0 is no line, so it refuses rather than computing `0 - 1` (#1693).
+    #[test]
+    fn a_pin_at_line_zero_refuses() {
+        let full = "4f5a52d".to_string() + &"0".repeat(33);
+        let text = "---\n  - value: a\n";
+        assert!(insert(text, &pin(0, &full, None).iter().collect::<Vec<_>>()).is_none());
     }
 }
