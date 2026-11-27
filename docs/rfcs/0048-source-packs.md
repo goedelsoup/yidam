@@ -22,6 +22,8 @@
   agencies wait for `us-federal` 0.2. Decision 13.
 - **Amended 2026-11-26 (#1596):** §5's credentials name the host each is sent to, and a pack
   reaching more than one host must scope every one. Decision 14.
+- **Amended 2026-11-26 (#1608):** §7's `us-federal` 0.2 reads EIA, IRS, NCES and NCEI files by
+  path, and USGS waits. Decision 15.
 
 ## Summary
 
@@ -482,6 +484,20 @@ and `ia-file` beside `wayback`, for Internet Archive items and their OCR text. `
 
 EIA, IRS, NCES, USGS and NOAA NCEI are left for `us-federal` 0.2.
 
+#1608 ships 0.2.0, measured as 0.1 was. The derived repositories cite these agencies by file, and
+no entry names `api.eia.gov`:
+
+| Scheme | Reads | Entries / repos |
+|---|---|---|
+| `eia` | a file under `www.eia.gov`, such as a Form 861 zip | 13 / 5 |
+| `irs` | a file under `www.irs.gov/pub`, such as an exempt-organization extract | 13 / 5 |
+| `irs-990` | an e-file zip or year index under `apps.irs.gov/pub/epostcard/990/xml` | 9 / 4 |
+| `nces` | a CCD, IPEDS or PSS data file under `nces.ed.gov` | 3 / 2 |
+| `ncei` | a file under `www.ncei.noaa.gov/pub/data`, such as a GHCN-Daily station | 4 / 1 |
+
+Each is a template over a path, as `census` is. **USGS waits.** One repository cites it, across
+five services that share no shape. A filing inside a 990 zip waits too, as census granules do.
+
 ### 8. Two read-only MCP tools
 
 The measured workflow is an agent adding sources: 267 one-entry commits, each co-authored by
@@ -598,6 +614,10 @@ Settled in review on 2026-10-01. These were this RFC's open questions.
 14. **A credential is sent only to its host.** An `auth` entry takes `host`, and a pack reaching
     more than one host must give every entry one. Pack-wide credentials were the alternative;
     they send one publisher's key to every other host the pack reaches. Settled in #1596 (§5).
+15. **`us-federal` 0.2 reads files by path, because corpora cite files.** `eia`, `irs`,
+    `irs-990`, `nces` and `ncei` each template a path on one host. The agencies' APIs were the
+    alternative; no derived entry names one. USGS waits until a second corpus cites it. Settled
+    in #1608 (§7).
 
 ## Open questions
 
