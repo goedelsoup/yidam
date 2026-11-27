@@ -25,20 +25,53 @@ pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     era * 146097 + doe - 719468
 }
 
+/// Whether `y` is a leap year in the proleptic Gregorian calendar.
+pub fn is_leap_year(y: i64) -> bool {
+    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+}
+
+/// The number of days in month `m` (1-12) of year `y`, or `None` for a month that is not one.
+pub fn days_in_month(y: i64, m: u32) -> Option<u32> {
+    match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => Some(31),
+        4 | 6 | 9 | 11 => Some(30),
+        2 if is_leap_year(y) => Some(29),
+        2 => Some(28),
+        _ => None,
+    }
+}
+
 /// Parse `YYYY-MM-DD` into days since the epoch.
+///
+/// Exactly that shape: widths 4-2-2, ASCII digits only (no sign, no short `2024-2-3`), a month
+/// of 1-12, and a day the month has — so `2024-02-31` is `None`, not 2 March. Surrounding
+/// whitespace is trimmed, because callers hand it a line of `git log` output.
 ///
 /// `None` on anything else — including the `"unknown"` that
 /// [`crate::provenance::Provenance`] degrades to, and the `last spring` a corpus writes when
 /// it means it does not know.
 pub fn days_from_civil_str(s: &str) -> Option<i64> {
-    let mut parts = s.trim().splitn(3, '-');
-    let y: i64 = parts.next()?.parse().ok()?;
-    let m: u32 = parts.next()?.parse().ok()?;
-    let d: u32 = parts.next()?.trim().parse().ok()?;
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+    let mut parts = s.trim().split('-');
+    let (y, m, d) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some()
+        || [(y, 4), (m, 2), (d, 2)]
+            .iter()
+            .any(|(p, w)| !is_digits(p, *w))
+    {
+        return None;
+    }
+    let y: i64 = y.parse().ok()?;
+    let m: u32 = m.parse().ok()?;
+    let d: u32 = d.parse().ok()?;
+    if !(1..=days_in_month(y, m)?).contains(&d) {
         return None;
     }
     Some(days_from_civil(y, m, d))
+}
+
+/// `p` is exactly `width` ASCII digits.
+fn is_digits(p: &str, width: usize) -> bool {
+    p.len() == width && p.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Today, as days since the epoch.
@@ -123,5 +156,100 @@ mod civil_tests {
         let t = (days_from_civil(2015, 8, 30) as u64) * 86400 + 12 * 3600 + 36 * 60;
         assert_eq!(amz_datetime(t), "20150830T123600Z");
         assert_eq!(amz_datetime(0), "19700101T000000Z");
+    }
+
+    #[test]
+    fn a_date_that_exists_parses_and_round_trips() {
+        for (s, ymd) in [
+            ("1970-01-01", (1970, 1, 1)),
+            ("2024-02-29", (2024, 2, 29)),
+            ("2000-02-29", (2000, 2, 29)),
+            ("2024-04-30", (2024, 4, 30)),
+            ("2024-12-31", (2024, 12, 31)),
+            ("2023-02-28", (2023, 2, 28)),
+            (" 2024-03-02\n", (2024, 3, 2)),
+        ] {
+            let days = days_from_civil_str(s).unwrap_or_else(|| panic!("{s:?} should parse"));
+            assert_eq!(civil_from_days(days), ymd, "{s:?}");
+        }
+    }
+
+    /// The five inputs of #1617, each of which used to read as a later day.
+    #[test]
+    fn the_inputs_that_were_read_as_a_later_day_are_refused() {
+        for s in [
+            "2024-02-31",
+            "2023-02-29",
+            "2024-04-31",
+            "2024-2-3",
+            "+2024-+3-+2",
+        ] {
+            assert_eq!(days_from_civil_str(s), None, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn february_follows_the_leap_rule_including_the_centuries() {
+        assert!(days_from_civil_str("2024-02-29").is_some());
+        assert!(days_from_civil_str("2023-02-29").is_none());
+        assert!(days_from_civil_str("2000-02-29").is_some());
+        assert!(days_from_civil_str("1900-02-29").is_none());
+        assert!(days_from_civil_str("2100-02-29").is_none());
+        assert!(days_from_civil_str("1900-02-28").is_some());
+    }
+
+    #[test]
+    fn day_31_exists_only_in_a_31_day_month() {
+        for m in [4, 6, 9, 11] {
+            assert_eq!(
+                days_from_civil_str(&format!("2024-{m:02}-31")),
+                None,
+                "month {m}"
+            );
+            assert!(days_from_civil_str(&format!("2024-{m:02}-30")).is_some());
+        }
+        for m in [1, 3, 5, 7, 8, 10, 12] {
+            assert!(
+                days_from_civil_str(&format!("2024-{m:02}-31")).is_some(),
+                "month {m}"
+            );
+        }
+    }
+
+    #[test]
+    fn month_and_day_zero_and_out_of_range_are_refused() {
+        for s in [
+            "2024-00-10",
+            "2024-13-01",
+            "2024-01-00",
+            "2024-01-32",
+            "2024-12-99",
+        ] {
+            assert_eq!(days_from_civil_str(s), None, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn only_four_two_two_ascii_digits_parse() {
+        for s in [
+            "",
+            "unknown",
+            "2024",
+            "2024-02",
+            "2024-02-",
+            "24-02-03",
+            "02024-02-03",
+            "2024-02-03-04",
+            "2024/02/03",
+            "2024-02-3",
+            "-2024-02-03",
+            "2024-+2-03",
+            "2024-02-+3",
+            "２０２４-02-03",
+            "2024-02- 3",
+            "2024 -02-03",
+        ] {
+            assert_eq!(days_from_civil_str(s), None, "{s:?}");
+        }
     }
 }
