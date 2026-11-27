@@ -978,6 +978,7 @@ fn peer_receipt(
         after: vec![],
         ageing_days: None,
         cluster: None,
+        stamps_input_commit: vec![],
     };
     let mut files = vec![File {
         path: spec_path,

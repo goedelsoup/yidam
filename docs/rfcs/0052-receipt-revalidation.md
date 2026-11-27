@@ -1,6 +1,6 @@
 # RFC-0052 — A re-run that reproduces its outputs is recorded, not committed (receipt re-validation)
 
-- **Status:** Accepted
+- **Status:** Implemented
 - **Track:** I38
 - **Relates to:**
   - RFC-0026 (the orchestrator layer: the receipt, its input state, and the lander that holds the only credential for a ref)
@@ -11,7 +11,6 @@
 - **Amended 2026-11-27 (#1598, #1600):** §2.7 lets a step declare an output whose consumer
   requires the input commit. `doctor` reports that output as declared rather than warning, and
   `run` judges its reproduction with the commit masked. One manifest key, `stamps_input_commit`.
-  §2.1 to §2.6 are implemented. The status reads `Accepted` until §2.7 is.
 
 ## Summary
 
@@ -41,19 +40,19 @@ input commit.
 what a step declares and reads: its kind, verb and run, the manifest and config digests, its
 declared reads and the digest of each file they match, the resolved graph, the script, and its
 declared writes. It does not hash `input.commit`. A head that moves without touching anything
-the step reads leaves the input state where it was, [`freshness`](../../yidam/cli/src/cmd/run/mod.rs#L863) reports the step fresh, and nothing
+the step reads leaves the input state where it was, [`freshness`](../../yidam/cli/src/cmd/run/mod.rs#L878) reports the step fresh, and nothing
 runs. That part works.
 
 A step that declares a broad read is a different case. allen-county-ohio-democratic-party's
 `seat-coverage` reads `crates/local-seat-targets/src/lib.rs`, so an edit to that file moves its
 input state. The step runs again and writes the same `.yidam/computed/seat-coverage.yml`. Its
 receipt does change, in three fields: `input_state`, `input.commit`, and the digest of the one
-read. [`commit`](../../yidam/cli/src/cmd/run/mod.rs#L1562) decides from the tree
+read. [`commit`](../../yidam/cli/src/cmd/run/mod.rs#L1675) decides from the tree
 alone, and the tree differs by the receipt. So `b634a8f compute: seat-coverage — 2 files at
 c96a1dd` lands, changing one file under `.yidam/runs/`.
 
 The run already knows. It sets [`unchanged_outputs`](../../yidam/cli/src/cmd/run/mod.rs#L542) from
-[`outputs_already_committed`](../../yidam/cli/src/cmd/run/mod.rs#L1250), which
+[`outputs_already_committed`](../../yidam/cli/src/cmd/run/mod.rs#L1363), which
 compares object ids. That function's own doc says the commit is written anyway, *"so the check is
 recorded whether or not the answer moved."* The commit is the record of having looked. It is
 the only record there is.
@@ -63,7 +62,7 @@ the only record there is.
 `freshness` compares the current input state with the one in the receipt at the parent commit.
 If a run that reproduced its outputs wrote no commit, that comparison would fail on the next
 call, the step would run again, reproduce its outputs again, and write nothing again. `doctor`'s
-[`standing`](../../yidam/cli/src/cmd/run/mod.rs#L990) reads the same receipt and
+[`standing`](../../yidam/cli/src/cmd/run/mod.rs#L1005) reads the same receipt and
 would report the step stale for as long as nobody changed its outputs. Skipping the commit trades
 one bookkeeping commit for an invocation that never ends and a doctor finding that is never
 true.
@@ -74,8 +73,8 @@ lives, if not in the branch's history.
 ### 1.3 Ageing
 
 A step with `ageing_days` re-runs once its receipt is old enough, even with no input change
-([`aged`](../../yidam/cli/src/cmd/run/mod.rs#L1187)). The age is the committer date
-of the commit that last touched the receipt ([`receipt_age`](../../yidam/cli/src/cmd/run/mod.rs#L925)). The receipt carries no date of its own,
+([`aged`](../../yidam/cli/src/cmd/run/mod.rs#L1232)). The age is the committer date
+of the commit that last touched the receipt ([`receipt_age`](../../yidam/cli/src/cmd/run/mod.rs#L940)). The receipt carries no date of its own,
 and the module doc's "No clock" section says why
 ([`receipt.rs:18-24`](../../yidam/cli/src/cmd/run/receipt.rs#L18-L24)): *"a second date written
 into the file would be the same fact recorded twice and the only copy anyone could forge."* An aged re-run that reproduces its
@@ -298,10 +297,10 @@ declared output, the comparison is made after every occurrence of this run's ful
 replaced with the full `input.commit` of the parent's receipt. When the replaced bytes equal the
 committed ones, and the receipt built from them reproduces the committed receipt, the run
 reproduced its receipt. It writes a note and no commit, as §2.2 says, and the committed output
-keeps the commit it already carries. The step has already written its own bytes, carrying this
-run's commit, so `run` writes the replaced bytes back over each declared output before it
-returns. The working tree then matches the parent, and a later step that reads the file reads
-the committed commit.
+keeps the commit it already carries. The step wrote its bytes, carrying this run's commit, into
+its scratch output directory, and they go no further. `run` touches neither the working tree nor
+the index (RFC-0026 §5), and no commit lands. So a later step in the plan, materialized from the
+parent, reads the committed bytes and the committed commit.
 
 That commit is still true for the consumer. The output says its spans were read at the commit it
 names. The note says a later commit's inputs gave the same answer. The consumer's pin moves only

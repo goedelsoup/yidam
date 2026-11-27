@@ -406,6 +406,7 @@ mod tests {
             after: vec![],
             ageing_days: None,
             cluster: None,
+            stamps_input_commit: vec![],
         }
     }
 
@@ -592,6 +593,7 @@ mod tests {
             after: vec![],
             ageing_days: None,
             cluster: None,
+            stamps_input_commit: vec![],
         };
         let files = vec![
             File {

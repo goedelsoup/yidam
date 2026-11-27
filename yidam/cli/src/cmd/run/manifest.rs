@@ -487,6 +487,14 @@ pub struct Capability {
     /// corpus-wide default does. Read only by `yidam cluster workflow`; a local run ignores it.
     #[serde(default)]
     pub cluster: Option<crate::config::ClusterPodConfig>,
+    /// Outputs that carry `$YIDAM_INPUT_COMMIT` because a consumer requires it (RFC-0052 §2.7).
+    ///
+    /// Repository-relative paths, not globs, each covered by `writes`. `doctor` reports such an
+    /// output as declared instead of warning on it, and `run` judges its reproduction with this
+    /// run's commit replaced by the one the committed receipt names. So a re-run whose answer
+    /// held is a note, and the consumer's pin moves only when an answer does.
+    #[serde(default)]
+    pub stamps_input_commit: Vec<String>,
 }
 
 impl Capability {
@@ -728,6 +736,34 @@ fn validate(name: &str, cap: &Capability, registers: &Registers) -> Result<()> {
     }
     for glob in cap.writes.iter().chain(cap.reads.iter()) {
         check_glob(name, glob)?;
+    }
+    for path in &cap.stamps_input_commit {
+        if path.contains(['*', '?', '[']) {
+            bail!(
+                "capability `{name}` declares `stamps_input_commit = [\"{path}\"]`, which is a \
+                 glob — name each output that carries the commit by its path"
+            );
+        }
+        // Compared verbatim with each output path, so a `./`, `..` or doubled slash would
+        // parse, match no output, and mask nothing.
+        if path.starts_with('/')
+            || path.starts_with("~/")
+            || path
+                .split('/')
+                .any(|s| s.is_empty() || s == "." || s == "..")
+        {
+            bail!(
+                "capability `{name}` declares `stamps_input_commit = [\"{path}\"]`, which is \
+                 not a plain repository-relative path — write it as the output's path from \
+                 the corpus root, with no `.`, `..`, empty segment or leading `/`"
+            );
+        }
+        if !cap.writes.iter().any(|g| glob_covers(g, path)) {
+            bail!(
+                "capability `{name}` declares `stamps_input_commit = [\"{path}\"]`, which no \
+                 `writes` glob covers — name an output the step writes, by its path"
+            );
+        }
     }
     if let Some((script, calls)) = cap.run.gluon() {
         validate_gluon(name, cap, script, calls)?;
@@ -1227,6 +1263,7 @@ verb   = "compute"
             after: vec![],
             ageing_days: None,
             cluster: None,
+            stamps_input_commit: vec![],
         };
         for verb in yidam_core::git::OPERATIONAL_VERBS {
             assert_eq!(cap(verb).route(), Route::Branch, "{verb}");
@@ -1300,6 +1337,40 @@ verb   = "compute"
             .unwrap_err()
             .to_string();
         assert!(err.contains("object register"), "{err}");
+    }
+
+    /// RFC-0052 §2.7: a declared stamp names an output by its path, and `writes` must cover it.
+    #[test]
+    fn a_declared_stamp_must_be_an_output_the_step_writes() {
+        let covered = format!("{CALC}stamps_input_commit = [\".yidam/computed/pack.json\"]\n");
+        let m = Manifest::parse(&covered, &corpus_only()).unwrap();
+        assert_eq!(
+            m.get("low-flow").unwrap().stamps_input_commit,
+            vec![".yidam/computed/pack.json".to_string()]
+        );
+
+        let outside = format!("{CALC}stamps_input_commit = [\".yidam/corpus/pack.json\"]\n");
+        let err = Manifest::parse(&outside, &corpus_only())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no `writes` glob covers"), "{err}");
+
+        for bad in [
+            "./.yidam/computed/pack.json",
+            ".yidam/computed/../corpus/pack.json",
+            ".yidam/computed//pack.json",
+            ".yidam/computed/pack.json/",
+            "/.yidam/computed/pack.json",
+        ] {
+            let text = format!("{CALC}stamps_input_commit = [\"{bad}\"]\n");
+            let err = Manifest::parse(&text, &corpus_only())
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains("not a plain repository-relative path"),
+                "{bad}: {err}"
+            );
+        }
     }
 
     #[test]

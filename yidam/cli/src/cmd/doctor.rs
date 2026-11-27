@@ -1126,20 +1126,52 @@ fn check_computed(root: &Path) -> Answer {
 /// answer moved. The receipt already records the commit. `YIDAM_INPUT_COMMIT` is exported for a
 /// step that needs to read history or name what it measured, not to be echoed into an output.
 fn check_stamps(root: &Path) -> Answer {
-    match crate::cmd::run::stamped(root) {
-        Ok(found) if found.is_empty() => {
-            Answer::ok("no committed output contains the commit its receipt was computed from")
+    let found = match crate::cmd::run::stamped(root) {
+        Ok(found) => found,
+        Err(e) => {
+            return Answer::skipped(format!(
+                "the capability manifest could not be read, so no receipt was found to compare: \
+                 {e:#}"
+            ))
         }
-        Ok(found) => Answer::warn(
-            format!(
-                "{} — each contains its receipt's `input.commit`, so every run of it is new \
-                 bytes and none can reproduce its receipt",
-                enumerate(&found, "output")
-            ),
-            Some("stop writing YIDAM_INPUT_COMMIT into the output; the receipt already records it"),
-        ),
-        Err(e) => Answer::skipped(format!(
-            "the capability manifest could not be read, so no receipt was found to compare: {e:#}"
+    };
+    // Both findings in one warning: returning on the first would hide the second until it was
+    // fixed.
+    let mut found_wrong = Vec::new();
+    let mut fixes = Vec::new();
+    if !found.undeclared.is_empty() {
+        found_wrong.push(format!(
+            "{} — each contains its receipt's `input.commit`, so every run of it is new bytes \
+             and none can reproduce its receipt",
+            enumerate(&found.undeclared, "output")
+        ));
+        fixes.push(
+            "stop writing YIDAM_INPUT_COMMIT into the output, since the receipt already records \
+             it; or, if a consumer requires it, name the output under `stamps_input_commit`",
+        );
+    }
+    if !found.stale.is_empty() {
+        found_wrong.push(format!(
+            "{} declared under `stamps_input_commit` but not containing its receipt's full \
+             `input.commit`, so the declaration masks nothing",
+            enumerate(&found.stale, "output")
+        ));
+        fixes.push(
+            "remove the path from `stamps_input_commit` if its consumer no longer requires the \
+             commit; only the full id is masked, so a step that writes an abbreviation should \
+             write the whole of YIDAM_INPUT_COMMIT",
+        );
+    }
+    if !found_wrong.is_empty() {
+        let fix = fixes.join("; ");
+        return Answer::warn(found_wrong.join("; "), Some(&fix));
+    }
+    match found.declared.is_empty() {
+        true => Answer::ok("no committed output contains the commit its receipt was computed from"),
+        false => Answer::ok(format!(
+            "{} declared under `stamps_input_commit`, so a run masks the commit before \
+             judging reproduction; no undeclared output contains it",
+            enumerate(&found.declared, "output")
         )),
     }
 }

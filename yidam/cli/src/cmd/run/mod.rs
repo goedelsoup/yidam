@@ -549,12 +549,27 @@ pub fn plan_and_write(root: &Path, step: Option<&str>, dry_run: bool) -> Result<
         //
         // On the branch the note waits for the landing (RFC-0067 §2): a plan that lands nothing
         // writes no note, and the commit it records is the base, which is on the branch.
+        //
+        // An output the step declares under `stamps_input_commit` is compared with this run's
+        // commit masked (§2.7), so a consumer that requires the stamp does not make every run
+        // a commit. Where the masked run does not reproduce, the bytes land as produced.
         let may_note = route == Route::Branch || existing.is_none();
-        if may_note && report.unchanged_outputs {
+        let worth_reading = report.unchanged_outputs || !cap.stamps_input_commit.is_empty();
+        if may_note && worth_reading {
             if let Some(blob) = notes::receipt_blob(root, &parent, &receipt_path) {
                 let committed =
                     git(root, None, &["cat-file", "blob", &blob], None).with_context(lost)?;
-                if receipt.reproduces(&committed) {
+                let reproduced = (report.unchanged_outputs && receipt.reproduces(&committed))
+                    || reproduces_masked(
+                        root,
+                        &parent,
+                        cap,
+                        &receipt,
+                        &produced.outputs,
+                        &committed,
+                    );
+                if reproduced {
+                    report.unchanged_outputs = true;
                     match route {
                         Route::Branch => batch.notes.push(PendingNote {
                             report: steps.len(),
@@ -1088,14 +1103,18 @@ pub(crate) fn standing(root: &Path) -> Result<Vec<Standing>> {
 /// answer moved and defeats the note a run writes when it reproduced its receipt. The receipt
 /// already records the commit, and that is where a reader should find it.
 ///
-/// Returned as `step: path`. Empty for a repository that declares no capabilities.
-pub(crate) fn stamped(root: &Path) -> Result<Vec<String>> {
+/// Returned as `step: path`, split by whether the step names the path under
+/// `stamps_input_commit` (RFC-0052 §2.7): a declared stamp is one a consumer requires, and
+/// [`run`] masks it before judging reproduction. Empty for a repository that declares no
+/// capabilities.
+pub(crate) fn stamped(root: &Path) -> Result<Stamped> {
+    let mut out = Stamped::default();
     if !root.join(manifest::MANIFEST).exists() {
-        return Ok(Vec::new());
+        return Ok(out);
     }
     let m = Manifest::load(root)?;
-    let mut out = Vec::new();
     for name in m.plan(None)? {
+        let declared = &m.get(name)?.stamps_input_commit;
         let receipt_path = Receipt::path(name);
         let Some(landed) = git(root, None, &["show", &format!("HEAD:{receipt_path}")], None)
             .ok()
@@ -1104,22 +1123,48 @@ pub(crate) fn stamped(root: &Path) -> Result<Vec<String>> {
         else {
             continue;
         };
-        // The full sha only: an abbreviation is short enough to occur by chance in a digest.
+        // The full id only: an abbreviation is short enough to occur by chance in a digest.
         let Some(commit) = landed
             .input
             .and_then(|i| i.commit)
-            .filter(|c| c.len() >= 40)
+            .filter(|c| full_commit(c))
         else {
             continue;
         };
+        // A declaration that masks nothing claims a contract the output no longer keeps: the
+        // consumer may have dropped the field (§2.7).
+        for path in declared {
+            let held = git(root, None, &["show", &format!("HEAD:{path}")], None);
+            if !held.is_ok_and(|text| text.contains(&commit)) {
+                out.stale.push(format!("{name}: {path}"));
+            }
+        }
         for f in &landed.outputs {
             let held = git(root, None, &["show", &format!("HEAD:{}", f.path)], None);
             if held.is_ok_and(|text| text.contains(&commit)) {
-                out.push(format!("{name}: {}", f.path));
+                let found = format!("{name}: {}", f.path);
+                match declared.contains(&f.path) {
+                    true => out.declared.push(found),
+                    false => out.undeclared.push(found),
+                }
             }
         }
     }
     Ok(out)
+}
+
+/// What [`stamped`] found: outputs whose step declares the stamp, outputs whose step does
+/// not, and declared outputs whose committed bytes no longer carry the commit.
+#[derive(Debug, Default)]
+pub(crate) struct Stamped {
+    pub declared: Vec<String>,
+    pub undeclared: Vec<String>,
+    pub stale: Vec<String>,
+}
+
+/// Whether `c` is a full commit id: 40 hex characters under SHA-1, 64 under SHA-256.
+fn full_commit(c: &str) -> bool {
+    matches!(c.len(), 40 | 64) && c.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// What a reader needs to know about one declared step. See [`standing`].
@@ -1231,6 +1276,74 @@ struct Landing<'a> {
     /// The commit the step read, for the subject line.
     short_input: &'a str,
     route: Route,
+}
+
+/// Whether this run reproduces `committed` once each output the step declares under
+/// `stamps_input_commit` has this run's commit replaced by the one `committed` records
+/// (RFC-0052 §2.7).
+///
+/// Both of §2.2's tests, over the masked bytes: they must be what the parent holds, and the
+/// receipt built from their digests must say what the committed one says. Only the full id is
+/// replaced, 40 or 64 hex characters, for the reason [`stamped`] reads only the full id. A step
+/// that declares nothing, or a committed receipt that records no full commit, answers `false`,
+/// which commits.
+fn reproduces_masked(
+    root: &Path,
+    parent: &str,
+    cap: &Capability,
+    receipt: &Receipt,
+    outputs: &[(String, Vec<u8>)],
+    committed: &str,
+) -> bool {
+    let now = receipt.input.commit.as_str();
+    let Some(was) = Receipt::landed(committed)
+        .and_then(|l| l.input)
+        .and_then(|i| i.commit)
+        .filter(|c| full_commit(c))
+    else {
+        return false;
+    };
+    if cap.stamps_input_commit.is_empty() || !full_commit(now) {
+        return false;
+    }
+    let now = now.as_bytes();
+    let masked: Vec<(String, Vec<u8>)> = outputs
+        .iter()
+        .map(
+            |(path, bytes)| match cap.stamps_input_commit.contains(path) {
+                true => (path.clone(), replace_all(bytes, now, was.as_bytes())),
+                false => (path.clone(), bytes.clone()),
+            },
+        )
+        .collect();
+    if !outputs_already_committed(root, parent, &masked) {
+        return false;
+    }
+    let mut ours = receipt.clone();
+    ours.outputs = masked
+        .iter()
+        .map(|(path, bytes)| File {
+            path: path.clone(),
+            sha256: sha256(bytes),
+        })
+        .collect();
+    ours.reproduces(committed)
+}
+
+/// `hay` with every occurrence of `from` replaced by `to`. An empty `from` replaces nothing.
+fn replace_all(hay: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
+    if from.is_empty() {
+        return hay.to_vec();
+    }
+    let mut out = Vec::with_capacity(hay.len());
+    let mut rest = hay;
+    while let Some(at) = rest.windows(from.len()).position(|w| w == from) {
+        out.extend_from_slice(&rest[..at]);
+        out.extend_from_slice(to);
+        rest = &rest[at + from.len()..];
+    }
+    out.extend_from_slice(rest);
+    out
 }
 
 /// Whether every byte this step produced is already what the parent commit holds.
@@ -1871,6 +1984,16 @@ fn indent(text: &str) -> String {
 mod tests {
     use super::*;
 
+    /// §2.7's mask: every occurrence, adjacent ones included, and nothing for an empty needle.
+    #[test]
+    fn replace_all_replaces_every_occurrence() {
+        assert_eq!(replace_all(b"aXbXXc", b"X", b"yy"), b"ayybyyyyc");
+        assert_eq!(replace_all(b"abab", b"ab", b"c"), b"cc");
+        assert_eq!(replace_all(b"no match", b"zz", b"q"), b"no match");
+        assert_eq!(replace_all(b"short", b"longer than it", b"q"), b"short");
+        assert_eq!(replace_all(b"keep", b"", b"q"), b"keep");
+    }
+
     /// The subject a run writes is in the closed vocabulary and classifies as the family its
     /// verb belongs to, asserted through the parity function that decides it rather than by
     /// reading the format string.
@@ -2233,6 +2356,7 @@ mod tests {
             after: vec![],
             ageing_days: None,
             cluster: None,
+            stamps_input_commit: vec![],
         };
         let landing = vec![(".yidam/computed/x.yml".to_string(), b"x".to_vec())];
         for route in [Route::Branch, Route::Proposal] {

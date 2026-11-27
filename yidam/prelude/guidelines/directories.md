@@ -754,7 +754,8 @@ and every link with its target already resolved to a repository-relative path.
 
 `$YIDAM_INPUT_COMMIT` is for a step that reads history or names what it measured. Do not write it
 into an output: the receipt already records it, and an output that carries it is new at every run,
-so a re-run can never show that the answer held.
+so a re-run can never show that the answer held. Where a consumer requires it, name the output
+under `stamps_input_commit`, and a re-run compares it with the commit masked.
 
 **A step that is handed bytes parses them, and a second parser is a second answer.** The reason
 this is in the contract rather than left to each calculator is that the alternative is not

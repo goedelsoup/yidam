@@ -481,6 +481,7 @@ fn prepare(
         after: vec![],
         ageing_days: None,
         cluster: None,
+        stamps_input_commit: vec![],
     };
     let inputs = match exec::materialize(root, tip, &cap) {
         Ok(i) => i,
