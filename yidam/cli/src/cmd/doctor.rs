@@ -2603,7 +2603,13 @@ fn check_corpora(root: &Path) -> Answer {
     }
 
     let tonpa_dir = crate::paths::tonpa_dir(root);
-    let lock = crate::deps::load_lock(&crate::paths::tonpa_lock_path(root)).unwrap_or_default();
+    // Likewise the lock (#1657). Read as empty, it sent every fetched dependency to
+    // "declared but never pinned", the line a repository with no lock gets, and the
+    // `tonpa install` that line implies then fails on the parse error this check hid.
+    let lock = match crate::deps::load_lock(&crate::paths::tonpa_lock_path(root)) {
+        Ok(lock) => lock,
+        Err(e) => return Answer::fail(format!("{e:#}"), None),
+    };
 
     let (mut missing, mut corrupt, mut unlocked, mut ok, mut local) =
         (Vec::new(), Vec::new(), Vec::new(), 0usize, 0usize);
@@ -3570,6 +3576,32 @@ jobs:
         let c = check_corpora(tmp.path());
         assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
         assert!(c.detail.contains("1 installed"), "{}", c.detail);
+    }
+
+    /// A `tonpa.lock` that does not parse pins nothing anyone can read, and is not a lock that
+    /// was never written (#1657). The control is the same lock before the typo.
+    #[test]
+    fn a_tonpa_lock_that_does_not_parse_fails_rather_than_reading_as_unpinned() {
+        let lock = locked("hydrology", b"bundle bytes");
+        let tmp = repo_with_corpora(
+            "[dependencies.hydrology]\nurl = \"https://example.com/h.yiz\"\n",
+            &lock,
+            &[("hydrology", b"bundle bytes")],
+        );
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Ok, "detail was: {}", c.detail);
+
+        let path = crate::paths::tonpa_lock_path(tmp.path());
+        std::fs::write(&path, format!("{lock}\n[[package\n")).unwrap();
+        let c = check_corpora(tmp.path());
+        assert_eq!(c.verdict, Verdict::Fail, "detail was: {}", c.detail);
+        assert!(
+            c.detail.contains("tonpa.lock") && c.detail.contains("line 6"),
+            "names the file and the line: {}",
+            c.detail
+        );
+        assert!(!c.detail.contains("never pinned"), "{}", c.detail);
+        assert!(!c.detail.contains('\n'), "one line: {}", c.detail);
     }
 
     /// Declared, never pinned. Normal between `tonpa add` and the first install, so a warning

@@ -188,14 +188,22 @@ pub fn export_file(name: &str, tonpa_dir: &Path, export: &str) -> Option<PathBuf
     Some(tonpa_dir.join(name).join("export").join(file))
 }
 
+/// Read `tonpa.lock`, or an empty lock when there is none: nothing installed yet.
+///
+/// **A file that is there and does not parse is an error** naming the file, line and column,
+/// on one line, as [`load_config`]'s is (#1657). Three readers used to take the absent
+/// file's branch over it, so `doctor` reported every fetched dependency as never pinned and
+/// `gather` planned an empty roll call. A caller that degrades on purpose says so with
+/// `unwrap_or_default` at its own call site.
 pub fn load_lock(path: &Path) -> anyhow::Result<LockFile> {
     use anyhow::Context;
-    if !path.exists() {
-        return Ok(LockFile::default());
-    }
-    let text =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(LockFile::default()),
+        Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+    };
+    toml::from_str(&text)
+        .map_err(|e| anyhow::anyhow!("parsing {}: {}", path.display(), toml_error(&text, &e)))
 }
 
 // ── manifest.yml ──────────────────────────────────────────────────────────────
@@ -1004,5 +1012,26 @@ mod tests {
         std::fs::create_dir(&path).unwrap();
         let e = format!("{:#}", load_config(&path).unwrap_err());
         assert!(e.contains("reading"), "{e}");
+    }
+
+    // ── tonpa.lock (#1657) ────────────────────────────────────────────────────
+
+    /// No lock is nothing locked, and is not an error. A lock that does not parse is an
+    /// error naming the file and the position on one line, as `tonpa.toml`'s is.
+    #[test]
+    fn a_tonpa_lock_that_does_not_parse_is_an_error_on_one_line() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("tonpa.lock");
+        assert!(load_lock(&path).unwrap().packages.is_empty());
+
+        let locked = "[[package]]\nname = \"dep\"\nurl = \"../dep\"\nsha256 = \"x\"\n";
+        std::fs::write(&path, locked).unwrap();
+        assert_eq!(load_lock(&path).unwrap().packages.len(), 1);
+
+        std::fs::write(&path, format!("{locked}\n[[package\n")).unwrap();
+        let e = format!("{:#}", load_lock(&path).unwrap_err());
+        assert!(e.contains(&path.display().to_string()), "{e}");
+        assert!(e.contains("line 6, column "), "{e}");
+        assert!(!e.contains('\n'), "{e}");
     }
 }
