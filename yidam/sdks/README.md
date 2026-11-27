@@ -201,7 +201,8 @@ CommitEvent
 `classify_commit` is total. A verb in the operational set is `Operational`. Every other verb,
 and a message with no `: `, is `Epistemic`. The operational verbs are the
 `OPERATIONAL_VERBS` constant in each SDK, and the recognised epistemic verbs are
-`EPISTEMIC_VERBS`; both are held to `graph.dfy`. `is_recognized_verb` says whether a verb is
+`EPISTEMIC_VERBS`. Both match the two verb sets in `graph.dfy` today, and nothing checks
+that. `is_recognized_verb` says whether a verb is
 in either set, which is the question `classify_commit` does not ask.
 
 ### Marker types
@@ -601,15 +602,38 @@ Each fixture is a TOML file under `parity/fixtures/<function>/`, with the functi
 description, an input and the expected canonical output:
 
 ```toml
-# parity/fixtures/parse_markers/<name>.toml
+# parity/fixtures/parse_markers/multiple-regen.toml
 function = "parse_markers"
-description = "<what this case exercises>"
+description = "File with two REGEN sections; both are parsed independently"
 
 [input]
-# function-specific input fields
+content = """
+## Status
 
-[expected]
-# expected output (or [[expected]] for array outputs)
+<!-- REGEN: yidam status
+Fields: node count, open questions.
+-->
+_Run `yidam status` to populate._
+<!-- /REGEN -->
+
+## Index
+
+<!-- REGEN: yidam corpus-index
+Fields: node titles and paths.
+-->
+_Run `yidam corpus-index` to populate._
+<!-- /REGEN -->
+"""
+
+[[expected]]
+kind = "Regen"
+command = "yidam status"
+content = "_Run `yidam status` to populate._"
+
+[[expected]]
+kind = "Regen"
+command = "yidam corpus-index"
+content = "_Run `yidam corpus-index` to populate._"
 ```
 
 `parity/README.md` states the contract for each function, what is out of contract, and how

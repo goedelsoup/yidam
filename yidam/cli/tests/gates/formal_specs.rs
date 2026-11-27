@@ -313,7 +313,7 @@ fn a_workflow_runs_the_verification_task() {
 
 /// The prose that documents the task documents the task that exists.
 ///
-/// `yidam/sdks/README.md` carries a copy of `[tasks.verify]` as an example. It carried the
+/// `yidam/sdks/README.md` carried a copy of `[tasks.verify]` as an example. It carried the
 /// broken one — same missing `dir`, same three-of-four file list — which is how a reader
 /// checked the documentation against the config and found them in agreement, both wrong.
 ///
