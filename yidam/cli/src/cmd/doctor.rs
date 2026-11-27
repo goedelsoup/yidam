@@ -1126,32 +1126,48 @@ fn check_computed(root: &Path) -> Answer {
 /// answer moved. The receipt already records the commit. `YIDAM_INPUT_COMMIT` is exported for a
 /// step that needs to read history or name what it measured, not to be echoed into an output.
 fn check_stamps(root: &Path) -> Answer {
-    use crate::cmd::run::Stamped;
-    match crate::cmd::run::stamped(root) {
-        Ok(found) if found.undeclared.is_empty() && found.declared.is_empty() => {
-            Answer::ok("no committed output contains the commit its receipt was computed from")
+    let found = match crate::cmd::run::stamped(root) {
+        Ok(found) => found,
+        Err(e) => {
+            return Answer::skipped(format!(
+                "the capability manifest could not be read, so no receipt was found to compare: \
+                 {e:#}"
+            ))
         }
-        Ok(found) if found.undeclared.is_empty() => Answer::ok(format!(
-            "{} declared under `stamps_input_commit`, so a run masks the commit before \
-             judging reproduction; no undeclared output contains it",
-            enumerate(&found.declared, "output")
-        )),
-        Ok(Stamped {
-            undeclared: found, ..
-        }) => Answer::warn(
+    };
+    if !found.undeclared.is_empty() {
+        return Answer::warn(
             format!(
                 "{} — each contains its receipt's `input.commit`, so every run of it is new \
                  bytes and none can reproduce its receipt",
-                enumerate(&found, "output")
+                enumerate(&found.undeclared, "output")
             ),
             Some(
                 "stop writing YIDAM_INPUT_COMMIT into the output, since the receipt already \
                  records it; or, if a consumer requires it, name the output under \
                  `stamps_input_commit`",
             ),
-        ),
-        Err(e) => Answer::skipped(format!(
-            "the capability manifest could not be read, so no receipt was found to compare: {e:#}"
+        );
+    }
+    if !found.stale.is_empty() {
+        return Answer::warn(
+            format!(
+                "{} declared under `stamps_input_commit` but not containing its receipt's \
+                 `input.commit`, so the declaration masks nothing",
+                enumerate(&found.stale, "output")
+            ),
+            Some(
+                "remove the path from `stamps_input_commit` if its consumer no longer requires \
+                 the commit",
+            ),
+        );
+    }
+    match found.declared.is_empty() {
+        true => Answer::ok("no committed output contains the commit its receipt was computed from"),
+        false => Answer::ok(format!(
+            "{} declared under `stamps_input_commit`, so a run masks the commit before \
+             judging reproduction; no undeclared output contains it",
+            enumerate(&found.declared, "output")
         )),
     }
 }

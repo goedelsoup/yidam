@@ -20,6 +20,11 @@ const OUTPUT: &str = ".yidam/computed/stamp.json";
 /// `{"corpus_commit": "<its input commit>"}`. `declared` adds the output to
 /// `stamps_input_commit`.
 fn with_stamp(declared: bool) -> Example {
+    with_stamp_as(declared, "compute")
+}
+
+/// [`with_stamp`] under `verb`, so an epistemic verb puts the step on the proposal route.
+fn with_stamp_as(declared: bool, verb: &str) -> Example {
     let e = Example::materialize("streamflow");
     let root = e.path();
     std::fs::write(
@@ -36,7 +41,7 @@ fn with_stamp(declared: bool) -> Example {
         "\n[capability.stamp]\nkind   = \"calculator\"\n\
          run    = [\"sh\", \".yidam/capabilities/stamp.sh\"]\n\
          reads  = [\".yidam/capabilities/**\"]\nwrites = [\".yidam/computed/**\"]\n\
-         verb   = \"compute\"\nageing_days = 0\n{}",
+         verb   = \"{verb}\"\nageing_days = 0\n{}",
         match declared {
             true => format!("stamps_input_commit = [\"{OUTPUT}\"]\n"),
             false => String::new(),
@@ -63,6 +68,13 @@ fn run(e: &Example) -> serde_json::Value {
         .find(|s| s["step"] == STEP)
         .cloned()
         .unwrap_or_else(|| panic!("`{STEP}` is not in the plan:\n{out}"))
+}
+
+/// Rewrite the step's script with `edit` and commit it.
+fn edit_script(e: &Example, edit: impl Fn(String) -> String) {
+    let script = e.path().join(".yidam/capabilities/stamp.sh");
+    std::fs::write(&script, edit(std::fs::read_to_string(&script).unwrap())).unwrap();
+    git(&e.path(), &["commit", "-qam", "fix: edit the stamp step"]);
 }
 
 /// The `run-output-stamps-input-commit` entry in a JSON `doctor` report.
@@ -162,4 +174,50 @@ fn a_declared_stamp_that_moved_otherwise_still_commits() {
     let second = run(&e);
     assert!(second["committed"].is_object(), "{second}");
     assert_ne!(git(&e.path(), &["rev-parse", "HEAD"]), landed);
+}
+
+/// §2.7: a declaration whose committed output no longer carries the commit masks nothing, and
+/// `doctor` says so with the path named.
+#[test]
+fn a_declared_stamp_the_output_no_longer_carries_is_warned_on_as_stale() {
+    let e = with_stamp(true);
+    run(&e);
+    edit_script(&e, |t| t.replace("\"$YIDAM_INPUT_COMMIT\"", "\"none\""));
+    let after = run(&e);
+    assert!(after["committed"].is_object(), "{after}");
+
+    let c = doctor(&e);
+    assert_eq!(c["verdict"], "warn", "{c}");
+    let detail = c["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail.contains(OUTPUT) && detail.contains("masks nothing"),
+        "{c}"
+    );
+}
+
+/// §2.7 on the proposal route with no pending proposal: the parent is HEAD, which holds the
+/// merged proposal, and a re-run whose only news is the commit opens no second proposal.
+#[test]
+fn a_declared_stamp_on_the_proposal_route_opens_no_second_proposal() {
+    let e = with_stamp_as(true, "establish");
+    let first = run(&e);
+    let proposal = first["committed"]["branch"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the first run proposed nothing: {first}"))
+        .to_string();
+    git(&e.path(), &["merge", "-q", "--ff-only", &proposal]);
+    let head = git(&e.path(), &["rev-parse", "HEAD"]);
+
+    let second = run(&e);
+    assert_eq!(second["route"], "proposal", "{second}");
+    assert!(second["committed"].is_null(), "{second}");
+    assert!(second["noted"].is_object(), "{second}");
+    assert_eq!(git(&e.path(), &["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        git(&e.path(), &["branch", "--list", "propose/*"])
+            .lines()
+            .count(),
+        1,
+        "a re-run whose only news was the commit opened a proposal"
+    );
 }

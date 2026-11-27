@@ -1,6 +1,6 @@
 # RFC-0052 — A re-run that reproduces its outputs is recorded, not committed (receipt re-validation)
 
-- **Status:** Accepted
+- **Status:** Implemented
 - **Track:** I38
 - **Relates to:**
   - RFC-0026 (the orchestrator layer: the receipt, its input state, and the lander that holds the only credential for a ref)
@@ -11,7 +11,6 @@
 - **Amended 2026-11-27 (#1598, #1600):** §2.7 lets a step declare an output whose consumer
   requires the input commit. `doctor` reports that output as declared rather than warning, and
   `run` judges its reproduction with the commit masked. One manifest key, `stamps_input_commit`.
-  §2.1 to §2.6 are implemented. The status reads `Accepted` until §2.7 is.
 
 ## Summary
 

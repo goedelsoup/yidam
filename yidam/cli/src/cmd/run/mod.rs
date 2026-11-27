@@ -1123,14 +1123,22 @@ pub(crate) fn stamped(root: &Path) -> Result<Stamped> {
         else {
             continue;
         };
-        // The full sha only: an abbreviation is short enough to occur by chance in a digest.
+        // The full id only: an abbreviation is short enough to occur by chance in a digest.
         let Some(commit) = landed
             .input
             .and_then(|i| i.commit)
-            .filter(|c| c.len() >= 40)
+            .filter(|c| full_commit(c))
         else {
             continue;
         };
+        // A declaration that masks nothing claims a contract the output no longer keeps: the
+        // consumer may have dropped the field (§2.7).
+        for path in declared {
+            let held = git(root, None, &["show", &format!("HEAD:{path}")], None);
+            if !held.is_ok_and(|text| text.contains(&commit)) {
+                out.stale.push(format!("{name}: {path}"));
+            }
+        }
         for f in &landed.outputs {
             let held = git(root, None, &["show", &format!("HEAD:{}", f.path)], None);
             if held.is_ok_and(|text| text.contains(&commit)) {
@@ -1145,12 +1153,18 @@ pub(crate) fn stamped(root: &Path) -> Result<Stamped> {
     Ok(out)
 }
 
-/// What [`stamped`] found: outputs whose step declares the stamp, and outputs whose step does
-/// not.
+/// What [`stamped`] found: outputs whose step declares the stamp, outputs whose step does
+/// not, and declared outputs whose committed bytes no longer carry the commit.
 #[derive(Debug, Default)]
 pub(crate) struct Stamped {
     pub declared: Vec<String>,
     pub undeclared: Vec<String>,
+    pub stale: Vec<String>,
+}
+
+/// Whether `c` is a full commit id: 40 hex characters under SHA-1, 64 under SHA-256.
+fn full_commit(c: &str) -> bool {
+    matches!(c.len(), 40 | 64) && c.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 /// What a reader needs to know about one declared step. See [`standing`].
@@ -1269,8 +1283,8 @@ struct Landing<'a> {
 /// (RFC-0052 §2.7).
 ///
 /// Both of §2.2's tests, over the masked bytes: they must be what the parent holds, and the
-/// receipt built from their digests must say what the committed one says. Only the full sha is
-/// replaced, for the reason [`stamped`] reads only the full sha. A step that declares nothing,
+/// receipt built from their digests must say what the committed one says. Only the full id is
+/// replaced, 40 or 64 hex characters, for the reason [`stamped`] reads only the full id. A step that declares nothing,
 /// or a committed receipt that records no full commit, answers `false`, which commits.
 fn reproduces_masked(
     root: &Path,
@@ -1280,17 +1294,18 @@ fn reproduces_masked(
     outputs: &[(String, Vec<u8>)],
     committed: &str,
 ) -> bool {
-    let now = receipt.input.commit.as_bytes();
+    let now = receipt.input.commit.as_str();
     let Some(was) = Receipt::landed(committed)
         .and_then(|l| l.input)
         .and_then(|i| i.commit)
-        .filter(|c| c.len() >= 40)
+        .filter(|c| full_commit(c))
     else {
         return false;
     };
-    if cap.stamps_input_commit.is_empty() || now.len() < 40 {
+    if cap.stamps_input_commit.is_empty() || !full_commit(now) {
         return false;
     }
+    let now = now.as_bytes();
     let masked: Vec<(String, Vec<u8>)> = outputs
         .iter()
         .map(

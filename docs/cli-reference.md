@@ -947,7 +947,8 @@ contains its own input commit.
 
 Some consumers require that commit in the output. Name each such output by its path under
 `stamps_input_commit = ["<path>"]`. A `writes` glob must cover it. A re-run then compares that
-output with its commit masked, and `doctor` reports it as declared.
+output with its commit masked, and `doctor` reports it as declared. A declared output that no
+longer carries the commit is warned on as stale.
 
 Both declarations are load-bearing. The step sees what `reads` resolves to and nothing else. It
 cannot quietly depend on a file it did not name. A step that writes outside `writes` is refused,
