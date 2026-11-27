@@ -78,7 +78,7 @@ use anyhow::Result;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use crate::cmd::lint::checks::{prose_links, source_targets};
+use crate::cmd::lint::checks::{line_links, prose_links, source_targets};
 use crate::corpus::{normalize, resolve_target};
 use crate::paths::yidam_corpus_dir;
 use crate::walk::{walk_corpus_instances, walk_linkable_files};
@@ -715,14 +715,20 @@ fn plan_catalog(root: &Path, corpus: &Path, from: String, new: &str) -> RenameRe
     report
 }
 
-/// The byte range of `target` where this line writes `[label](target)` or
-/// `[label](target#fragment)`, or none.
+/// The byte range of `target` where this line links to it, or none: the first link on the
+/// line whose path is `target`, in whatever form the planner read it — with a title, in
+/// angle brackets, with a fragment, or with space around it (#1691).
+///
+/// The line is read by [`line_links`], the scanner [`prose_links`] plans from, over the same
+/// masked line, so a link is placed if and only if it was planned; a link inside an inline
+/// code span is neither. Placing a link can leave another to the same target on the line,
+/// and the next call finds that one.
 fn link_span(line: &str, target: &str) -> Option<(usize, usize)> {
-    let at = line
-        .find(&format!("]({target})"))
-        .or_else(|| line.find(&format!("]({target}#")))?;
-    let start = at + 2;
-    Some((start, start + target.len()))
+    let masked = crate::markdown::mask_code_spans(line);
+    line_links(&masked)
+        .into_iter()
+        .map(|l| l.path)
+        .find(|&(start, end)| masked[start..end] == *target)
 }
 
 /// `pub(crate)` for `migrate`, which moves a whole class directory one instance at a time
@@ -1349,9 +1355,9 @@ mod tests {
     }
 
     /// An edit the plan found and the apply cannot place blocks the rename, and nothing is
-    /// moved or written (#1614). A link with a title is one: the plan reads its target, and
-    /// the apply looks for `](target)`. It used to be counted as rewritten, and left pointing
-    /// at a file the rename moved.
+    /// moved or written (#1614). Here the line the plan read has changed under it, which is
+    /// the one way left for a link the parser read to be unplaceable (#1691). It used to be
+    /// counted as rewritten, and left pointing at a file the rename moved.
     #[test]
     fn an_edit_the_apply_cannot_place_blocks_the_rename() {
         let (_t, root, corpus) = corpus();
@@ -1361,6 +1367,8 @@ mod tests {
         let mut r = plan(&root, &corpus, "catalog/old", "new");
         assert!(r.blocked.is_empty(), "{:?}", r.blocked);
         assert_eq!(r.edits.len(), 1, "{:?}", r.edits);
+        let citing = "---\nobtained: true\n---\nSee the old one.\n";
+        catalog(&root, "other.md", citing);
         apply(&root, &mut r).unwrap();
         assert!(!r.applied);
         assert_eq!(
@@ -1372,6 +1380,89 @@ mod tests {
         assert!(!root.join(".yidam/catalog/new.md").exists());
         assert_eq!(read(&root.join(".yidam/catalog/other.md")), citing);
         assert!(render_rename(&r).starts_with("Cannot rename"));
+    }
+
+    /// Every link form the planner's parser reads is placed, with the title or brackets
+    /// kept (#1691). The forms are those `link_parts` reads: a title in any of the three
+    /// quotings, an angle-bracket target with or without a title, a fragment inside or
+    /// outside the brackets, and whitespace around the target.
+    #[test]
+    fn a_titled_or_bracketed_link_is_rewritten_in_place() {
+        let forms = [
+            "[x](old.md)",
+            "[x](old.md#top)",
+            "[x](old.md \"the old one\")",
+            "[x](old.md 'the old one')",
+            "[x](old.md (the old one))",
+            "[x](old.md   \"spaced\")",
+            "[x]( old.md )",
+            "[x](old.md#top \"t\")",
+            "[x](<old.md>)",
+            "[x](<old.md#top>)",
+            "[x](<old.md> \"t\")",
+            "[x](<old.md#top> \"t\")",
+        ];
+        for form in forms {
+            let line = format!("See {form} here.");
+            let planned = prose_links("f.md", Path::new(""), &line);
+            assert_eq!(planned.len(), 1, "{form}: the planner reads one link");
+            assert_eq!(planned[0].target, "old.md", "{form}");
+            let (s, e) = link_span(&line, "old.md").unwrap_or_else(|| panic!("{form}: unplaced"));
+            assert_eq!(&line[s..e], "old.md", "{form}");
+            let mut out = line.clone();
+            out.replace_range(s..e, "new.md");
+            assert_eq!(out, line.replace("old.md", "new.md"), "{form}");
+        }
+    }
+
+    /// Several links on one line, and one target twice: each placement finds the first link
+    /// still spelled the old way, and a link to something else is left alone.
+    #[test]
+    fn a_line_with_several_links_places_each_in_turn() {
+        let mut line =
+            "[a](<old.md>) [b](other.md \"t\") [c](old.md 'x') and [d](old.md#f)".to_string();
+        let mut seen = 0;
+        while let Some((s, e)) = link_span(&line, "old.md") {
+            line.replace_range(s..e, "new.md");
+            seen += 1;
+            assert!(seen < 10, "{line}");
+        }
+        assert_eq!(seen, 3);
+        assert_eq!(
+            line,
+            "[a](<new.md>) [b](other.md \"t\") [c](new.md 'x') and [d](new.md#f)"
+        );
+    }
+
+    /// What the planner does not read is not placed: a link inside an inline code span, a
+    /// target that only begins with the one asked for, and a title that names it.
+    #[test]
+    fn a_link_the_planner_does_not_read_is_not_placed() {
+        assert_eq!(link_span("`[x](old.md)` is code", "old.md"), None);
+        assert_eq!(link_span("[x](old.md.bak)", "old.md"), None);
+        assert_eq!(link_span("[x](other.md \"old.md\")", "old.md"), None);
+        let line = "`[x](old.md)` then [y](<old.md>)";
+        let (s, e) = link_span(line, "old.md").unwrap();
+        assert_eq!(&line[..s], "`[x](old.md)` then [y](<");
+        assert_eq!(&line[e..], ">)");
+    }
+
+    /// A rename of an entry cited by a titled link and by an angle-bracket link rewrites
+    /// both, byte for byte, and counts each once (#1691).
+    #[test]
+    fn a_rename_rewrites_a_titled_and_an_angle_bracket_link() {
+        let (_t, root, corpus) = corpus();
+        catalog(&root, "old.md", "---\nobtained: true\n---\n# Old\n");
+        let citing = "---\nobtained: true\n---\nSee [Old](old.md \"the old one\") and [again](<old.md#top> 'x').\r\nAlso [p](old.md).\n";
+        catalog(&root, "other.md", citing);
+        let mut r = plan(&root, &corpus, "catalog/old", "new");
+        assert_eq!(r.edits.len(), 3, "{:?}", r.edits);
+        apply(&root, &mut r).unwrap();
+        assert!(r.applied, "{:?}", r.blocked);
+        assert_eq!(
+            read(&root.join(".yidam/catalog/other.md")),
+            citing.replace("old.md", "new.md")
+        );
     }
 
     /// A line that is gone, or a line 0, is an edit not made — not an index panic and not a

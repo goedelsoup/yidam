@@ -10307,18 +10307,92 @@ fn is_external(target: &str) -> bool {
 /// repository owns and is decidable, so it is kept for the line-citation checks rather
 /// than falling with the anchors (#563).
 fn link_parts(raw: &str) -> (String, Option<super::line_citations::LineFragment>) {
+    let (start, end, frag) = link_path_bounds(raw);
+    (
+        raw[start..end].to_string(),
+        frag.and_then(super::line_citations::parse_fragment),
+    )
+}
+
+/// Where [`link_parts`] finds the path inside the text between a link's parentheses, as a
+/// byte range of `raw`, and the fragment after it.
+///
+/// One reading of the target, shared by the checks that resolve it and by `rename`, which
+/// must put the new path in the same bytes the old one was read from (#1691).
+fn link_path_bounds(raw: &str) -> (usize, usize, Option<&str>) {
     let t = raw.trim();
-    let t = match (t.strip_prefix('<'), t.find('>')) {
-        (Some(_), Some(end)) => &t[1..end],
-        _ => t.split_whitespace().next().unwrap_or(t),
+    let lead = raw.len() - raw.trim_start().len();
+    let (inner, at) = match (t.strip_prefix('<'), t.find('>')) {
+        (Some(_), Some(end)) => (&t[1..end], lead + 1),
+        _ => (t.split_whitespace().next().unwrap_or(t), lead),
     };
-    match t.split_once('#') {
-        Some((path, frag)) => (
-            path.trim().to_string(),
-            super::line_citations::parse_fragment(frag),
-        ),
-        None => (t.trim().to_string(), None),
+    let (path, frag) = match inner.split_once('#') {
+        Some((path, frag)) => (path, Some(frag)),
+        None => (inner, None),
+    };
+    let start = at + path.len() - path.trim_start().len();
+    (start, start + path.trim().len(), frag)
+}
+
+/// One `[label](target)` on a line, as [`prose_links`] reads it.
+pub(crate) struct LineLink {
+    /// Byte column of the `[` that opens the label.
+    pub label_start: usize,
+    /// Byte column just past the closing `)`.
+    pub end: usize,
+    /// The byte range of the target's path: the part [`prose_links`] resolves, without a
+    /// title, angle brackets, or fragment.
+    pub path: (usize, usize),
+    /// The text between the parentheses, as written.
+    target_raw: (usize, usize),
+}
+
+/// The links on one line, in order. `line` is what [`prose_lines`] hands out, with inline
+/// code blanked; a line that has not been through it reads a link inside a code span.
+pub(crate) fn line_links(line: &str) -> Vec<LineLink> {
+    let mut out = Vec::new();
+    let bytes = line.as_bytes();
+    let mut j = 0;
+    while j < bytes.len() {
+        let Some(open) = line[j..].find("](") else {
+            break;
+        };
+        let at = j + open;
+        j = at + 2;
+        let Some(close_rel) = line[j..].find(')') else {
+            break;
+        };
+        let target_raw = (j, j + close_rel);
+        j += close_rel + 1;
+        // Walk back to the `[` that opens the label, for the link's full extent.
+        let label_start = {
+            let mut depth = 1usize;
+            let mut k = at;
+            loop {
+                let Some(prev) = line[..k].rfind(['[', ']']) else {
+                    break at;
+                };
+                k = prev;
+                match bytes[k] {
+                    b']' => depth += 1,
+                    _ => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break k;
+                        }
+                    }
+                }
+            }
+        };
+        let (s, e, _) = link_path_bounds(&line[target_raw.0..target_raw.1]);
+        out.push(LineLink {
+            label_start,
+            end: j,
+            path: (target_raw.0 + s, target_raw.0 + e),
+            target_raw,
+        });
     }
+    out
 }
 
 /// The lines of `text` a reader takes as prose: each with its 1-based number, and with inline
@@ -10361,39 +10435,8 @@ pub(crate) fn prose_lines(text: &str) -> Vec<(usize, String)> {
 pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
     let mut out = Vec::new();
     for (number, line) in prose_lines(text) {
-        let bytes = line.as_bytes();
-        let mut j = 0;
-        while j < bytes.len() {
-            let Some(open) = line[j..].find("](") else {
-                break;
-            };
-            let at = j + open;
-            j = at + 2;
-            let Some(close_rel) = line[j..].find(')') else {
-                break;
-            };
-            let target_raw = &line[j..j + close_rel];
-            j += close_rel + 1;
-            // Walk back to the `[` that opens the label, for the link's full extent.
-            let label_start = {
-                let mut depth = 1usize;
-                let mut k = at;
-                loop {
-                    let Some(prev) = line[..k].rfind(['[', ']']) else {
-                        break at;
-                    };
-                    k = prev;
-                    match bytes[k] {
-                        b']' => depth += 1,
-                        _ => {
-                            depth -= 1;
-                            if depth == 0 {
-                                break k;
-                            }
-                        }
-                    }
-                }
-            };
+        for link in line_links(&line) {
+            let target_raw = &line[link.target_raw.0..link.target_raw.1];
             let (target, fragment) = link_parts(target_raw);
             if is_external(&target) {
                 continue;
@@ -10410,7 +10453,7 @@ pub fn prose_links(file: &str, dir: &Path, text: &str) -> Vec<ProseLink> {
                 resolved: dir.join(&target),
                 fragment,
                 row,
-                span: (label_start, j),
+                span: (link.label_start, link.end),
             });
         }
     }
