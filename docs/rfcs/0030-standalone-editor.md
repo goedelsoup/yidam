@@ -299,7 +299,7 @@ reading command since #918, whose shared declaration says why:
 > `examples/streamflow` in this one, or any checkout inside a larger workspace — could be read
 > only by copying it somewhere else and running `git init` on the copy.
 >
-> — [`main.rs:126-130`](../../yidam/cli/src/main.rs#L126-L130)
+> — [`main.rs:135-139`](../../yidam/cli/src/main.rs#L135-L139)
 
 The five commands this surface spawns did not have the flag when this design was chosen, so
 `yidam-edit --root DIR` sets the child's working directory and inherits exactly the behaviour
@@ -375,7 +375,7 @@ most expensive thing in the document. The original said so, about this design, a
 That bridge is now the plan. [`Overlay`](../../yidam/cli/src/corpus/overlay.rs#L15) is a
 `pub struct` in the lint module, and
 [`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L134) is the entry point the language
-server calls on every change ([`lsp.rs:253`](../../yidam/cli/src/cmd/lsp.rs#L253)) — but it is
+server calls on every change ([`lsp.rs:257`](../../yidam/cli/src/cmd/lsp.rs#L257)) — but it is
 reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
 prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`
 against the tree and building diagnostics itself.
@@ -470,13 +470,13 @@ being built:
   [`Overlay::unsaved_instances`](../../yidam/cli/src/corpus/overlay.rs#L57) adds the buffers
   the walker would have accepted, and the server declares it —
   `experimental.yidam.unsavedInstances` in the `initialize` result
-  ([`lsp.rs:446`](../../yidam/cli/src/cmd/lsp.rs#L446)) — so a bridge on an older binary can say
+  ([`lsp.rs:454`](../../yidam/cli/src/cmd/lsp.rs#L454)) — so a bridge on an older binary can say
   *saved nodes only* rather than show a clean verdict it did not earn.
 - **The barrier is an unknown request.** `publishDiagnostics` is a notification, and a clean
   buffer publishes nothing new, so a page cannot tell *clean* from *not judged yet*. The server
   answers any request it does not know with `null`, and does so **after** the publishes a
   preceding change produced —
-  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L953)
+  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L961)
   pins the order. The bridge sends `$/yidam/barrier` after every `didChange` and treats the
   reply as the verdict's edge
   ([`overlay.ts:396`](../../yidam/editors/web/src/lib/overlay.ts#L396)). No protocol extension,
@@ -530,7 +530,7 @@ the phase shipped as two routes and one page. Three things it settled by being b
   pins, on the CLI side, that a three-line frame followed by EOF is a conversation the server
   finishes.
 - **It did not need Phase 2.** `propose`'s whole input schema is `{ dry_run }`
-  ([`tools.rs:294`](../../yidam/cli/src/cmd/serve/tools.rs#L294)); it drafts from the gate's
+  ([`tools.rs:302`](../../yidam/cli/src/cmd/serve/tools.rs#L302)); it drafts from the gate's
   findings on the committed corpus and refuses a dirty `.yidam/`
   ([`write.rs:110`](../../yidam/cli/src/cmd/propose/write.rs#L110)). Nothing a form produces can
   reach it. The two phases were ordered by an assumption that a write takes content, and this one

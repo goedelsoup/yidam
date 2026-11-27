@@ -113,6 +113,10 @@ const EVAL_TIME_LIMIT: Duration = Duration::from_secs(5);
 const EVAL_CHECK_INTERVAL: u32 = 10_000;
 
 /// An engine that stops a runaway rule after [`EVAL_TIME_LIMIT`]. Every engine here is one.
+#[expect(
+    clippy::expect_used,
+    reason = "`EVAL_CHECK_INTERVAL` is the constant `10_000` declared above, so `NonZeroU32::new` cannot return `None`; a second constant would only move the same assertion"
+)]
 fn timed_engine() -> regorus::Engine {
     let mut engine = regorus::Engine::new();
     engine.set_execution_timer_config(regorus::utils::limits::ExecutionTimerConfig {

@@ -190,6 +190,10 @@ pub(crate) fn read_blobs(root: &Path, shas: &[String]) -> HashMap<String, String
         return found;
     };
 
+    #[expect(
+        clippy::expect_used,
+        reason = "`spawn_piped` above set `Stdio::piped()` on stdin, so `take()` is `Some` on a fresh child"
+    )]
     let mut stdin = child.stdin.take().expect("piped");
     let requested: Vec<String> = shas.to_vec();
     let writer = std::thread::spawn(move || {
@@ -200,6 +204,10 @@ pub(crate) fn read_blobs(root: &Path, shas: &[String]) -> HashMap<String, String
         }
     });
 
+    #[expect(
+        clippy::expect_used,
+        reason = "`spawn_piped` above set `Stdio::piped()` on stdout, so `take()` is `Some` on a fresh child"
+    )]
     let mut reader = BufReader::new(child.stdout.take().expect("piped"));
     for sha in shas {
         // `<sha> <type> <size>\n<size bytes>\n`, or `<sha> missing\n`.

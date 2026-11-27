@@ -508,7 +508,7 @@ unproductive the report says so rather than shrugging:
 
 A rejected query **emits its report and exits 1**. That is the shape four commands already
 have — `doctor`
-([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L3070)), `regen`
+([`crate::report::gate`](../../yidam/cli/src/cmd/doctor.rs#L3069)), `regen`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/regen.rs#L700)), `rename`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/rename.rs#L895)) and `index-verify`
 ([`crate::report::gate`](../../yidam/cli/src/cmd/index_verify.rs#L260)) all print, then
@@ -549,7 +549,7 @@ fail.
 
 Exit **2** is not available and must not be borrowed. Its sites are `main.rs:1616`, inside the
 clap pre-dispatch arm for "ErrorKind::InvalidSubcommand | ErrorKind::UnknownArgument"
-([`main.rs:1652-1671`](../../yidam/cli/src/main.rs#L1652-L1671)), and the bare-`yidam` fallback
+([`main.rs:1661-1680`](../../yidam/cli/src/main.rs#L1661-L1680)), and the bare-`yidam` fallback
 at `main.rs:1632` — both reached *before* `match cli.command`, so no command body can produce
 it — and
 `tests/suite/binary_pin.rs:140` pins it as the unrecognized-subcommand code. Returning an ordinary
@@ -560,7 +560,7 @@ The one `Err` that is not ordinary is
 [`report::GateFailed`](../../yidam/cli/src/report.rs#L204), the sentinel #926 introduced so
 that the library could stop calling `std::process::exit` from inside a published crate. It
 carries no message, and `main.rs` prints nothing for it
-([`fn main`](../../yidam/cli/src/main.rs#L1641-L1648)) — so the report emitted above it is
+([`fn main`](../../yidam/cli/src/main.rs#L1650-L1657)) — so the report emitted above it is
 still the only thing on the stream, which is the whole property this section is arranged
 around. The exit code did not move; the call to `exit` did.
 
@@ -634,16 +634,16 @@ gage would take a different branch of the ladder — decided after retrieval, in
 headline promise is that queries are checked before they run. Requiring the class makes the
 check static, makes property predicates on the anchor well-defined, and maps onto the
 `class_filter` argument `retrieve` already threads through both its vector and keyword paths
-([`tools.rs:182`](../../yidam/cli/src/cmd/serve/tools.rs#L182)). `*~"…"` remains available and
+([`tools.rs:190`](../../yidam/cli/src/cmd/serve/tools.rs#L190)). `*~"…"` remains available and
 takes the `*` rules above.
 
 - `--anchor-k` defaults to **1**. An anchor is a starting point, not an answer; a five-wide
   anchor followed by a two-hop walk is a flood wearing a type. `retrieve`'s own default of 5
-  ([`tools.rs:181`](../../yidam/cli/src/cmd/serve/tools.rs#L181)) is right for retrieval and
+  ([`tools.rs:189`](../../yidam/cli/src/cmd/serve/tools.rs#L189)) is right for retrieval and
   wrong here. The report lists the resolved entry nodes with their scores, so what it anchored
   on is always visible, and `bench` can vary k as part of the budget.
 - **The anchor is local.** `keyword_retrieve` chains `state.dep_nodes` after `state.nodes`
-  ([`tools.rs:256-259`](../../yidam/cli/src/cmd/serve/tools.rs#L256-L259)) — correct for
+  ([`tools.rs:264-267`](../../yidam/cli/src/cmd/serve/tools.rs#L264-L267)) — correct for
   retrieval, where an agent should be told the answer lives in a corpus this repository cites.
   A query labelled `"scope": "local"` must not silently enter through a dependency's node, so
   the query's anchor restricts to local nodes on both paths.
@@ -677,7 +677,7 @@ so `query` and `serve` cannot come to disagree about why retrieval is degraded.
 > [`retrieval/vector.rs`](../../yidam/cli/src/retrieval/vector.rs); `vector::retrieve` became
 > `vector::search` and returns *scores* rather than a response, so both branches of the
 > `degraded` shape are now built in one ungated place
-> ([`tools.rs:218`](../../yidam/cli/src/cmd/serve/tools.rs#L218)) — which is the half of the
+> ([`tools.rs:226`](../../yidam/cli/src/cmd/serve/tools.rs#L226)) — which is the half of the
 > problem this section identified and did not propose fixing.
 
 ### `--at` is not free, and #262 should know it
@@ -689,7 +689,7 @@ matter of plumbing:
 | What a query at a commit needs | What `replay` does |
 |---|---|
 | that commit's ontology | `is_instance` excludes `.ont.yml` outright ([`history.rs:41-62`](../../yidam/cli/src/cmd/lint/history.rs#L41-L62)) |
-| declared properties, types, targets, `edge_policy` | `blob_expectation` deserializes **one** field from a class blob — `direction` — into a three-valued `Expectation` ([`history.rs:233-275`](../../yidam/cli/src/cmd/lint/history.rs#L233-L275)) |
+| declared properties, types, targets, `edge_policy` | `blob_expectation` deserializes **one** field from a class blob — `direction` — into a three-valued `Expectation` ([`history.rs:241-283`](../../yidam/cli/src/cmd/lint/history.rs#L241-L283)) |
 | relationship names on edges | `targets_of` drops them: `.filter_map(\|l\| l.target.as_ref())` ([`history.rs:82`](../../yidam/cli/src/cmd/lint/history.rs#L82)) |
 | a revision to stop at | `change_stream` runs `git log --reverse … -- .yidam/corpus` with no revision argument and no parameter to supply one ([`change_stream`](../../yidam/cli/src/cmd/lint/history.rs#L124-L134)) — genesis to HEAD, always |
 

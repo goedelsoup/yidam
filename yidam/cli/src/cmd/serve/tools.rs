@@ -107,6 +107,10 @@ pub(crate) fn capabilities(state: &ServerState) -> Value {
 
 /// The contract, parsed once. Every `tools/call` reads a tool's schema from it (#1624), and it
 /// is over 100 KB of text.
+#[expect(
+    clippy::expect_used,
+    reason = "`CONTRACT` is `include_str!` of `mcp-contract.json`, which the conformance tests parse; it is valid or the binary was built from a broken tree"
+)]
 fn contract() -> &'static Value {
     static PARSED: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
     PARSED.get_or_init(|| {
@@ -148,6 +152,10 @@ fn backs(tier: &str, capabilities: &Value) -> bool {
 pub(crate) fn list(state: &ServerState) -> Value {
     let contract = contract();
     let capabilities = capabilities(state);
+    #[expect(
+        clippy::expect_used,
+        reason = "`tools` is a required array in the compiled-in contract, which the conformance tests check; `list` has no `Result` to carry a malformed one"
+    )]
     let tools: Vec<Value> = contract["tools"]
         .as_array()
         .expect("tools is an array")

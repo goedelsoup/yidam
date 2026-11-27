@@ -35,9 +35,9 @@ impl Request {
     /// a body that can differ twice.
     ///
     /// `Result` rather than an `expect`, though serializing a `Value` this module built cannot
-    /// realistically fail. The reason is not defensive: `panic_paths.rs` ratchets production
-    /// panic paths, and the alternatives to a panic here are all worse than a `?` — an empty
-    /// body would be *sent*, and a default one would be signed and rejected with a message
+    /// realistically fail. The reason is not defensive: production code here denies
+    /// `clippy::expect_used`, and the alternatives to a panic here are all worse than a `?` —
+    /// an empty body would be *sent*, and a default one would be signed and rejected with a message
     /// about a field rather than about this.
     pub fn bytes(&self) -> Result<Vec<u8>> {
         serde_json::to_vec(&self.body)

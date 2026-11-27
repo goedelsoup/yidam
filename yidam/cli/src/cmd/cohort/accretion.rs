@@ -169,7 +169,7 @@ pub fn assess(members: &[Trajectory]) -> Accretion {
 
 /// The member's newest point. Only fitted trajectories reach here, and an empty one is
 /// excluded before fitting, so the origin is never read; it keeps this total rather than
-/// spending the panic budget on an invariant `assess` already holds.
+/// spending an `#[expect(clippy::expect_used)]` on an invariant `assess` already holds.
 fn head(t: &Trajectory) -> Point {
     t.points.last().copied().unwrap_or(Point {
         authored: 0,

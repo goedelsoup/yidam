@@ -49,7 +49,7 @@ editor diagnostic in all but serialization.
 ### The reports render prose, not data
 
 There is no `--format json` on any command. The full surface is 26 subcommand variants, one feature-gated
-([`main.rs:18-146`](../../yidam/cli/src/main.rs#L18-L146)) and every report writes human text:
+([`main.rs:27-155`](../../yidam/cli/src/main.rs#L27-L155)) and every report writes human text:
 `graph-check` and `lint` print findings and exit nonzero, `corpus-index` and `catalog-audit`
 rewrite REGEN blocks in place, `status` and `phases` print tables. The only structured output in
 the tree is written *to disk* for other purposes — `embed.config.json`, `meta.json`, bundle
