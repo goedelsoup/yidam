@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "The subject is trimmed by White_Space: U+0085 is trimmed, U+FEFF and U+001F are kept (#1666)"
+
+[input]
+hash = "166600d"
+message = "fix: \uFEFFa\u001F\u0085"
+
+[expected]
+kind = "Operational"
+verb = "fix"
+subject = "\uFEFFa\u001F"

@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "U+0085 is in the White_Space property and is not a newline, so a message it leads is trimmed and classified by its verb (#1666)"
+
+[input]
+hash = "1666005"
+message = "\u0085fix: a"
+
+[expected]
+kind = "Operational"
+verb = "fix"
+subject = "a"

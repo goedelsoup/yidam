@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "A lone carriage return before the verb does not end a line; it is whitespace and is trimmed (#1666)"
+
+[input]
+hash = "1666006"
+message = "\rfix: a"
+
+[expected]
+kind = "Operational"
+verb = "fix"
+subject = "a"

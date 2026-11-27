@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "The verb is trimmed by White_Space too, so U+001F before the colon stays on it (#1666)"
+
+[input]
+hash = "166600a"
+message = "fix\u001F: a"
+
+[expected]
+kind = "Epistemic"
+verb = "fix\u001F"
+subject = "a"

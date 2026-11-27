@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "U+001C to U+001E, U+0085 and U+2029 do not end the first line; only the newline does (#1666)"
+
+[input]
+hash = "1666003"
+message = "fix: a\u001Db\u001Ec\u0085d\u2029e\u001Cf\nbody"
+
+[expected]
+kind = "Operational"
+verb = "fix"
+subject = "a\u001Db\u001Ec\u0085d\u2029e\u001Cf"

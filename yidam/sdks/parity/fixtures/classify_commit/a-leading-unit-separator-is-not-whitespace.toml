@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "U+001F is not White_Space, so it is not trimmed off the verb and the commit is not Operational (#1666)"
+
+[input]
+hash = "1666008"
+message = "\u001Ffix: a"
+
+[expected]
+kind = "Epistemic"
+verb = "\u001Ffix"
+subject = "a"

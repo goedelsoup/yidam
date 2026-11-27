@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "U+001C is neither a newline nor White_Space, so it stays on the verb and the commit is not Operational (#1666)"
+
+[input]
+hash = "1666007"
+message = "\u001Cfix: a"
+
+[expected]
+kind = "Epistemic"
+verb = "\u001Cfix"
+subject = "a"
