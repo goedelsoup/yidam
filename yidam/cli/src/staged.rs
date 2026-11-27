@@ -359,6 +359,11 @@ fn sweep(top: &Path, git_dir: &Path) {
 /// A pid outside `1..=i32::MAX` names no process, and is asked nothing: `kill` reads 0 as its
 /// own process group, and Linux's reads 4294967295 as -1, every process, so either would
 /// answer that it is alive.
+///
+/// `kill -0` fails alike for a pid that names no process and for another user's process, so
+/// only its "No such process" reads as exited (#1703). This answer gates a deletion: a `kill`
+/// that cannot run, or says anything else, reads as running. `LC_ALL=C` keeps the message
+/// untranslated.
 pub(crate) fn alive(pid: u32, path: &Path) -> bool {
     if pid == 0 || i32::try_from(pid).is_err() {
         return false;
@@ -366,12 +371,21 @@ pub(crate) fn alive(pid: u32, path: &Path) -> bool {
     #[cfg(unix)]
     {
         let _ = path;
-        Command::new("kill")
+        let Ok(out) = Command::new("kill")
             .args(["-0", &pid.to_string()])
+            .env("LC_ALL", "C")
+            .env_remove("LANGUAGE")
+            .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map_or(true, |s| s.success())
+            .stderr(Stdio::piped())
+            .output()
+        else {
+            return true;
+        };
+        out.status.success()
+            || !String::from_utf8_lossy(&out.stderr)
+                .to_ascii_lowercase()
+                .contains("no such process")
     }
     #[cfg(not(unix))]
     {
@@ -480,5 +494,28 @@ mod tests {
         assert!(!dead_tree.exists());
         assert!(!dead_index.exists());
         assert!(live.exists());
+    }
+
+    /// pid 1 always runs, and unless the tests run as root it may not be signalled (#1703).
+    /// Either way it is running.
+    #[cfg(unix)]
+    #[test]
+    fn a_process_this_user_may_not_signal_reads_as_running() {
+        assert!(alive(1, Path::new("unused")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn this_process_reads_as_running() {
+        assert!(alive(std::process::id(), Path::new("unused")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_process_that_has_exited_reads_as_exited() {
+        let mut child = Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(!alive(pid, Path::new("unused")));
     }
 }
