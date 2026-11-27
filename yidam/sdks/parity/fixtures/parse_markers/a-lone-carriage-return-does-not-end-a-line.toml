@@ -1,0 +1,11 @@
+function = "parse_markers"
+description = "A carriage return ends nothing on its own. Only one directly before a newline is dropped, so two TEMPLATE tags joined by one are one line and one marker (#1620)"
+
+[input]
+content = """
+<!-- TEMPLATE: t -->\r<!-- TEMPLATE: u -->
+"""
+
+[[expected]]
+kind = "Template"
+instruction = "t -->\r<!-- TEMPLATE: u"

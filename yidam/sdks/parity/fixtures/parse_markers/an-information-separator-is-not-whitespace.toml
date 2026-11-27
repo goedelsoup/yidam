@@ -1,0 +1,22 @@
+function = "parse_markers"
+description = "U+001C to U+001F are not in the White_Space property and end no line: a tag after U+001C is prose, and a close tag before U+001F does not stand alone (#1620)"
+
+[input]
+content = """
+\u001C<!-- TEMPLATE: t -->
+<!-- REGEN: a -->
+body
+<!-- /REGEN -->\u001F
+"""
+
+[[expected]]
+kind = "Regen"
+command = "a"
+content = "body\n<!-- /REGEN -->\u001F"
+
+[[expected_malformed]]
+command = "a"
+line = 2
+fault = "CloseTagMissing"
+swallowed_lines = 2
+swallowed_markers = 0

@@ -1,0 +1,21 @@
+function = "parse_markers"
+description = "A close tag followed by U+FEFF does not stand alone, so the block is never closed (#1620)"
+
+[input]
+content = """
+<!-- REGEN: a -->
+body
+<!-- /REGEN -->\uFEFF
+"""
+
+[[expected]]
+kind = "Regen"
+command = "a"
+content = "body\n<!-- /REGEN -->\uFEFF"
+
+[[expected_malformed]]
+command = "a"
+line = 1
+fault = "CloseTagMissing"
+swallowed_lines = 2
+swallowed_markers = 0

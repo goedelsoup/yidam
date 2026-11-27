@@ -1,0 +1,15 @@
+function = "parse_markers"
+description = "A form feed or a vertical tab inside a line is part of it, and the content keeps it as written (#1620)"
+
+[input]
+content = """
+<!-- REGEN: a -->
+body\f<!-- TEMPLATE: t -->
+x\u000By
+<!-- /REGEN -->
+"""
+
+[[expected]]
+kind = "Regen"
+command = "a"
+content = "body\f<!-- TEMPLATE: t -->\nx\u000By"

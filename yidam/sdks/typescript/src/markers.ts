@@ -79,43 +79,73 @@ export interface Scan {
   regen: RegenSpan[]
 }
 
-/**
- * `str::lines()`, which is not `split('\n')`.
- *
- * The difference is one trailing empty element on any text ending in a newline — invisible
- * while the only output was markers, because a trailing blank is not a marker and is trimmed
- * out of any content it lands in. It stops being invisible the moment a line is *counted*:
- * the same file would report one more swallowed line here than in the Rust and Python SDKs,
- * and the parity fixture for a malformed block is what would have caught it.
- */
-function toLines(text: string): string[] {
-  const out = text.split('\n')
-  if (out.length > 0 && out[out.length - 1] === '') out.pop()
-  return out.map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l))
-}
-
 const REGEN_OPEN = '<!-- REGEN:'
 const REGEN_CLOSE = '<!-- /REGEN -->'
 const ARROW = '-->'
 
 /**
- * `toLines`, keeping each line's offset into the original text.
+ * The lines of `text`, each with its offset into the original — the Rust SDK's rule, written
+ * out (#1620).
+ *
+ * A line ends at `\n` and nowhere else, and one `\r` before that `\n` is not part of it. A
+ * last line with no `\n` after it is kept as it is, and a text ending in `\n` has no empty
+ * line after it. `split('\n')` alone leaves that empty element, which counted one more
+ * swallowed line here than in the other SDKs. Python's `splitlines` breaks on `\f`, `\v`, a
+ * lone `\r` and U+2028 as well. Either is a second rule for one contract.
  *
  * The offset is the whole point — recovering it afterwards means re-searching — and `split`
- * throws it away, so the lengths are added back up. A `\r` is not part of the line but is
- * part of what separates it from the next, which is why the running offset uses the raw
- * split and the yielded text uses the stripped one.
+ * throws it away, so the lengths are added back up.
  */
 function linesWithOffsets(text: string): Array<[number, string]> {
   const raw = text.split('\n')
-  if (raw.length > 0 && raw[raw.length - 1] === '') raw.pop()
+  const last = raw.length - 1
   const out: Array<[number, string]> = []
   let at = 0
-  for (const line of raw) {
+  for (let n = 0; n < last; n++) {
+    const line = raw[n]
     out.push([at, line.endsWith('\r') ? line.slice(0, -1) : line])
     at += line.length + 1
   }
+  if (raw[last] !== '') out.push([at, raw[last]])
   return out
+}
+
+/**
+ * Rust's `char::is_whitespace`: the Unicode `White_Space` property, and nothing else.
+ *
+ * Not `String.prototype.trim`, which adds U+FEFF and leaves U+0085 — so a BOM before a marker
+ * made it a marker here and prose in the other two SDKs (#1620).
+ */
+function isWhiteSpace(c: number): boolean {
+  return (
+    (c >= 0x09 && c <= 0x0d) ||
+    c === 0x20 ||
+    c === 0x85 ||
+    c === 0xa0 ||
+    c === 0x1680 ||
+    (c >= 0x2000 && c <= 0x200a) ||
+    c === 0x2028 ||
+    c === 0x2029 ||
+    c === 0x202f ||
+    c === 0x205f ||
+    c === 0x3000
+  )
+}
+
+function trimStart(s: string): string {
+  let a = 0
+  while (a < s.length && isWhiteSpace(s.charCodeAt(a))) a++
+  return s.slice(a)
+}
+
+function trimEnd(s: string): string {
+  let b = s.length
+  while (b > 0 && isWhiteSpace(s.charCodeAt(b - 1))) b--
+  return s.slice(0, b)
+}
+
+function trim(s: string): string {
+  return trimEnd(trimStart(s))
 }
 
 /**
@@ -123,12 +153,12 @@ function linesWithOffsets(text: string): Array<[number, string]> {
  * above it, which is what separates `ClosedOnAnothersTag` from a block that is merely long.
  */
 function opensARegen(line: string): boolean {
-  return line.trim().startsWith('<!-- REGEN:')
+  return trim(line).startsWith('<!-- REGEN:')
 }
 
 /** Whether a line opens a marker of either kind. */
 function opensAMarker(line: string): boolean {
-  const t = line.trim()
+  const t = trim(line)
   return t.startsWith('<!-- REGEN:') || t.startsWith('<!-- TEMPLATE:')
 }
 
@@ -147,16 +177,19 @@ export function scanMarkers(text: string): Scan {
 
   while (i < lines.length) {
     const [lineAt, line] = lines[i]
-    const stripped = line.trim()
+    const stripped = trim(line)
 
+    // A TEMPLATE line that does not close on itself is not a marker, and it is not skipped
+    // either: it falls through to the REGEN scan below, as it does in the Rust SDK, so an
+    // inline block written after it on the same line is still read (#1620).
     if (stripped.startsWith('<!-- TEMPLATE:')) {
       const rest = stripped.slice('<!-- TEMPLATE:'.length)
       if (rest.endsWith(ARROW)) {
-        const instruction = rest.slice(0, -ARROW.length).trim()
+        const instruction = trim(rest.slice(0, -ARROW.length))
         markers.push({ kind: 'Template', instruction })
+        i++
+        continue
       }
-      i++
-      continue
     }
 
     // Every block this line opens *and closes*, left to right — the inline form. A line may
@@ -180,7 +213,7 @@ export function scanMarkers(text: string): Scan {
         blockOpen = rel
         break
       }
-      const command = line.slice(afterOpen, arrowAt).trim()
+      const command = trim(line.slice(afterOpen, arrowAt))
       regen.push({
         command,
         open: lineAt + rel,
@@ -188,7 +221,7 @@ export function scanMarkers(text: string): Scan {
         close: lineAt + closeCol,
         inline: true,
       })
-      markers.push({ kind: 'Regen', command, content: line.slice(bodyCol, closeCol).trim() })
+      markers.push({ kind: 'Regen', command, content: trim(line.slice(bodyCol, closeCol)) })
       col = closeCol + REGEN_CLOSE.length
     }
 
@@ -196,13 +229,13 @@ export function scanMarkers(text: string): Scan {
     // block when it starts its line. A `<!-- REGEN:` in the middle of a sentence with no
     // close tag after it is prose, and was prose before this function learned the inline
     // form; reading it as a block would make it swallow the rest of the file.
-    if (blockOpen === null || line.slice(0, blockOpen).trim() !== '') {
+    if (blockOpen === null || trim(line.slice(0, blockOpen)) !== '') {
       i++
       continue
     }
     const openCol = blockOpen
     const rest = line.slice(openCol + REGEN_OPEN.length)
-    const restTrimmed = rest.trim()
+    const restTrimmed = trim(rest)
     const openLine = i
     let fault: Fault | null = null
     let bodyAt: number | null = null
@@ -211,19 +244,19 @@ export function scanMarkers(text: string): Scan {
     if (restTrimmed.endsWith(ARROW)) {
       // Single-line open tag. The arrow is the last thing on the line by that test, so the
       // body starts where the line's own trailing whitespace does.
-      command = restTrimmed.slice(0, -ARROW.length).trim()
-      bodyAt = lineAt + line.trimEnd().length
+      command = trim(restTrimmed.slice(0, -ARROW.length))
+      bodyAt = lineAt + trimEnd(line).length
       i++
     } else {
-      command = rest.trim()
+      command = trim(rest)
       i++
       let arrowFound = false
       while (i < lines.length) {
         const [at, l] = lines[i]
-        const t = l.trim()
+        const t = trim(l)
         i++
         if (t === ARROW || t.endsWith(ARROW)) {
-          bodyAt = at + l.trimEnd().length
+          bodyAt = at + trimEnd(l).length
           arrowFound = true
           break
         }
@@ -237,9 +270,9 @@ export function scanMarkers(text: string): Scan {
     let closed = false
     while (i < lines.length) {
       const [at, l] = lines[i]
-      if (l.trim() === REGEN_CLOSE) {
+      if (trim(l) === REGEN_CLOSE) {
         contentEnd = i
-        closeAt = at + (l.length - l.trimStart().length)
+        closeAt = at + (l.length - trimStart(l).length)
         i++
         closed = true
         break
@@ -279,11 +312,12 @@ export function scanMarkers(text: string): Scan {
       })
     }
 
-    const content = lines
-      .slice(contentStart, contentEnd)
-      .map(([, l]) => l)
-      .join('\n')
-      .trim()
+    const content = trim(
+      lines
+        .slice(contentStart, contentEnd)
+        .map(([, l]) => l)
+        .join('\n'),
+    )
     markers.push({ kind: 'Regen', command, content })
   }
 
@@ -317,7 +351,7 @@ function standsAlone(text: string, span: RegenSpan): boolean {
   const end = span.close + REGEN_CLOSE.length
   const nl = text.indexOf('\n', end)
   const stop = nl === -1 ? text.length : nl
-  return text.slice(start, span.open).trim() === '' && text.slice(end, stop).trim() === ''
+  return trim(text.slice(start, span.open)) === '' && trim(text.slice(end, stop)) === ''
 }
 
 /**

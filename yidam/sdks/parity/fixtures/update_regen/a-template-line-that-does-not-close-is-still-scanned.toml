@@ -1,0 +1,14 @@
+function = "update_regen"
+description = "An inline block after a TEMPLATE tag that does not close on its line is a block, and it is written (#1620)"
+
+[input]
+command = "a"
+new_content = "NEW"
+content = """
+<!-- TEMPLATE: x --> <!-- REGEN: a -->b<!-- /REGEN --> tail
+"""
+
+[expected]
+content = """
+<!-- TEMPLATE: x --> <!-- REGEN: a -->NEW<!-- /REGEN --> tail
+"""

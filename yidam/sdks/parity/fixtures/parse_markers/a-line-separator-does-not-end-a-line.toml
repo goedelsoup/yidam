@@ -1,0 +1,14 @@
+function = "parse_markers"
+description = "Only a newline ends a line. U+2028 is part of the line it sits in, so the TEMPLATE tag after it is content and not a marker (#1620)"
+
+[input]
+content = """
+<!-- REGEN: a -->
+body\u2028<!-- TEMPLATE: t -->
+<!-- /REGEN -->
+"""
+
+[[expected]]
+kind = "Regen"
+command = "a"
+content = "body\u2028<!-- TEMPLATE: t -->"

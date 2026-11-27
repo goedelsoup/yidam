@@ -1,0 +1,12 @@
+function = "parse_markers"
+description = "U+FEFF is not in the White_Space property, so a tag after one does not start its line and is prose (#1620)"
+
+expected = []
+
+[input]
+content = """
+\uFEFF<!-- TEMPLATE: t -->
+\uFEFF<!-- REGEN: a -->
+old
+<!-- /REGEN -->
+"""

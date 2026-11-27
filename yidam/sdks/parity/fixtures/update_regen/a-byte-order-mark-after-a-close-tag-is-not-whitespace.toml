@@ -1,0 +1,18 @@
+function = "update_regen"
+description = "A close tag followed by U+FEFF does not stand alone, so the block has one end and is left as it is (#1620)"
+
+[input]
+command = "a"
+new_content = "NEW"
+content = """
+<!-- REGEN: a -->
+old
+<!-- /REGEN -->\uFEFF
+"""
+
+[expected]
+content = """
+<!-- REGEN: a -->
+old
+<!-- /REGEN -->\uFEFF
+"""

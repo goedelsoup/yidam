@@ -1,0 +1,12 @@
+function = "parse_markers"
+description = "A line that starts with a TEMPLATE tag but does not end in its arrow is not a TEMPLATE marker, and it is not skipped: an inline REGEN block later on the line is still a block (#1620)"
+
+[input]
+content = """
+<!-- TEMPLATE: x --> <!-- REGEN: a -->b<!-- /REGEN --> tail
+"""
+
+[[expected]]
+kind = "Regen"
+command = "a"
+content = "b"
