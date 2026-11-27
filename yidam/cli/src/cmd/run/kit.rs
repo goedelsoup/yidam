@@ -704,11 +704,11 @@ fn both_kits_refuse_what_the_declaration_does_not_describe() {
 }
 
 /// `table()` outside a step that reads a declared table says why, rather than reading the file
-/// untyped.
+/// untyped. The Rust kit is handed the unset variable rather than having it removed from this
+/// process, whose other test threads read the environment (#1644).
 #[test]
 fn both_kits_refuse_a_table_read_with_no_declarations() {
-    std::env::remove_var("YIDAM_TABLES");
-    let rust = yidam_kit::table("data/receipts.tsv").expect_err("no document");
+    let rust = yidam_kit::table_from(None, None, "data/receipts.tsv").expect_err("no document");
     assert!(
         rust.to_string().contains("$YIDAM_TABLES is unset"),
         "{rust}"

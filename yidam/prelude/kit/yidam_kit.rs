@@ -794,16 +794,29 @@ pub fn parse_table(declarations: &str, path: &str, text: &str) -> Result<Vec<Val
 /// The declarations are read from `$YIDAM_TABLES` and the file from under `$YIDAM_IN`, both of
 /// which `yidam run` sets. See [`parse_table`] for what a row is.
 pub fn table(path: &str) -> Result<Vec<Value>, KitError> {
+    table_from(
+        std::env::var("YIDAM_TABLES").ok(),
+        std::env::var("YIDAM_IN").ok(),
+        path,
+    )
+}
+
+/// [`table`], given the two variables rather than reading them.
+pub(crate) fn table_from(
+    tables: Option<String>,
+    root: Option<String>,
+    path: &str,
+) -> Result<Vec<Value>, KitError> {
     let tables =
-        match std::env::var("YIDAM_TABLES") {
-            Ok(p) if !p.is_empty() => p,
+        match tables {
+            Some(p) if !p.is_empty() => p,
             _ => return fail(
                 "no table declarations: $YIDAM_TABLES is unset. Does this step's `reads` cover \
                  a table a catalog entry declares?"
                     .into(),
             ),
         };
-    let root = std::env::var("YIDAM_IN").unwrap_or_else(|_| ".".into());
+    let root = root.unwrap_or_else(|| ".".into());
     let read = |p: &std::path::Path| {
         std::fs::read_to_string(p).or_else(|e| fail(format!("{}: {e}", p.display())))
     };
