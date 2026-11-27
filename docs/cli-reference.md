@@ -1299,6 +1299,11 @@ The pod still fails. That record is what `status` shows.
 the indexable text, against the corpus's 41.9%. Leaving it out had been a scope decision nobody
 made on purpose.
 
+**`embed` removes the records it did not write.** `index-build` indexes every record under
+`.yidam/embeddings/`. So a node that is deleted, renamed or moved must leave no record there.
+`embed` says how many it removed. With `--no-catalog` it removes the catalog's records too. A node
+that fails to parse keeps its last record.
+
 `embed --dry-run` composes every record and writes none of them — not the record, not
 `.yidam/embeddings/`, not the directory. It reports what a push would carry: the composed
 `text` distribution, split by node and source. It names the largest row against the 40 KB
