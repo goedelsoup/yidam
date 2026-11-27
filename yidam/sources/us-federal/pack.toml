@@ -1,5 +1,5 @@
 # United States federal law and statistics: the CFR, GovInfo packages, the US Code, FEC
-# committees and filings, BLS series and Census files.
+# committees and filings, BLS series, and Census, EIA, IRS, NCES and NCEI files.
 #
 # `ecfr` is one CFR section as it stood on a date, by `<date>/<title>/<section>`:
 # `2024-01-01/40/60.1` is 40 CFR 60.1 on 1 January 2024. eCFR's versioner keeps every
@@ -31,13 +31,24 @@
 # API refuses a request without a key; set CENSUS_API_KEY. It is sent only to
 # api.census.gov. Prefer `census` where Census publishes the table as a file.
 #
-# No path segment of `census` starts with a dot, so `..` cannot leave the host's root.
+# `eia` is one file under www.eia.gov, by its path: `electricity/data/eia861/zip/f8612024.zip`
+# is Form EIA-861 for 2024. `nces` is one file under nces.ed.gov, such as a CCD, IPEDS or PSS
+# data zip. `ncei` is one file under www.ncei.noaa.gov/pub/data: `ghcn/daily/all/USC00334551.dly`
+# is one GHCN-Daily station. None of the three needs a key.
 #
-# EIA, the IRS, NCES, USGS and NOAA NCEI are not yet here (#1344).
+# `irs` is one file under www.irs.gov/pub: an exempt-organization extract such as
+# `irs-soi/eo_mo.csv`, a prior-year form, or a revenue ruling. `irs-990` is one year's e-file
+# index or zip under apps.irs.gov/pub/epostcard/990/xml: `2025/index_2025.csv`, or
+# `2025/2025_TEOS_XML_11A.zip`. A single return inside a zip is not yet a scheme (#1608).
+#
+# No path segment of `census`, `eia`, `irs`, `nces` or `ncei` starts with a dot, so `..`
+# cannot leave the host's root.
+#
+# USGS is not yet here: one corpus cites it, across five services (#1608).
 [pack]
 name        = "us-federal"
-version     = "0.1.0"
-description = "CFR sections by date, GovInfo packages, US Code titles, FEC committees and filings, BLS series, and Census files and queries."
+version     = "0.2.0"
+description = "CFR sections by date, GovInfo packages, US Code titles, FEC committees and filings, BLS series, Census files and queries, and EIA, IRS, NCES and NCEI files."
 
 [scheme.ecfr]
 pattern  = '^(?P<date>\d{4}-\d{2}-\d{2})/(?P<title>\d{1,2})/(?P<section>[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)$'
@@ -86,6 +97,31 @@ resolve = { template = "https://www2.census.gov/{id}" }
 pattern = '^(?P<vintage>\d{4})/(?P<dataset>[a-z0-9]+(?:/[a-z0-9]+)*)\?(?P<query>[A-Za-z0-9_,:*=&+%.()-]+)$'
 type    = "dataset"
 resolve = { template = "https://api.census.gov/data/{vintage}/{dataset}?{query}", media = "application/json" }
+
+[scheme.eia]
+pattern = '^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$'
+type    = "dataset"
+resolve = { template = "https://www.eia.gov/{id}" }
+
+[scheme.irs]
+pattern = '^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$'
+type    = "document"
+resolve = { template = "https://www.irs.gov/pub/{id}" }
+
+[scheme.irs-990]
+pattern = '^\d{4}/[A-Za-z0-9_]+\.(?:zip|csv)$'
+type    = "dataset"
+resolve = { template = "https://apps.irs.gov/pub/epostcard/990/xml/{id}" }
+
+[scheme.nces]
+pattern = '^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$'
+type    = "dataset"
+resolve = { template = "https://nces.ed.gov/{id}" }
+
+[scheme.ncei]
+pattern = '^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$'
+type    = "dataset"
+resolve = { template = "https://www.ncei.noaa.gov/pub/data/{id}" }
 
 [transport]
 contact      = "optional"

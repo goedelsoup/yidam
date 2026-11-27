@@ -2,14 +2,15 @@
 
 ## What it is
 
-<!-- The regulation, law, code title, committee, filing, series or table, and the agency that
-publishes it: eCFR, GovInfo, the Office of the Law Revision Counsel, the FEC, BLS or the
-Census Bureau. -->
+<!-- The regulation, law, code title, committee, filing, series, table or file, and the agency
+that publishes it: eCFR, GovInfo, the Office of the Law Revision Counsel, the FEC, BLS, the
+Census Bureau, EIA, the IRS, NCES or NOAA NCEI. -->
 
 ## What was read
 
 <!-- The CFR section on its date, the GovInfo MODS record and its PDF, the US Code release
-point's zip, the FEC record or filing, the BLS series, or the Census file or query. -->
+point's zip, the FEC record or filing, the BLS series, the Census file or query, or the
+EIA, IRS, NCES or NCEI file, with the year or release it covers. -->
 
 ## What it establishes
 

@@ -16,7 +16,7 @@ The template ships five packs in `yidam/sources/`. A corpus can also write its o
 | `archive` | `wayback`, `ia`, `ia-file`, `github`, `wikipedia` | Wayback Machine snapshots, Internet Archive items, GitHub files at a commit, Wikipedia revisions |
 | `courts` | `courtlistener`, `caselaw` | CourtListener clusters, opinions and dockets, the Caselaw Access Project's static volumes |
 | `socrata` | `socrata`, `socrata-rows`, `arcgis` | Socrata datasets on any portal, ArcGIS feature layers |
-| `us-federal` | `ecfr`, `govinfo`, `govinfo-pdf`, `uscode`, `fec`, `fec-filing`, `bls`, `census`, `census-api` | CFR sections by date, GovInfo packages, US Code titles, FEC committees and filings, BLS series, Census files and queries |
+| `us-federal` | `ecfr`, `govinfo`, `govinfo-pdf`, `uscode`, `fec`, `fec-filing`, `bls`, `census`, `census-api`, `eia`, `irs`, `irs-990`, `nces`, `ncei` | CFR sections by date, GovInfo packages, US Code titles, FEC committees and filings, BLS series, Census files and queries, and EIA, IRS, NCES and NCEI files |
 
 One `doi:` reaches the full text when Europe PMC holds it open access.
 The DOI's describe names a `europepmc:` location for the same DOI.
@@ -45,6 +45,7 @@ A `govinfo:` package, such as `govinfo:PLAW-118publ1`, names its PDF as a `govin
 A `uscode:` title, such as `uscode:42`, is pinned to the current release point's zip when added.
 `us-federal` needs `FEC_API_KEY` for the FEC and `CENSUS_API_KEY` for `census-api:`, and sends each only to its own API.
 `BLS_API_KEY` is optional. A `census:` file under www2.census.gov needs no key.
+`eia:`, `irs:`, `irs-990:`, `nces:` and `ncei:` each name a file by its path, and need no key.
 
 ## Name a source by identifier
 
