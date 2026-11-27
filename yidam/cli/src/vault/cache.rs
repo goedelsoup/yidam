@@ -143,7 +143,7 @@ impl Cache {
         })?;
         std::fs::rename(&tmp, &dest).with_context(|| {
             // Leave the temp behind on failure rather than cleaning up: it is evidence, and
-            // `gc` knows how to sweep `.part` files.
+            // `gc` sweeps a `.part` file once the process it names has exited.
             format!("moving {} into place at {}", tmp.display(), dest.display())
         })?;
         Ok(dest)
@@ -166,9 +166,9 @@ impl Cache {
     /// Every artifact the cache holds, in a stable order.
     ///
     /// Sorted, because this feeds a report and a listing whose order moves between machines
-    /// is one no golden can pin. Entries that are not well-formed digests are skipped rather
-    /// than reported: the `.part` files above are exactly that, and so is anything else a
-    /// person dropped in the directory, and neither is an artifact this cache is claiming.
+    /// is one no golden can pin. Entries that are not well-formed digests are skipped: the
+    /// `.part` files above are not artifacts ([`Cache::leftovers`] lists them), and nor is
+    /// anything else a person dropped in the directory.
     pub fn entries(&self) -> Result<Vec<ContentHash>> {
         let algo = self.root.join("sha256");
         if !algo.is_dir() {
@@ -194,6 +194,100 @@ impl Cache {
         out.sort();
         Ok(out)
     }
+
+    /// Every temporary a writer of this cache left here, in a stable order.
+    ///
+    /// Two writers make them, and both name the file for their own process:
+    /// `sha256/<shard>/.<digest>.<pid>.part` (a put or a fetch) and `.<kind>.<pid>.packing`
+    /// at the root (`vault push` staging a derived artifact). A name is matched exactly —
+    /// a digest filed under its own shard, a derived kind, a pid — and only a regular file
+    /// counts, so a person's file, a directory or a symlink is never listed.
+    ///
+    /// **This lists; it does not judge.** A file listed here may still be being written.
+    /// Whether its process is alive is the caller's question, and [`Leftover::pid`] is what
+    /// it asks about.
+    pub fn leftovers(&self) -> Result<Vec<Leftover>> {
+        let mut out = Vec::new();
+        if !self.root.is_dir() {
+            return Ok(out);
+        }
+        for path in read_dir_sorted(&self.root)? {
+            if let Some(pid) = packing_pid(&path) {
+                push_if_file(&mut out, path, pid);
+            }
+        }
+        let algo = self.root.join("sha256");
+        if !algo.is_dir() {
+            return Ok(out);
+        }
+        for shard in read_dir_sorted(&algo)? {
+            if !shard.is_dir() {
+                continue;
+            }
+            for path in read_dir_sorted(&shard)? {
+                if let Some(pid) = part_pid(&path) {
+                    push_if_file(&mut out, path, pid);
+                }
+            }
+        }
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(out)
+    }
+}
+
+/// A temporary file a cache writer left behind — see [`Cache::leftovers`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Leftover {
+    pub path: PathBuf,
+    /// The process that wrote it, from its name.
+    pub pid: u32,
+    pub bytes: u64,
+}
+
+/// Only a regular file, asked without following a link: a symlink named like a temporary
+/// points at something this cache did not write.
+fn push_if_file(out: &mut Vec<Leftover>, path: PathBuf, pid: u32) {
+    if let Ok(meta) = std::fs::symlink_metadata(&path) {
+        if meta.file_type().is_file() {
+            out.push(Leftover {
+                path,
+                pid,
+                bytes: meta.len(),
+            });
+        }
+    }
+}
+
+/// The pid in `.<digest>.<pid>.part`, when the digest is filed under its own shard.
+fn part_pid(path: &Path) -> Option<u32> {
+    let name = path.file_name()?.to_str()?;
+    let (digest, pid) = name
+        .strip_prefix('.')?
+        .strip_suffix(".part")?
+        .split_once('.')?;
+    let hash = ContentHash::parse(digest).ok()?;
+    let shard = path.parent()?.file_name()?.to_str()?;
+    (hash.shard() == shard).then_some(())?;
+    parse_pid(pid)
+}
+
+/// The pid in `.<kind>.<pid>.packing`, when the kind is a derived artifact's.
+fn packing_pid(path: &Path) -> Option<u32> {
+    let name = path.file_name()?.to_str()?;
+    let (kind, pid) = name
+        .strip_prefix('.')?
+        .strip_suffix(".packing")?
+        .split_once('.')?;
+    super::Derived::parse(kind)?;
+    parse_pid(pid)
+}
+
+/// Digits only: `str::parse` would also take a leading `+`, which no writer produces.
+fn parse_pid(s: &str) -> Option<u32> {
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    s.parse().ok()
 }
 
 fn read_dir_sorted(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -369,5 +463,57 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let cache = Cache::at(tmp.path().join("never-created"));
         assert_eq!(cache.entries().unwrap(), Vec::new());
+        assert_eq!(cache.leftovers().unwrap(), Vec::new());
+    }
+
+    /// **The names the writers produce, and nothing else (#1658).** `gc` deletes what this
+    /// lists, so a near miss — a person's file, a short digest, a temporary in the wrong
+    /// shard, a directory or a link — must not be listed.
+    #[test]
+    fn leftovers_are_exactly_the_temporaries_a_writer_names_for_itself() {
+        let tmp = TempDir::new().unwrap();
+        let cache = Cache::at(tmp.path().join("cache"));
+        let src = file_with(tmp.path(), "a", b"an artifact");
+        let hash = ContentHash::of_file(&src).unwrap();
+        cache.put_file(&src, &hash).unwrap();
+        let shard = cache.path_of(&hash).parent().unwrap().to_path_buf();
+        let root = cache.root().to_path_buf();
+
+        let part = shard.join(format!(".{hash}.4242.part"));
+        std::fs::write(&part, b"partial").unwrap();
+        let packing = root.join(".index.77.packing");
+        std::fs::write(&packing, b"packed").unwrap();
+
+        // Near misses, each of which must survive a sweep.
+        std::fs::write(shard.join(".deadbeef.9.part"), b"short digest").unwrap();
+        std::fs::write(shard.join(format!(".{hash}.part")), b"no pid").unwrap();
+        std::fs::write(shard.join(format!(".{hash}.+9.part")), b"signed pid").unwrap();
+        std::fs::write(shard.join(format!("{hash}.9.part")), b"no dot").unwrap();
+        std::fs::write(root.join(".notes.9.packing"), b"not a kind").unwrap();
+        std::fs::write(root.join("notes.txt"), b"a person's").unwrap();
+        let elsewhere = root.join("sha256").join("00");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join(format!(".{hash}.9.part")), b"wrong shard").unwrap();
+        std::fs::create_dir_all(shard.join(format!(".{hash}.10.part"))).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&src, shard.join(format!(".{hash}.11.part"))).unwrap();
+
+        assert_eq!(
+            cache.leftovers().unwrap(),
+            vec![
+                Leftover {
+                    path: packing,
+                    pid: 77,
+                    bytes: 6
+                },
+                Leftover {
+                    path: part,
+                    pid: 4242,
+                    bytes: 7
+                },
+            ]
+        );
+        // And the artifact itself is still an artifact, not a leftover.
+        assert_eq!(cache.entries().unwrap(), vec![hash]);
     }
 }

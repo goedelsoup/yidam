@@ -165,6 +165,9 @@ an artifact another one names looks exactly like an orphan from here. Usually th
 re-fetch — but an artifact recorded `vault: none` is in a cache and nowhere else by decision,
 and there the cache is the only copy.
 
+It also sweeps the `.part` and `.packing` files an interrupted write left, under the same `--yes`.
+A file whose process is still running is a write in progress, and is left alone.
+
 ## What to run when something looks wrong
 
 | | |

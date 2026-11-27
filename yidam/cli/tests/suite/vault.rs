@@ -1596,6 +1596,62 @@ fn gc_keeps_what_the_catalog_and_the_lock_name_and_drops_the_rest() {
     run(tmp.path(), &cache, &["vault", "path", &orphan]).failed();
 }
 
+/// **`gc` sweeps what an interrupted write left, and nothing a running one is writing
+/// (#1658).** A temporary is named for its process: one whose process has exited is stale,
+/// one whose process is this test is live. Near misses and a person's file are not swept.
+#[test]
+fn gc_sweeps_stale_temporaries_and_leaves_live_ones_alone() {
+    let store = tempfile::tempdir().unwrap();
+    let tmp = repo(Some(&derived_config(store.path())));
+    let cache = tmp.path().join("cache");
+    let kept = cached(tmp.path(), &cache, b"a paper the catalog names");
+    entry(tmp.path(), "paper", &kept, "");
+
+    // A process that has exited: its pid names nothing running any more.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_yidam"))
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .expect("running yidam");
+    let dead = child.id();
+    child.wait().unwrap();
+    let alive = std::process::id();
+
+    let digest = "de".to_string() + &"a".repeat(62);
+    let stale = format!("sha256/de/.{digest}.{dead}.part");
+    let live = format!("sha256/de/.{digest}.{alive}.part");
+    let packing = format!(".index.{dead}.packing");
+    let untouched = ["sha256/de/.deadbeef.9.part", "notes.txt"];
+    write(&cache.join(&stale), b"partial");
+    write(&cache.join(&live), b"still writing");
+    write(&cache.join(&packing), b"packed");
+    for name in untouched {
+        write(&cache.join(name), b"not ours");
+    }
+
+    let said = run(tmp.path(), &cache, &["vault", "gc"]).ok().said();
+    assert!(said.contains("2 left by an interrupted write"), "{said}");
+    assert!(said.contains(&stale) && said.contains(&packing), "{said}");
+    assert!(!said.contains(&live), "a live write is not listed: {said}");
+    assert!(said.contains("1 still being written"), "{said}");
+    assert!(said.contains("Nothing was deleted"), "{said}");
+    let mut before = cache_files(&cache);
+    before.sort();
+    assert_eq!(before.len(), 6, "without --yes nothing moves: {before:?}");
+
+    let said = run(tmp.path(), &cache, &["vault", "gc", "--yes"])
+        .ok()
+        .said();
+    assert!(said.contains("Removed 2 interrupted write(s)"), "{said}");
+    let mut after = cache_files(&cache);
+    after.sort();
+    let mut expected: Vec<String> = untouched.iter().map(|s| s.to_string()).collect();
+    expected.push(live);
+    expected.push(format!("sha256/{}/{kept}", &kept[..2]));
+    expected.sort();
+    assert_eq!(after, expected, "{said}");
+}
+
 /// A content address is useless for opening. `materialize` gives it a name and an extension.
 #[test]
 fn materialize_gives_a_cached_artifact_a_name_a_person_can_open() {
