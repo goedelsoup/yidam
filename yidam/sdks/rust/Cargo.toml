@@ -6,7 +6,7 @@ description = "Yidam corpus types and parity surface — Rust reference implemen
 license = "MIT"
 repository = "https://github.com/goedelsoup/yidam"
 # The CLI depends on this crate, so a `yidam-core` requiring newer would make the CLI's own
-# floor a fiction. Both are the toolchain in mise.toml, and `toolchain_pins.rs` asserts it.
+# floor a fiction. Both are the root rust-toolchain.toml's, and `toolchain_pins.rs` asserts it.
 #
 # This is the published half, so raising it from 1.85 in #463 is the change a crates.io
 # consumer feels: it narrows who can build `yidam-core`. It was raised because 1.85 was

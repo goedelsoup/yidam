@@ -39,19 +39,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # `@stable` is installed but NOT left as the default — the pin below comes second and
-      # wins. It is here only so `cargo +stable` resolves for the semver check further down,
-      # which needs rustc >= 1.93 to read rustdoc JSON. Order is the whole of the mechanism:
-      # reverse these two lines and this job publishes a crate built by whatever stable
-      # shipped that week.
+      # `@stable` is installed only so `cargo +stable` resolves for the semver check further
+      # down, which needs rustc >= 1.93 to read rustdoc JSON. It does not decide what builds
+      # the crate: inside this checkout, rust-toolchain.toml does, whatever the default is.
+      # Order no longer matters, because the default is no longer what a bare `cargo` runs.
+      # A `+stable` on the publish command would be the way to get this wrong.
       - uses: dtolnay/rust-toolchain@stable
-      # The pinned toolchain, not `@stable`. An artifact built by whatever stable shipped
-      # that week is not the build any gate here tested, and this one is published — to a
-      # registry where a version cannot be replaced. The three `@stable` steps left in
-      # install-channels.yml are the deliberate opposite: they simulate a user, who has
-      # whatever stable is, and pinning them would test a channel nobody uses.
-      # `toolchain_pins.rs` asserts every one of these choices carries its reason.
-      - uses: dtolnay/rust-toolchain@1.88.0
+      # The toolchain rust-toolchain.toml names, read from it, not `@stable`. An artifact
+      # built by whatever stable shipped that week is not the build any gate here tested,
+      # and this one is published — to a registry where a version cannot be replaced. The
+      # three `@stable` steps left in install-channels.yml are the deliberate opposite:
+      # they simulate a user, who has whatever stable is, and pinning them would test a
+      # channel nobody uses. `toolchain_pins.rs` asserts every one of these choices.
+      - name: Install the toolchain rust-toolchain.toml names
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal
       - uses: jdx/mise-action@v4
 
       - name: Which crate does this tag name?

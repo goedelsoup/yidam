@@ -2,7 +2,7 @@
 name = "yidam"
 version = "0.27.0"
 edition = "2021"
-# The toolchain pinned in mise.toml and every rust-toolchain.toml, and it must stay that.
+# The toolchain the root rust-toolchain.toml names, and it must stay that.
 # The resolver (with incompatible-rust-versions = "fallback") uses it to avoid dependencies
 # needing a newer rustc, and `toolchain_pins.rs` asserts the agreement.
 #

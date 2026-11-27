@@ -14,8 +14,8 @@ mise run yidam-build  # installs the full-feature binary into .local/bin
 mise tasks            # everything available
 ```
 
-[mise](https://mise.jdx.dev) manages both toolchains and tasks. Rust is pinned in `mise.toml`
-and `rust-toolchain.toml`, which are kept in sync.
+[mise](https://mise.jdx.dev) manages both toolchains and tasks. Rust is pinned once, in the
+root `rust-toolchain.toml`. mise reads it, and so does a bare `cargo` through rustup.
 
 `yidam-build` is `--features full` deliberately: working on the CLI means being able to run
 `index-build`, the semantic retrieval path, and the sqlite/rdf exports. That is why `mise
