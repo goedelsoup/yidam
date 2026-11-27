@@ -129,6 +129,10 @@ impl Cache {
         if dest.is_file() {
             return Ok(dest);
         }
+        #[expect(
+            clippy::expect_used,
+            reason = "`dest` is `path_of(hash)`, a join under the cache root, so it always has a parent"
+        )]
         let dir = dest.parent().expect("cache paths always have a parent");
         std::fs::create_dir_all(dir)
             .with_context(|| format!("creating cache directory {}", dir.display()))?;

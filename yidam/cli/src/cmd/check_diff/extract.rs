@@ -36,6 +36,10 @@ pub struct Decl {
 /// domain has. Measured across the three instrumented repositories, widening to both adds
 /// 14, 3 and 13 names and not one of them is a concept — `Connector`, `Result`, `BoxFut`.
 /// The narrow reading is also what the RFC's counts were taken against.
+#[expect(
+    clippy::expect_used,
+    reason = "the pattern is a string literal in this function, so it either compiles on every run or on none; a `?` here would give a compile-time constant an error path"
+)]
 fn declaration() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     RE.get_or_init(|| {

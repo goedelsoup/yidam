@@ -44,6 +44,10 @@ use std::sync::LazyLock;
 
 use tokio::runtime::{Handle, Runtime};
 
+#[expect(
+    clippy::expect_used,
+    reason = "a `LazyLock` initialiser cannot return an error, and a process that cannot build its async runtime has nothing to degrade to"
+)]
 static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     // Multi-threaded with tokio's default worker count, which is what `index-build` had
     // through `Runtime::new()` while it wrote a LanceDB table. Its users now make one request

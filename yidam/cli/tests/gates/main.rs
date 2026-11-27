@@ -53,7 +53,6 @@ mod lint_registry;
 mod mcp_contract_digest;
 mod mutation_residue;
 mod packaging;
-mod panic_paths;
 mod parity_implementations;
 mod policy_equivalence;
 mod prelude_commit_vocabulary;

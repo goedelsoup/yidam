@@ -117,9 +117,9 @@ impl<'a> Policy<'a> {
     /// Send, repeating a transient failure until it clears or the attempts run out.
     pub fn run<T>(&self, mut attempt: impl FnMut() -> Attempt<T>) -> anyhow::Result<T> {
         // Written so the last failure is returned from where it happened. Accumulating it
-        // into an `Option` and unwrapping after the loop needs a panic path to express "a
-        // loop that ran at least once recorded something", and `panic_paths.rs` ratchets
-        // those.
+        // into an `Option` and unwrapping after the loop needs an `expect` to say "a
+        // loop that ran at least once recorded something", and production code here denies
+        // `clippy::expect_used`.
         let mut spent = 0;
         let mut wait = self.first_pause;
         loop {

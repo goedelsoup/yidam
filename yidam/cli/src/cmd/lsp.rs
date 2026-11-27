@@ -221,6 +221,10 @@ impl Server {
         Some(rel.to_string_lossy().replace('\\', "/"))
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "the `if` above stores `Some` when it was `None`, and the borrow returned by this method cannot be had without it; a `?` would need an `Option` return that no caller could meaningfully handle"
+    )]
     fn graph(&mut self) -> &GraphReport {
         if self.graph.is_none() {
             self.graph = Some(graph_data(&crate::corpus::Corpus::open(&self.root)));
@@ -419,6 +423,10 @@ impl Server {
                     let _ = out.flush();
                 }
             },
+            #[expect(
+                clippy::unwrap_used,
+                reason = "the guard on this arm is `id.is_some()`; a match guard cannot bind the value, so the arm re-reads it"
+            )]
             _ if id.is_some() => reply(out, id.unwrap(), Value::Null),
             _ => {}
         }

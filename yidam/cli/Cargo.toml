@@ -39,17 +39,15 @@ path = "src/main.rs"
 # clippy` in CI are different checks and the difference stays invisible until a pull request
 # goes red (#464). A level in the manifest is read by every invocation, which is the point.
 #
-# **`clippy::unwrap_used` is deliberately NOT here**, and the measurement is why. Production
-# code carries few panic paths once test modules are excluded (`BUDGET` in `panic_paths.rs`),
-# an affordable number, which is what #464 expected. But `[lints]` applies to the package, tests
-# included, and this repository's tests unwrap freely: switching it on emits **1,831**
-# warnings, and since every gate passes `-D warnings`, a warn-level lint here is a deny.
+# **`clippy::unwrap_used` and `clippy::expect_used` are deliberately NOT here**, and the measurement
+# is why. `[lints]` applies to the whole package, tests included, and this repository's tests
+# unwrap freely: switching them on emits **1,831** warnings, and since every gate passes
+# `-D warnings`, a warn-level lint here is a deny.
 #
-# The issue's own wording is the right scope — "in the modules that must not panic" — and
-# that is a `#![deny(clippy::unwrap_used)]` at the top of chosen modules, after their
-# unwraps are removed. Removing them changes behaviour, and RFC-0025 is explicit that P0
-# through P3 change none. It is worth doing and it is not this phase; they are counted in
-# `panic_paths.rs` so the number cannot quietly grow while nobody is escalating anything.
+# They are denied outside tests by a crate attribute instead, `#![cfg_attr(not(test),
+# deny(clippy::unwrap_used, clippy::expect_used))]` at the top of `src/lib.rs` and `src/main.rs`
+# (#1631), and every production site carries `#[expect(…, reason = "…")]` saying why it cannot
+# be a `?`. `build.rs` is not covered: a build script fails a build by panicking, and it does.
 [lints.rust]
 # `deny`, not `forbid`, and the difference is the whole of a four-merge outage.
 #
@@ -100,10 +98,10 @@ unsafe_code = "deny"
 #
 # The replacement is `write!(s, …)` into the buffer that already exists, and it is written
 # `let _ = write!(…)` rather than `.unwrap()` for a reason that is measured elsewhere in this
-# file: `panic_paths.rs` ratchets production panic paths at its budget and may not rise, so 129
-# infallible unwraps would have cost more than the allocation they removed. Writing to a
-# `String` cannot fail — `fmt::Write for String` returns `Ok` unconditionally — so the
-# discarded result is the honest form and not a swallowed error.
+# file: `clippy::unwrap_used` is denied in production code and each exception is a written
+# `#[expect]`, so 129 infallible unwraps would have cost more than the allocation they
+# removed. Writing to a `String` cannot fail — `fmt::Write for String` returns `Ok`
+# unconditionally — so the discarded result is the honest form and not a swallowed error.
 format_push_string = "deny"
 # Mechanical, `--fix`-able, and 152 sites. Named here so it stays done.
 use_self = "deny"

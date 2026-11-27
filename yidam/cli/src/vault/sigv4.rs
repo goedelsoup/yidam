@@ -203,6 +203,10 @@ fn hmac(key: &[u8], data: &[u8]) -> Vec<u8> {
     // `new_from_slice` is `KeyInit`'s, not `Mac`'s: hmac 0.13 moved it there with the
     // digest 0.11 / crypto-common 0.2 trait split. `Mac` is still what `update` and
     // `finalize` come from, so both traits are in scope.
+    #[expect(
+        clippy::expect_used,
+        reason = "HMAC accepts a key of any length, so `new_from_slice` has no failing input; `hmac` returns bytes, not a `Result`"
+    )]
     let mut m =
         <HmacSha256 as KeyInit>::new_from_slice(key).expect("hmac takes a key of any length");
     m.update(data);

@@ -2724,8 +2724,7 @@ fn check_corpora(root: &Path) -> Answer {
 /// value abbreviated spell it the same way. Shorter than the full hash and long past the
 /// point where two corpora in one tree could collide.
 fn short(hash: &str) -> &str {
-    // `get` rather than an index: a slice of a value read off disk is a panic path, and the
-    // count of those in this crate is a number `panic_paths.rs` holds steady.
+    // `get` rather than an index: a slice of a value read off disk is a panic path.
     hash.get(..12).unwrap_or(hash)
 }
 
