@@ -215,6 +215,15 @@ with `split('\n')`, which leaves a trailing empty element on any text ending in 
 invisible while the only output was markers, and one extra swallowed line the moment one is
 counted. `close-tag-missing.toml` is what fails when that is reintroduced.
 
+**A line ends at `\n` and nowhere else, and whitespace is Unicode `White_Space` (#1620).** One
+`\r` directly before the `\n` is dropped; a lone `\r`, a form feed, a vertical tab, U+0085,
+U+2028 and U+2029 are all part of the line they sit in. Trimming uses the same set as Rust's
+`str::trim`, so U+0085 is whitespace and U+FEFF and U+001C–U+001F are not. Python's
+`splitlines` and `strip` and JavaScript's `trim` each draw these lines differently, which is
+why both SDKs carry the set as an explicit list rather than calling them. A TEMPLATE line that
+does not end in its arrow is not a marker and is still scanned for an inline block. The fixtures
+with `(#1620)` in their description are what fail when any of this is put back.
+
 ## The MUST rule
 
 **Every parity function must have at least one fixture.** There is no grace period.

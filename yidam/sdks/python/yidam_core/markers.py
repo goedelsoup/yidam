@@ -106,29 +106,57 @@ _ARROW = "-->"
 
 
 def _lines_with_offsets(text: str) -> list[tuple[int, str]]:
-    """``str.splitlines()``, keeping each line's index into the original text.
+    """The lines of ``text``, each with its index into the original — the Rust SDK's rule.
 
-    Built on ``keepends=True`` rather than on a running ``len(line) + 1`` because
-    ``splitlines`` breaks on more than ``\n`` — ``\r\n`` is two characters and ``\u2028``
-    is one — and the offsets have to survive every separator it recognises, not just the
-    one this repository writes.
+    A line ends at ``\\n`` and nowhere else, and one ``\\r`` before that ``\\n`` is not part
+    of it. A last line with no ``\\n`` after it is kept as it is, and a text ending in ``\\n``
+    has no empty line after it.
+
+    Not ``str.splitlines()``, which also breaks on ``\\f``, ``\\v``, a lone ``\\r``, U+001C to
+    U+001E, U+0085, U+2028 and U+2029. Each of those split a block here that the other two
+    SDKs read whole, so the same file had different content in Python (#1620).
     """
     out: list[tuple[int, str]] = []
     at = 0
-    for raw in text.splitlines(keepends=True):
-        parts = raw.splitlines()
-        out.append((at, parts[0] if parts else ""))
-        at += len(raw)
+    raw = text.split("\n")
+    for line in raw[:-1]:
+        out.append((at, line[:-1] if line.endswith("\r") else line))
+        at += len(line) + 1
+    if raw[-1] != "":
+        out.append((at, raw[-1]))
     return out
+
+
+#: Rust's ``char::is_whitespace``: the Unicode ``White_Space`` property, and nothing else.
+#:
+#: Not ``str.strip()``'s default, which also strips U+001C to U+001F — so a close tag followed
+#: by U+001F closed a block here and nowhere else (#1620).
+_WS = "".join(
+    chr(c)
+    for c in [
+        *range(0x09, 0x0E),
+        0x20,
+        0x85,
+        0xA0,
+        0x1680,
+        *range(0x2000, 0x200B),
+        0x2028,
+        0x2029,
+        0x202F,
+        0x205F,
+        0x3000,
+    ]
+)
 
 
 def _opens_a_regen(line: str) -> bool:
     """A body containing one of these means a close tag is missing above it."""
-    return line.strip().startswith("<!-- REGEN:")
+    return line.strip(_WS).startswith("<!-- REGEN:")
 
 
 def _opens_a_marker(line: str) -> bool:
-    return line.strip().startswith("<!-- REGEN:") or line.strip().startswith("<!-- TEMPLATE:")
+    t = line.strip(_WS)
+    return t.startswith("<!-- REGEN:") or t.startswith("<!-- TEMPLATE:")
 
 
 def scan_markers(text: str) -> Scan:
@@ -145,14 +173,17 @@ def scan_markers(text: str) -> Scan:
 
     while i < len(lines):
         line_at, line = lines[i]
-        stripped = line.strip()
+        stripped = line.strip(_WS)
 
+        # A TEMPLATE line that does not close on itself is not a marker, and it is not
+        # skipped either: it falls through to the REGEN scan below, as it does in the Rust
+        # SDK, so an inline block written after it on the same line is still read (#1620).
         if stripped.startswith("<!-- TEMPLATE:"):
             rest = stripped[len("<!-- TEMPLATE:"):]
             if rest.endswith(_ARROW):
-                markers.append(TemplateMarker(instruction=rest[:-3].strip()))
-            i += 1
-            continue
+                markers.append(TemplateMarker(instruction=rest[:-3].strip(_WS)))
+                i += 1
+                continue
 
         # Every block this line opens *and closes*, left to right — the inline form. A line
         # may carry more than one, and a block found here is finished: nothing below runs
@@ -174,7 +205,7 @@ def scan_markers(text: str) -> Scan:
             if close_col == -1:
                 block_open = rel
                 break
-            inline_command = line[after_open:arrow_at].strip()
+            inline_command = line[after_open:arrow_at].strip(_WS)
             regen.append(
                 RegenSpan(
                     command=inline_command,
@@ -185,7 +216,7 @@ def scan_markers(text: str) -> Scan:
                 )
             )
             markers.append(
-                RegenMarker(command=inline_command, content=line[body_col:close_col].strip())
+                RegenMarker(command=inline_command, content=line[body_col:close_col].strip(_WS))
             )
             col = close_col + len(_REGEN_CLOSE)
 
@@ -193,13 +224,13 @@ def scan_markers(text: str) -> Scan:
         # only a block when it starts its line. A `<!-- REGEN:` in the middle of a sentence
         # with no close tag after it is prose, and was prose before this function learned
         # the inline form; reading it as a block would make it swallow the rest of the file.
-        if block_open is None or line[:block_open].strip() != "":
+        if block_open is None or line[:block_open].strip(_WS) != "":
             i += 1
             continue
 
         open_col = block_open
         rest = line[open_col + len(_REGEN_OPEN):]
-        rest_stripped = rest.strip()
+        rest_stripped = rest.strip(_WS)
         open_line = i
         fault: Fault | None = None
         body_at: int | None = None
@@ -207,19 +238,19 @@ def scan_markers(text: str) -> Scan:
         if rest_stripped.endswith(_ARROW):
             # Single-line open tag. The arrow is the last thing on the line by that test, so
             # the body starts where the line's own trailing whitespace does.
-            command = rest_stripped[:-3].strip()
-            body_at = line_at + len(line.rstrip())
+            command = rest_stripped[:-3].strip(_WS)
+            body_at = line_at + len(line.rstrip(_WS))
             i += 1
         else:
-            command = rest.strip()
+            command = rest.strip(_WS)
             i += 1
             arrow_found = False
             while i < len(lines):
                 at, raw = lines[i]
-                t = raw.strip()
+                t = raw.strip(_WS)
                 i += 1
                 if t == _ARROW or t.endswith(_ARROW):
-                    body_at = at + len(raw.rstrip())
+                    body_at = at + len(raw.rstrip(_WS))
                     arrow_found = True
                     break
             if not arrow_found:
@@ -231,9 +262,9 @@ def scan_markers(text: str) -> Scan:
         closed = False
         while i < len(lines):
             at, raw = lines[i]
-            if raw.strip() == _REGEN_CLOSE:
+            if raw.strip(_WS) == _REGEN_CLOSE:
                 content_end = i
-                close_at = at + (len(raw) - len(raw.lstrip()))
+                close_at = at + (len(raw) - len(raw.lstrip(_WS)))
                 i += 1
                 closed = True
                 break
@@ -273,7 +304,7 @@ def scan_markers(text: str) -> Scan:
                 )
             )
 
-        content = "\n".join(raw for _, raw in lines[content_start:content_end]).strip()
+        content = "\n".join(raw for _, raw in lines[content_start:content_end]).strip(_WS)
         markers.append(RegenMarker(command=command, content=content))
 
     return Scan(markers=markers, malformed=malformed, regen=regen)
@@ -317,7 +348,7 @@ def _stands_alone(text: str, span: RegenSpan) -> bool:
     stop = text.find("\n", end)
     if stop == -1:
         stop = len(text)
-    return text[start:span.open].strip() == "" and text[end:stop].strip() == ""
+    return text[start:span.open].strip(_WS) == "" and text[end:stop].strip(_WS) == ""
 
 
 def update_regen(text: str, command: str, new_content: str) -> str:

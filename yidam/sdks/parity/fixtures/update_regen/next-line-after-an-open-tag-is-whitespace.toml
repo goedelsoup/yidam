@@ -1,0 +1,18 @@
+function = "update_regen"
+description = "U+0085 after an open tag is whitespace, so the tag closes on its line and the body is written (#1620)"
+
+[input]
+command = "a"
+new_content = "NEW"
+content = """
+<!-- REGEN: a -->\u0085
+old
+<!-- /REGEN -->
+"""
+
+[expected]
+content = """
+<!-- REGEN: a -->
+NEW
+<!-- /REGEN -->
+"""

@@ -1,0 +1,16 @@
+function = "update_regen"
+description = "A close tag after U+2028 does not stand alone, so the block has one end and is left as it is (#1620)"
+
+[input]
+command = "a"
+new_content = "NEW"
+content = """
+<!-- REGEN: a -->
+old\u2028<!-- /REGEN -->
+"""
+
+[expected]
+content = """
+<!-- REGEN: a -->
+old\u2028<!-- /REGEN -->
+"""

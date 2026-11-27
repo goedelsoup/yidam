@@ -1,0 +1,18 @@
+function = "update_regen"
+description = "An open tag after U+FEFF does not start its line, so it is prose and nothing is written (#1620)"
+
+[input]
+command = "a"
+new_content = "NEW"
+content = """
+\uFEFF<!-- REGEN: a -->
+old
+<!-- /REGEN -->
+"""
+
+[expected]
+content = """
+\uFEFF<!-- REGEN: a -->
+old
+<!-- /REGEN -->
+"""

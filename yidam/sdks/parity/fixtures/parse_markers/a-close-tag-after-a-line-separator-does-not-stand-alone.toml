@@ -1,0 +1,20 @@
+function = "parse_markers"
+description = "A close tag after U+2028 shares its line with the text before it, so it does not close the block (#1620)"
+
+[input]
+content = """
+<!-- REGEN: a -->
+old\u2028<!-- /REGEN -->
+"""
+
+[[expected]]
+kind = "Regen"
+command = "a"
+content = "old\u2028<!-- /REGEN -->"
+
+[[expected_malformed]]
+command = "a"
+line = 1
+fault = "CloseTagMissing"
+swallowed_lines = 1
+swallowed_markers = 0

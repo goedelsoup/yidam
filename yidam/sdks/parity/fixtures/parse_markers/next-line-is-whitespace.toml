@@ -1,0 +1,19 @@
+function = "parse_markers"
+description = "Whitespace is the Unicode White_Space property. U+0085 is in it, so a marker after it, or an open tag before it, is read (#1620)"
+
+[input]
+content = """
+\u0085<!-- TEMPLATE: t -->
+<!-- REGEN: a -->\u0085
+body
+<!-- /REGEN -->
+"""
+
+[[expected]]
+kind = "Template"
+instruction = "t"
+
+[[expected]]
+kind = "Regen"
+command = "a"
+content = "body"
