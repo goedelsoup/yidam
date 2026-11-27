@@ -266,14 +266,12 @@ struct Artifact {
 /// The YAML an artifact file holds: the whole of a `.yml`, the frontmatter of a `.md`.
 ///
 /// `None` for a `.md` with no frontmatter. That is not an artifact — a README beside a dossier is
-/// under the same glob and says nothing to check — and skipping it is not a finding.
+/// under the same glob and says nothing to check — and skipping it is not a finding. A header
+/// that never closes is skipped the same way, as it always was.
 fn artifact_yaml(rel: &str, text: &str) -> Option<String> {
     if rel.ends_with(".md") {
-        let body = text
-            .strip_prefix("---\n")
-            .or_else(|| text.strip_prefix("---\r\n"))?;
-        let end = body.find("\n---").map(|i| i + 1)?;
-        return Some(body[..end].to_string());
+        let split = crate::parse::split_frontmatter(text).ok().flatten()?;
+        return Some(split.yaml.to_string());
     }
     Some(text.to_string())
 }

@@ -320,17 +320,13 @@ fn evolution_or_stem(declared: String, path: &Path) -> String {
 /// this* — which is the finding the field exists to make, so it must not be producible by a
 /// parser.
 fn parse_resolution(text: &str) -> RecordHead {
-    let trimmed = text.trim_start();
-    let Some(rest) = trimmed.strip_prefix("---\n") else {
-        return RecordHead::default();
-    };
-    let Some(end) = rest.find("\n---") else {
+    let Ok(Some(split)) = crate::parse::split_frontmatter(text.trim_start()) else {
         return RecordHead::default();
     };
     let mut head = RecordHead::default();
     // Which list a bare `- item` belongs to, if any.
     let mut list: Option<&'static str> = None;
-    for line in rest[..end].lines() {
+    for line in split.yaml.lines() {
         if let Some(v) = line.strip_prefix("evolution:") {
             head.evolution = unquote(v);
             list = None;
@@ -678,6 +674,13 @@ mod tests {
         assert_eq!(head.date, "2026-08-16");
         assert_eq!(head.tips, ["ma/goedelsoup@0b12292", "ma/auditor@483228e"]);
         assert_eq!(head.synthesized_by, ["ma/auditor"]);
+
+        // The same record saved with CRLF reads the same (#1618).
+        let crlf = parse_resolution(&text.replace('\n', "\r\n"));
+        assert_eq!(crlf.evolution, "appointment-reach");
+        assert_eq!(crlf.date, "2026-08-16");
+        assert_eq!(crlf.tips, ["ma/goedelsoup@0b12292", "ma/auditor@483228e"]);
+        assert_eq!(crlf.synthesized_by, ["ma/auditor"]);
     }
 
     /// A jointly authored synthesis names every seat, and the scalar spelling is the common

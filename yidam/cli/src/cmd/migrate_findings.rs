@@ -244,10 +244,10 @@ pub(crate) fn apply(root: &Path, corpus: &Path, report: &mut MigrateReport) -> a
         // broke would fail `malformed-yaml` on the next lint, and the reader of that finding
         // would have no way to know a migration caused it.
         let yaml = if file.ends_with(".md") {
-            out.trim_start_matches('\n')
-                .strip_prefix("---\n")
-                .and_then(|r| r.split_once("\n---"))
-                .map(|(y, _)| y.to_string())
+            crate::parse::split_frontmatter(out.trim_start_matches('\n'))
+                .ok()
+                .flatten()
+                .map(|split| split.yaml.to_string())
         } else {
             Some(out.clone())
         };

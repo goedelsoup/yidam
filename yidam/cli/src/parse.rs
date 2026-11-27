@@ -323,18 +323,79 @@ pub fn parse_frontmatter_reporting(text: &str) -> (Frontmatter, Option<String>) 
     parse_header(text)
 }
 
-/// The YAML inside a document's frontmatter block.
+/// What [`split_frontmatter`] says about a header that opens and never closes.
+pub(crate) const UNCLOSED: &str = "frontmatter opens with `---` and is never closed";
+
+/// A document cut at its frontmatter fences. Every offset is a byte index into the text given
+/// to [`split_frontmatter`], so `&text[yaml_offset..]` starts with `yaml` and
+/// `&text[body_offset..]` is `body`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Split<'a> {
+    /// The lines between the fences, each with its own line ending — `\r\n` stays `\r\n`.
+    /// Empty for an empty header (`---\n---\n`).
+    pub yaml: &'a str,
+    /// Everything after the closing fence's line ending.
+    pub body: &'a str,
+    /// Where `yaml` starts: just past the opening fence's line ending.
+    pub yaml_offset: usize,
+    /// Where `body` starts. The closing fence occupies `yaml_offset + yaml.len()..body_offset`.
+    pub body_offset: usize,
+}
+
+/// Whether one line, without its `\n`, is a fence. A `\r` before the `\n` is part of the line
+/// ending and trailing blanks are tolerated, so `---\r` and `--- ` are fences and `----` and
+/// `---foo` are not. This is the rule `migrate locations` and `migrate pins` already read by.
+fn is_fence(line: &str) -> bool {
+    line.trim_end() == "---"
+}
+
+/// Where a document's frontmatter starts and stops: **the one place that is decided** (#1618).
 ///
-/// `Ok(None)` for a document that opens no header, `Err` for one that opens a header and never
-/// closes it. The distinction is [`parse_frontmatter_reporting`]'s and is explained there.
-fn frontmatter_yaml(text: &str) -> Result<Option<&str>, &'static str> {
-    let Some(rest) = text.trim_start().strip_prefix("---\n") else {
+/// The header opens on the first line, if that line is a fence and has a line ending, and
+/// closes at the next line that is a fence. `\n` and `\r\n` are both line endings. A line that
+/// only *starts* with three dashes does not close it, so a `----:` key at column zero is YAML.
+///
+/// `Ok(None)` for a document that opens no header, `Err(UNCLOSED)` for one that opens a header
+/// and never closes it. The distinction is [`parse_frontmatter_reporting`]'s and is explained
+/// there.
+///
+/// It does not skip leading whitespace. The readers do, by passing `text.trim_start()`; an
+/// editor that has to put back what it took apart does not.
+///
+/// Before this, modules found the fences themselves, by different rules. Each that ruled `---\r\n` out of
+/// the opening fence read a CRLF catalog entry as a document with no header — a
+/// `Frontmatter::default()` with `obtained` read as true — while another copy read the same
+/// file's header, and `lint` said nothing.
+pub(crate) fn split_frontmatter(text: &str) -> Result<Option<Split<'_>>, &'static str> {
+    let Some(first) = text.find('\n') else {
         return Ok(None);
     };
-    match rest.find("\n---") {
-        Some(end) => Ok(Some(&rest[..end])),
-        None => Err("frontmatter opens with `---` and is never closed"),
+    if !is_fence(&text[..first]) {
+        return Ok(None);
     }
+    let yaml_offset = first + 1;
+    let mut at = yaml_offset;
+    while at < text.len() {
+        let newline = text[at..].find('\n').map(|i| at + i);
+        let line_end = newline.unwrap_or(text.len());
+        if is_fence(&text[at..line_end]) {
+            let body_offset = newline.map_or(text.len(), |n| n + 1);
+            return Ok(Some(Split {
+                yaml: &text[yaml_offset..at],
+                body: &text[body_offset..],
+                yaml_offset,
+                body_offset,
+            }));
+        }
+        at = line_end + 1;
+    }
+    Err(UNCLOSED)
+}
+
+/// The YAML inside a document's frontmatter block, as [`split_frontmatter`] finds it after
+/// leading whitespace.
+fn frontmatter_yaml(text: &str) -> Result<Option<&str>, &'static str> {
+    split_frontmatter(text.trim_start()).map(|s| s.map(|s| s.yaml))
 }
 
 /// One document's frontmatter, read into whatever header type the caller has, and why it came
@@ -378,16 +439,9 @@ where
 /// is the substance — what the source holds, what was retrieved, what it does not answer.
 pub fn frontmatter_body(text: &str) -> &str {
     let trimmed = text.trim_start();
-    let Some(rest) = trimmed.strip_prefix("---\n") else {
-        return trimmed;
-    };
-    match rest.find("\n---") {
-        // 4 = the newline plus `---`; skip to the end of that line.
-        Some(end) => {
-            let after = &rest[end + 4..];
-            after.strip_prefix('\n').unwrap_or(after)
-        }
-        None => trimmed,
+    match split_frontmatter(trimmed) {
+        Ok(Some(split)) => split.body,
+        Ok(None) | Err(_) => trimmed,
     }
 }
 
@@ -685,5 +739,159 @@ mod tests {
         let fm = parse_frontmatter(text);
         assert_eq!(fm.name.as_deref(), Some("my-skill"));
         assert_eq!(fm.description.as_deref(), Some("Does something."));
+    }
+}
+
+/// Where a frontmatter header starts and stops (#1618). Written against
+/// [`parse_frontmatter_reporting`] and [`frontmatter_body`] only, so the same cases read the
+/// reader before and after it moved onto [`split_frontmatter`].
+#[cfg(test)]
+mod fences {
+    use super::*;
+
+    const LF: &str = "---\nname: edgar\ntype: database\ndescription: The filing system.\n\
+                      obtained: false\n---\n\n# EDGAR\n\nBody.\n";
+
+    /// The reported defect: the same entry saved with CRLF read as a document with no header,
+    /// so `obtained: false` came back as absent — and absent is read as obtained.
+    #[test]
+    fn a_crlf_header_is_read() {
+        let crlf = LF.replace('\n', "\r\n");
+        let (fm, why) = parse_frontmatter_reporting(&crlf);
+        assert_eq!(why, None);
+        assert_eq!(fm.name.as_deref(), Some("edgar"));
+        assert_eq!(fm.r#type.as_deref(), Some("database"));
+        assert_eq!(fm.description.as_deref(), Some("The filing system."));
+        assert_eq!(fm.obtained, Some(false));
+        assert_eq!(frontmatter_body(&crlf), "\r\n# EDGAR\r\n\r\nBody.\r\n");
+    }
+
+    /// A scalar in a CRLF header carries no `\r`, and a block scalar's lines are joined by
+    /// `\n`: serde reads `\r\n` as one line break, so the YAML is handed over untouched.
+    #[test]
+    fn a_crlf_scalar_gains_no_carriage_return() {
+        let crlf = "---\r\nname: x\r\ndescription: |\r\n  one\r\n  two\r\n---\r\n";
+        let (fm, why) = parse_frontmatter_reporting(crlf);
+        assert_eq!(why, None);
+        assert_eq!(fm.name.as_deref(), Some("x"));
+        assert_eq!(fm.description.as_deref(), Some("one\ntwo\n"));
+    }
+
+    /// `---` then `---` is a header with nothing in it, not a header that never closes.
+    #[test]
+    fn an_empty_header_is_accepted() {
+        for text in ["---\n---\nBody.\n", "---\r\n---\r\nBody.\r\n", "---\n---"] {
+            let (fm, why) = parse_frontmatter_reporting(text);
+            assert_eq!(why, None, "{text:?}");
+            assert_eq!(fm.name, None);
+        }
+        assert_eq!(frontmatter_body("---\n---\nBody.\n"), "Body.\n");
+    }
+
+    /// Only a line that is three dashes closes the header. A line that merely starts with them
+    /// is YAML: at column zero, a key.
+    #[test]
+    fn a_line_that_starts_with_three_dashes_does_not_close_the_header() {
+        for key in ["---foo", "----"] {
+            let text = format!("---\nname: x\n{key}: 1\nobtained: false\n---\nBody.\n");
+            let (fm, why) = parse_frontmatter_reporting(&text);
+            assert_eq!(why, None, "{key}");
+            assert_eq!(fm.obtained, Some(false), "{key}");
+            assert_eq!(frontmatter_body(&text), "Body.\n", "{key}");
+        }
+    }
+
+    /// Inside a block scalar such a line is indented, so it never looked like a fence; this
+    /// holds the case the issue named, which the old reader already got right.
+    #[test]
+    fn a_dashed_line_in_a_block_scalar_does_not_close_the_header() {
+        for inner in ["----", "---foo"] {
+            let text = format!(
+                "---\nname: x\ndescription: |\n  {inner}\n  more\nobtained: false\n---\nBody.\n"
+            );
+            let (fm, why) = parse_frontmatter_reporting(&text);
+            assert_eq!(why, None, "{inner}");
+            assert_eq!(fm.description, Some(format!("{inner}\nmore\n")), "{inner}");
+            assert_eq!(fm.obtained, Some(false), "{inner}");
+            assert_eq!(frontmatter_body(&text), "Body.\n", "{inner}");
+        }
+    }
+
+    /// A header that opens and never closes is still reported, in either line ending.
+    #[test]
+    fn an_unclosed_header_is_still_reported() {
+        for text in [
+            "---\nname: x\n",
+            "---\r\nname: x\r\n",
+            "---\nname: x\n----\n",
+        ] {
+            let (fm, why) = parse_frontmatter_reporting(text);
+            assert_eq!(
+                why.as_deref(),
+                Some("frontmatter opens with `---` and is never closed"),
+                "{text:?}"
+            );
+            assert_eq!(fm.name, None);
+            assert_eq!(frontmatter_body(text), text);
+        }
+    }
+
+    /// What an LF file read as before, it reads as now.
+    #[test]
+    fn an_lf_header_reads_as_it_did() {
+        let (fm, why) = parse_frontmatter_reporting(LF);
+        assert_eq!(why, None);
+        assert_eq!(fm.name.as_deref(), Some("edgar"));
+        assert_eq!(fm.obtained, Some(false));
+        assert_eq!(frontmatter_body(LF), "\n# EDGAR\n\nBody.\n");
+        // Leading whitespace is skipped; no opening fence is no header, and not a failure.
+        let (fm, why) = parse_frontmatter_reporting("\n\n  ---\nname: y\n---\n");
+        assert_eq!((fm.name.as_deref(), why), (Some("y"), None));
+        for text in ["# Just prose\n", "", "---", "--- x\nname: y\n---\n"] {
+            let (fm, why) = parse_frontmatter_reporting(text);
+            assert_eq!((fm.name, why), (None, None), "{text:?}");
+            assert_eq!(frontmatter_body(text), text.trim_start());
+        }
+        // A closing fence with no newline after it, and broken YAML still reported.
+        assert_eq!(frontmatter_body("---\nname: y\n---"), "");
+        assert!(parse_frontmatter_reporting("---\nname: [\n---\n")
+            .1
+            .is_some());
+    }
+
+    /// The offsets index the text given, and the pieces with the fences between them are the
+    /// whole of it — the property an editor splicing at them relies on.
+    #[test]
+    fn the_split_offsets_cover_the_text() {
+        let crlf = LF.replace('\n', "\r\n");
+        for text in [
+            LF,
+            crlf.as_str(),
+            "---\n---\n",
+            "---\r\n---",
+            "---\na: 1\n--- \nb\n",
+        ] {
+            let s = split_frontmatter(text).unwrap().unwrap();
+            assert_eq!(&text[s.yaml_offset..s.yaml_offset + s.yaml.len()], s.yaml);
+            assert_eq!(&text[s.body_offset..], s.body);
+            let fence = &text[s.yaml_offset + s.yaml.len()..s.body_offset];
+            assert_eq!(fence.trim_end(), "---", "{text:?}");
+            assert_eq!(&text[..s.yaml_offset].trim_end(), &"---");
+        }
+        let s = split_frontmatter(&crlf).unwrap().unwrap();
+        assert_eq!(
+            s.yaml,
+            "name: edgar\r\ntype: database\r\ndescription: The filing system.\r\nobtained: false\r\n"
+        );
+        assert_eq!(
+            (s.yaml_offset, s.body.len()),
+            (5, "\r\n# EDGAR\r\n\r\nBody.\r\n".len())
+        );
+        assert_eq!(
+            split_frontmatter("  ---\na\n---\n"),
+            Ok(None),
+            "no skipping here"
+        );
+        assert_eq!(split_frontmatter("---\na\n"), Err(UNCLOSED));
     }
 }

@@ -521,13 +521,13 @@ fn argument(root: &Path, baseline: &Baseline) -> Argument {
 }
 
 /// The top-level `expire_after` a record states, from a YAML record or the frontmatter of a
-/// Markdown one. Line endings are normalised first, so a CRLF checkout reads the same.
+/// Markdown one. The frontmatter is found as the parser finds it, so a CRLF checkout reads the
+/// same. A header that never closes is read whole: YAML takes the opening `---` as the start
+/// of the document.
 fn stated_expiry(text: &str) -> Option<usize> {
-    let text = text.replace("\r\n", "\n");
-    let text = text.as_str();
-    let yaml = match text.strip_prefix("---\n") {
-        Some(rest) => rest.split("\n---").next().unwrap_or(rest),
-        None => text,
+    let yaml = match crate::parse::split_frontmatter(text) {
+        Ok(Some(split)) => split.yaml,
+        Ok(None) | Err(_) => text,
     };
     let value: serde_yaml::Value = serde_yaml::from_str(yaml).ok()?;
     value
@@ -1302,6 +1302,16 @@ mod tests {
             stated_expiry("---\r\nid: x\r\nexpire_after: 80\r\n---\r\n\r\n# Why\r\n"),
             Some(80),
             "a CRLF checkout states the same number"
+        );
+        assert_eq!(
+            stated_expiry("---\nid: x\nexpire_after: 80\n"),
+            Some(80),
+            "a header that never closes is read whole, as it was"
+        );
+        assert_eq!(
+            stated_expiry("---\nid: x\n----: y\nexpire_after: 80\n---\n"),
+            Some(80),
+            "a line that only starts with three dashes does not close the header (#1618)"
         );
     }
 }

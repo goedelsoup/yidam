@@ -147,20 +147,21 @@ struct Region {
 
 fn region(text: &str) -> Option<Region> {
     let trimmed_at = text.len() - text.trim_start_matches('\n').len();
-    let body = &text[trimmed_at..];
-    if let Some(rest) = body.strip_prefix("---\n") {
-        // Frontmatter: between the opening fence and the closing one.
-        let start = trimmed_at + 4;
-        let close = rest.find("\n---")?;
-        return Some(Region {
-            start,
-            end: start + close + 1,
-        });
+    match crate::parse::split_frontmatter(&text[trimmed_at..]) {
+        // Frontmatter: between the opening fence and the closing one, as the parser reads it.
+        Ok(Some(split)) => {
+            let start = trimmed_at + split.yaml_offset;
+            Some(Region {
+                start,
+                end: start + split.yaml.len(),
+            })
+        }
+        Ok(None) => Some(Region {
+            start: 0,
+            end: text.len(),
+        }),
+        Err(_) => None,
     }
-    Some(Region {
-        start: 0,
-        end: text.len(),
-    })
 }
 
 /// Every finding recorded on this document.
@@ -284,16 +285,25 @@ pub fn write(text: &str, findings: &[Finding]) -> Option<String> {
     let r = region(text)?;
     let yaml = &text[r.start..r.end];
     let mut lines: Vec<String> = yaml.split('\n').map(str::to_string).collect();
+    // A header opened by `---\r\n` gets its new lines in the same ending, so a CRLF entry is
+    // not left with two.
+    let cr = if text[..r.start].ends_with("\r\n") {
+        "\r"
+    } else {
+        ""
+    };
+    let rendered = || -> Vec<String> {
+        render(findings)
+            .trim_end()
+            .split('\n')
+            .map(|l| format!("{l}{cr}"))
+            .collect()
+    };
 
     if let Some((start, end)) = block_lines(yaml) {
         lines.drain(start..end);
         if !findings.is_empty() {
-            let block: Vec<String> = render(findings)
-                .trim_end()
-                .split('\n')
-                .map(str::to_string)
-                .collect();
-            for (i, l) in block.into_iter().enumerate() {
+            for (i, l) in rendered().into_iter().enumerate() {
                 lines.insert(start + i, l);
             }
         }
@@ -302,7 +312,7 @@ pub fn write(text: &str, findings: &[Finding]) -> Option<String> {
         while lines.last().is_some_and(|l| l.trim().is_empty()) {
             lines.pop();
         }
-        lines.extend(render(findings).trim_end().split('\n').map(str::to_string));
+        lines.extend(rendered());
         lines.push(String::new());
     }
 
@@ -430,6 +440,36 @@ mod tests {
             "and not in the prose below it: {text}"
         );
         assert!(body.contains("What the source holds."));
+    }
+
+    /// The same entry saved with CRLF (#1618). The header was not found, so the whole file
+    /// was taken for YAML: the record was appended to the prose, and never read back.
+    #[test]
+    fn a_crlf_catalog_entry_takes_the_record_in_its_frontmatter_in_its_own_line_ending() {
+        let entry = "---\r\nname: usgs-nwis\r\ntype: api\r\n---\r\n\r\nWhat the source holds.\r\n";
+        let f = open("catalog-expired", "the record is older than its ttl");
+        let text = add(entry, &f).expect("written");
+        assert_eq!(parse(&text), vec![f.clone()]);
+        let (fm, body) = text.split_once("\r\n---\r\n").unwrap();
+        assert!(fm.contains("yidam:"), "{text:?}");
+        assert_eq!(body, "\r\nWhat the source holds.\r\n");
+        assert!(
+            !text.replace("\r\n", "").contains('\n'),
+            "no bare LF: {text:?}"
+        );
+        assert_eq!(remove(&text, &f.id).as_deref(), Some(entry));
+    }
+
+    /// An empty header is a header: the record goes inside it.
+    #[test]
+    fn an_empty_header_takes_the_record() {
+        let f = open("catalog-expired", "d");
+        let text = add("---\n---\nBody.\n", &f).expect("written");
+        assert_eq!(parse(&text), vec![f]);
+        assert!(
+            text.starts_with("---\nyidam:\n") && text.ends_with("\n---\nBody.\n"),
+            "{text}"
+        );
     }
 
     /// Putting the record where a reader would not find it is worse than saying it could
