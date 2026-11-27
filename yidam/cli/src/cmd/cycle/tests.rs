@@ -384,13 +384,15 @@ fn an_unreadable_baseline_blocks_and_is_not_read_as_empty() {
     .unwrap();
 
     let r = read(root);
-    assert!(
-        r.blocked
-            .iter()
-            .any(|b| b.gate == "lint" && b.check == "baseline"),
-        "an unreadable baseline blocks: {:?}",
-        r.blocked
-    );
+    let b = r
+        .blocked
+        .iter()
+        .find(|b| b.gate == "lint" && b.check == "baseline")
+        .unwrap_or_else(|| panic!("an unreadable baseline blocks: {:?}", r.blocked));
+    // The block's node names the file. The detail is the parser's own words, and carries no
+    // path from the machine that ran it.
+    assert_eq!(b.node.as_deref(), Some(".yidam/lint-baseline.yml"));
+    assert!(!b.detail.contains(&*root.to_string_lossy()), "{}", b.detail);
 }
 
 /// One act per gate, however many findings it holds. Forty rows under "what is next" is the

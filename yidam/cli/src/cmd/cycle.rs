@@ -445,7 +445,7 @@ fn blocked(root: &Path) -> (Vec<Blocked>, Vec<Finding>) {
                 gate: "lint",
                 check: "baseline".to_string(),
                 node: Some(baseline_file.clone()),
-                detail: format!("the baseline cannot be read — {e:#}"),
+                detail: format!("the baseline cannot be read — {}", e.root_cause()),
                 remedy: "yidam lint  (fix the baseline so it parses)".to_string(),
             });
             Default::default()
