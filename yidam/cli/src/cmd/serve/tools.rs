@@ -105,8 +105,13 @@ pub(crate) fn capabilities(state: &ServerState) -> Value {
     })
 }
 
-fn contract() -> Value {
-    serde_json::from_str(CONTRACT).expect("the compiled-in MCP contract is valid JSON")
+/// The contract, parsed once. Every `tools/call` reads a tool's schema from it (#1624), and it
+/// is over 100 KB of text.
+fn contract() -> &'static Value {
+    static PARSED: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    PARSED.get_or_init(|| {
+        serde_json::from_str(CONTRACT).expect("the compiled-in MCP contract is valid JSON")
+    })
 }
 
 /// Every tool the contract carries and its tier, in the contract's order.
@@ -166,6 +171,91 @@ fn tier(name: &str) -> Option<String> {
         .iter()
         .find(|t| t["name"] == name)
         .map(|t| t["tier"].as_str().unwrap_or("core").to_string())
+}
+
+/// Every argument a call sends checked against the type its tool's `inputSchema` declares
+/// (#1624), before any tool reads one.
+///
+/// Each tool reads an argument as `args["k"].as_u64().unwrap_or(5)`, which cannot tell a key
+/// that is absent from one of the wrong type: `"20"`, `20.0` and `-1` all answered with five
+/// results, and a mistyped `dry_run: "true"` wrote the branch a dry run exists to avoid. Checked
+/// here, once, from the schema `tools/list` serves, so no tool can read a type its contract
+/// does not declare.
+///
+/// **`null` is absent.** `yidam retrieve` sends `"class": null` for a filter nobody asked for,
+/// and `retrieve`'s own `where` already read null that way.
+///
+/// **`integer` means a non-negative integer written without a fraction.** Every integer this
+/// contract declares is a count read by `as_u64`, so `-1` and `20.0` are refused rather than
+/// read as the default. A future integer that may be negative is a change to this function.
+///
+/// A name the contract does not carry passes, so `dispatch` refuses it as an unknown tool.
+fn check_arguments(name: &str, args: &Value) -> Result<(), String> {
+    let Some(tool) = contract()["tools"]
+        .as_array()
+        .and_then(|tools| tools.iter().find(|t| t["name"] == name))
+    else {
+        return Ok(());
+    };
+    let args = match args {
+        Value::Null => return Ok(()),
+        Value::Object(args) => args,
+        other => {
+            return Err(format!(
+                "invalid arguments: must be an object, got {}",
+                described(other)
+            ))
+        }
+    };
+    let properties = &tool["inputSchema"]["properties"];
+    for (key, value) in args {
+        let schema = &properties[key.as_str()];
+        if value.is_null() || has_type(value, schema) {
+            continue;
+        }
+        let expected = match schema["type"].as_str() {
+            Some("integer") => "a non-negative integer".to_string(),
+            Some("array") => match schema["items"]["type"].as_str() {
+                Some(item) => format!("an array of {item}s"),
+                None => "an array".to_string(),
+            },
+            Some("object") => "an object".to_string(),
+            Some(other) => format!("a {other}"),
+            None => continue,
+        };
+        return Err(format!(
+            "invalid argument: {key} must be {expected}, got {}",
+            described(value)
+        ));
+    }
+    Ok(())
+}
+
+/// Whether `value` is of the JSON type `schema` declares. A schema with no `type` this function
+/// knows admits anything, so an argument the contract does not declare is not refused here.
+fn has_type(value: &Value, schema: &Value) -> bool {
+    match schema["type"].as_str() {
+        Some("string") => value.is_string(),
+        Some("boolean") => value.is_boolean(),
+        Some("integer") => value.is_u64(),
+        Some("number") => value.is_number(),
+        Some("object") => value.is_object(),
+        Some("array") => value
+            .as_array()
+            .is_some_and(|items| items.iter().all(|item| has_type(item, &schema["items"]))),
+        _ => true,
+    }
+}
+
+/// What a caller sent, for the refusal: the value itself where it is short, so `"20"` and
+/// `20.0` read as what they are, and its type where it is not.
+fn described(value: &Value) -> String {
+    match value {
+        Value::Array(_) => "an array".to_string(),
+        Value::Object(_) => "an object".to_string(),
+        Value::String(text) if text.chars().count() > 40 => "a string".to_string(),
+        scalar => scalar.to_string(),
+    }
 }
 
 /// A tool the contract carries and this server does not back, refused by name (#358).
@@ -245,6 +335,7 @@ fn dispatch(state: &mut ServerState, name: &str, args: &Value) -> Result<Value, 
     if let Some(refusal) = refuse_unbacked(state, name) {
         return Err(refusal);
     }
+    check_arguments(name, args)?;
     // The write tier, dispatched before the read arms and returning early, because it is the
     // only path that may leave the snapshot below it stale. Everything after this line reads
     // `&*state` and could not tell a reload had happened.
@@ -2228,6 +2319,91 @@ mod tests {
         assert_eq!(result["isError"], true);
     }
 
+    // ── argument types (#1624) ───────────────────────────────────────────────
+
+    /// `"1"`, `1.0` and `-1` each answered as if `k` were absent, with the default five.
+    #[test]
+    fn a_wrong_typed_argument_is_refused_by_name() {
+        let mut state = test_state();
+        for (k, got) in [
+            (json!("1"), "\"1\""),
+            (json!(1.0), "1.0"),
+            (json!(-1), "-1"),
+        ] {
+            let result = call(&mut state, "retrieve", &json!({"query": "graph", "k": k}));
+            assert_eq!(result["isError"], true, "{result}");
+            assert_eq!(
+                result["content"][0]["text"],
+                format!("invalid argument: k must be a non-negative integer, got {got}")
+            );
+        }
+        let result = call(
+            &mut state,
+            "retrieve",
+            &json!({"query": "graph", "class": 7}),
+        );
+        assert_eq!(
+            result["content"][0]["text"],
+            "invalid argument: class must be a string, got 7"
+        );
+        let result = call(
+            &mut state,
+            "retrieve",
+            &json!({"query": "graph", "corpora": [1]}),
+        );
+        assert_eq!(
+            result["content"][0]["text"],
+            "invalid argument: corpora must be an array of strings, got an array"
+        );
+        let result = call(&mut state, "retrieve", &json!(["graph"]));
+        assert_eq!(
+            result["content"][0]["text"],
+            "invalid arguments: must be an object, got an array"
+        );
+    }
+
+    /// Absent and null both still take the default, which is what `yidam retrieve` sends.
+    #[test]
+    fn an_absent_or_null_argument_still_takes_its_default() {
+        let mut state = test_state();
+        let absent = call_ok(&mut state, "retrieve", json!({"query": "graph"}));
+        let null = call_ok(
+            &mut state,
+            "retrieve",
+            json!({"query": "graph", "k": null, "class": null, "where": null}),
+        );
+        assert_eq!(absent["results"], null["results"]);
+        assert!(!absent["results"].as_array().unwrap().is_empty());
+        call_ok(&mut state, "retrieve", json!({"query": "graph", "k": 2}));
+    }
+
+    /// Every argument of every tool the contract carries, sent as the wrong type, is refused
+    /// naming it — including the tools `test_state` does not back, which is why this asks the
+    /// check rather than the dispatch.
+    #[test]
+    fn every_declared_argument_refuses_the_wrong_type() {
+        let mut checked = 0;
+        for tool in contract()["tools"].as_array().unwrap() {
+            let name = tool["name"].as_str().unwrap();
+            let Some(properties) = tool["inputSchema"]["properties"].as_object() else {
+                continue;
+            };
+            for (key, schema) in properties {
+                let wrong = match schema["type"].as_str().unwrap() {
+                    "string" => json!(1),
+                    _ => json!("1"),
+                };
+                let Err(refused) = check_arguments(name, &json!({ key.clone(): wrong.clone() }))
+                else {
+                    panic!("{name}.{key} accepted {wrong}");
+                };
+                assert!(refused.starts_with(&format!("invalid argument: {key} must be ")));
+                checked += 1;
+            }
+        }
+        assert!(checked > 30, "only {checked} arguments were checked");
+    }
+
     // ── check_citation (#357) ────────────────────────────────────────────────
 
     /// The verdict is read from the corpus this server walked at startup.
@@ -2477,7 +2653,7 @@ mod tests {
 
         assert_agrees(
             "rejection code",
-            &frozen_set(&contract(), "query", FROZEN_CODES),
+            &frozen_set(contract(), "query", FROZEN_CODES),
             &wire(code::SURFACED.iter().copied()),
         );
     }
@@ -2492,7 +2668,7 @@ mod tests {
 
         assert_agrees(
             "rejection code",
-            &frozen_set(&contract(), "paths", FROZEN_CODES),
+            &frozen_set(contract(), "paths", FROZEN_CODES),
             &wire(code::PATHS_SURFACED.iter().copied()),
         );
     }
@@ -2556,7 +2732,7 @@ mod tests {
 
         assert_agrees(
             "diagnostic code",
-            &frozen_set(&contract(), "query", FROZEN_DIAGNOSTIC_CODES),
+            &frozen_set(contract(), "query", FROZEN_DIAGNOSTIC_CODES),
             &wire(diagnostic_code::SURFACED.iter().copied()),
         );
     }
@@ -2573,7 +2749,7 @@ mod tests {
 
         assert_agrees(
             "diagnostic level",
-            &frozen_set(&contract(), "query", FROZEN_LEVELS),
+            &frozen_set(contract(), "query", FROZEN_LEVELS),
             &wire(level::FROZEN.iter().copied()),
         );
     }
@@ -2594,7 +2770,7 @@ mod tests {
     fn the_contract_does_not_freeze_a_code_only_the_cli_can_answer() {
         use crate::cmd::query::check::{code, diagnostic_code};
 
-        let rejections = frozen_set(&contract(), "query", FROZEN_CODES);
+        let rejections = frozen_set(contract(), "query", FROZEN_CODES);
         for cli_only in [code::ANCHOR_AT_REVISION, code::HISTORY_UNREADABLE] {
             assert!(
                 !rejections.contains(&cli_only.to_string()),
@@ -2605,7 +2781,7 @@ mod tests {
         }
         // `ontology-moved` says the vocabulary moved *between the revision asked about and
         // HEAD*, and no MCP call names a revision. Same argument, one field over.
-        let diagnostics = frozen_set(&contract(), "query", FROZEN_DIAGNOSTIC_CODES);
+        let diagnostics = frozen_set(contract(), "query", FROZEN_DIAGNOSTIC_CODES);
         assert!(
             !diagnostics.contains(&diagnostic_code::ONTOLOGY_MOVED.to_string()),
             "the contract freezes `{}`, which only a `--at` or `--between` run can produce",
