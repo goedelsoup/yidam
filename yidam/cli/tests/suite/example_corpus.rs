@@ -484,6 +484,35 @@ fn a_catalog_rename_repairs_the_target_edges_into_the_entry() {
     assert_eq!(code, 0, "the gate must pass after the rename: {stdout}");
 }
 
+/// A catalog rename rewrites a titled link and an angle-bracket link in place (#1691).
+///
+/// Both were planned and counted, and neither could be found on its line: the rename was
+/// either refused or, before that, reported them rewritten and left them pointing at the
+/// moved file. The title and the brackets are kept, byte for byte.
+#[test]
+fn a_catalog_rename_rewrites_titled_and_angle_bracket_links() {
+    let ex = Example::materialize("journalism");
+    let citing = ex.path().join(".yidam/catalog/transport-board-records.md");
+    let mut text = std::fs::read_to_string(&citing).unwrap();
+    text.push_str(
+        "\nSee [EDGAR](edgar-filings.md \"the filings\") and [again](<edgar-filings.md#top>).\n\
+         Also [plain](edgar-filings.md) and [other](confidential-material.md 'kept').\n",
+    );
+    std::fs::write(&citing, &text).unwrap();
+
+    let (stdout, stderr, code) = ex.run(&["rename", "catalog/edgar-filings", "sec-filings"]);
+    assert_eq!(code, 0, "rename failed\n{stdout}\n{stderr}");
+
+    let after = std::fs::read_to_string(&citing).unwrap();
+    assert!(
+        after.ends_with(
+            "\nSee [EDGAR](sec-filings.md \"the filings\") and [again](<sec-filings.md#top>).\n\
+             Also [plain](sec-filings.md) and [other](confidential-material.md 'kept').\n"
+        ),
+        "{after}"
+    );
+}
+
 /// The example must not be inherited.
 ///
 /// `yidam clone` copies the template wholesale, excluding only what the caller names. The
