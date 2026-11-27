@@ -67,7 +67,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use super::history::{is_instance, read_blobs};
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::cmd::sangha::Resolution;
 use crate::corpus::resolve_target;
 
@@ -181,6 +181,22 @@ fn excepted(remains_open: &str, node: &str) -> bool {
     remains_open.contains(node) || remains_open.contains(stem)
 }
 
+pub const RESOLUTION_SCOPE_UNHELD: CheckSpec = CheckSpec {
+    id: "resolution-scope-unheld",
+    title: "Resolution seats a node or edge no elector held",
+    severity: Severity::Error,
+    rationale: "Article V confines a resolution to what the electors brought to it: it may not \
+         introduce nodes, edges or claims that were not held by at least one of them. A node \
+         and an edge carry an identity — a node id, and a subject, verb and object — so this \
+         is set membership across the tips the record itself names, and there is no state of \
+         the world in which the answer is arguable. That is why it gates where the claim \
+         clause cannot: a claim has no identity to compare, and the constitution leaves that \
+         judgement with the synthesizer rather than delegating it to a checker. The rule this \
+         most often catches is the one the commentary states: a class is not its instances, \
+         so a resolution that seats the first instances of a class alongside the class it \
+         adopts is introducing nodes no elector held.",
+};
+
 pub(crate) fn unheld(audits: &[ScopeAudit]) -> Check {
     let mut violations = Vec::new();
     for a in audits {
@@ -238,23 +254,24 @@ pub(crate) fn unheld(audits: &[ScopeAudit]) -> Check {
             }
         }
     }
-    Check::new(
-        "resolution-scope-unheld",
-        "Resolution seats a node or edge no elector held",
-        Severity::Error,
-        "Article V confines a resolution to what the electors brought to it: it may not \
-         introduce nodes, edges or claims that were not held by at least one of them. A node \
-         and an edge carry an identity — a node id, and a subject, verb and object — so this \
-         is set membership across the tips the record itself names, and there is no state of \
-         the world in which the answer is arguable. That is why it gates where the claim \
-         clause cannot: a claim has no identity to compare, and the constitution leaves that \
-         judgement with the synthesizer rather than delegating it to a checker. The rule this \
-         most often catches is the one the commentary states: a class is not its instances, \
-         so a resolution that seats the first instances of a class alongside the class it \
-         adopts is introducing nodes no elector held.",
-        violations,
-    )
+    Check::new(&RESOLUTION_SCOPE_UNHELD, violations)
 }
+
+pub const RESOLUTION_SCOPE_UNVERIFIABLE: CheckSpec = CheckSpec {
+    id: "resolution-scope-unverifiable",
+    title: "Resolution's scope fidelity could not be decided here",
+    severity: Severity::Warn,
+    rationale:
+        "Whether Article V's node and edge clauses can be decided depends on what the clone \
+         holds. A `ma/*` tip need not be an ancestor of the baseline — transport copies a \
+         file and `adopt` merges the rigpa into the elector's branch, not the reverse — so 15 \
+         of the 70 tips measured are reachable only through the `ma/*` branches themselves, \
+         which a single-branch checkout does not fetch; and a depth-1 checkout cannot see \
+         what a resolution's own commit changed. That makes this a Warn: the record may be \
+         sound and the clone merely thin. What it must not do is pass silently. A gate that \
+         judges nothing while reporting nothing is indistinguishable from a gate that found \
+         nothing wrong, and this check is the difference.",
+};
 
 pub(crate) fn unverifiable(audits: &[ScopeAudit]) -> Check {
     let violations = audits
@@ -267,21 +284,7 @@ pub(crate) fn unverifiable(audits: &[ScopeAudit]) -> Check {
             ))
         })
         .collect();
-    Check::new(
-        "resolution-scope-unverifiable",
-        "Resolution's scope fidelity could not be decided here",
-        Severity::Warn,
-        "Whether Article V's node and edge clauses can be decided depends on what the clone \
-         holds. A `ma/*` tip need not be an ancestor of the baseline — transport copies a \
-         file and `adopt` merges the rigpa into the elector's branch, not the reverse — so 15 \
-         of the 70 tips measured are reachable only through the `ma/*` branches themselves, \
-         which a single-branch checkout does not fetch; and a depth-1 checkout cannot see \
-         what a resolution's own commit changed. That makes this a Warn: the record may be \
-         sound and the clone merely thin. What it must not do is pass silently. A gate that \
-         judges nothing while reporting nothing is indistinguishable from a gate that found \
-         nothing wrong, and this check is the difference.",
-        violations,
-    )
+    Check::new(&RESOLUTION_SCOPE_UNVERIFIABLE, violations)
 }
 
 // ── reading the repository ────────────────────────────────────────────────────
@@ -768,9 +771,19 @@ pub(crate) fn audit(root: &Path, records: &[Resolution]) -> Vec<ScopeAudit> {
     out
 }
 
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) resolution_scope_unheld: Check,
+    pub(crate) resolution_scope_unverifiable: Check,
+}
+
 /// Both checks, so the two readings of one audit stay in one place.
-pub(crate) fn checks(audits: &[ScopeAudit]) -> [Check; 2] {
-    [unheld(audits), unverifiable(audits)]
+pub(crate) fn checks(audits: &[ScopeAudit]) -> Checks {
+    Checks {
+        resolution_scope_unheld: unheld(audits),
+        resolution_scope_unverifiable: unverifiable(audits),
+    }
 }
 
 #[cfg(test)]
@@ -1046,7 +1059,7 @@ mod tests {
         )
     }
 
-    fn run(root: &Path) -> [Check; 2] {
+    fn run(root: &Path) -> Checks {
         let data = crate::cmd::sangha::sangha_data(root);
         checks(&audit_repo(root, &data.resolutions))
     }
@@ -1069,7 +1082,10 @@ mod tests {
         );
         commit(root, "synthesize: e");
 
-        let [unheld, unreadable] = run(root);
+        let Checks {
+            resolution_scope_unheld: unheld,
+            resolution_scope_unverifiable: unreadable,
+        } = run(root);
         assert!(unreadable.passed(), "{unreadable:?}");
         assert_eq!(unheld.violations.len(), 1, "{unheld:?}");
         assert!(
@@ -1100,7 +1116,10 @@ mod tests {
         );
         commit(root, "synthesize: e");
 
-        let [unheld, _] = run(root);
+        let Checks {
+            resolution_scope_unheld: unheld,
+            ..
+        } = run(root);
         assert!(unheld.passed(), "{unheld:?}");
     }
 
@@ -1129,7 +1148,10 @@ mod tests {
         );
         commit(root, "synthesize: e");
 
-        let [unheld, _] = run(root);
+        let Checks {
+            resolution_scope_unheld: unheld,
+            ..
+        } = run(root);
         assert!(unheld.passed(), "{unheld:?}");
     }
 
@@ -1151,7 +1173,10 @@ mod tests {
         );
         commit(root, "synthesize: e");
 
-        let [unheld, _] = run(root);
+        let Checks {
+            resolution_scope_unheld: unheld,
+            ..
+        } = run(root);
         assert_eq!(unheld.violations.len(), 1, "{unheld:?}");
         assert!(
             unheld.violations[0]
@@ -1174,7 +1199,10 @@ mod tests {
         );
         commit(root, "synthesize: e");
 
-        let [unheld, unreadable] = run(root);
+        let Checks {
+            resolution_scope_unheld: unheld,
+            resolution_scope_unverifiable: unreadable,
+        } = run(root);
         assert!(
             unheld.passed(),
             "partial evidence must not gate: {unheld:?}"
@@ -1194,7 +1222,10 @@ mod tests {
             ".yidam/sangha/resolutions/e.md",
             &record(&[format!("ma/one@{tip}")], "Nothing."),
         );
-        let [unheld, unreadable] = run(root);
+        let Checks {
+            resolution_scope_unheld: unheld,
+            resolution_scope_unverifiable: unreadable,
+        } = run(root);
         assert!(unheld.passed(), "{unheld:?}");
         assert!(unreadable.passed(), "{unreadable:?}");
     }
@@ -1223,7 +1254,10 @@ mod tests {
         );
         commit(root, "rename: a becomes a-renamed");
 
-        let [unheld, _] = run(root);
+        let Checks {
+            resolution_scope_unheld: unheld,
+            ..
+        } = run(root);
         assert!(unheld.passed(), "{unheld:?}");
     }
 
@@ -1244,7 +1278,10 @@ mod tests {
         write(root, ".yidam/sangha/resolutions/e.md", &text);
         commit(root, "record: restored");
 
-        let [unheld, _] = run(root);
+        let Checks {
+            resolution_scope_unheld: unheld,
+            ..
+        } = run(root);
         assert_eq!(unheld.violations.len(), 1, "{unheld:?}");
         assert!(unheld.violations[0].detail.contains("concept/c"));
     }
@@ -1282,7 +1319,10 @@ mod tests {
                 ".",
             ],
         );
-        let [unheld, unverifiable] = run(thin.path());
+        let Checks {
+            resolution_scope_unheld: unheld,
+            resolution_scope_unverifiable: unverifiable,
+        } = run(thin.path());
         assert!(unheld.passed(), "{unheld:?}");
         assert_eq!(unverifiable.violations.len(), 1, "{unverifiable:?}");
         assert!(
@@ -1310,7 +1350,10 @@ mod tests {
         );
         commit(root, "synthesize: e");
 
-        let [unheld, _] = run(root);
+        let Checks {
+            resolution_scope_unheld: unheld,
+            ..
+        } = run(root);
         assert!(unheld.passed(), "{unheld:?}");
     }
 
@@ -1358,7 +1401,10 @@ mod tests {
                 .contains("seated-unheld")
         );
 
-        let [unheld, unreadable] = run(root);
+        let Checks {
+            resolution_scope_unheld: unheld,
+            resolution_scope_unverifiable: unreadable,
+        } = run(root);
         assert!(unreadable.passed(), "{unreadable:?}");
         assert_eq!(unheld.violations.len(), 1, "{unheld:?}");
         assert!(

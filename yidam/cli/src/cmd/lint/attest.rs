@@ -27,7 +27,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::cmd::sangha::Elector;
 
 /// What the registry says about a seat, reduced to what verification needs.
@@ -267,6 +267,21 @@ pub(crate) fn attest(root: &Path, electors: &[Elector]) -> Vec<Attestation> {
         .collect()
 }
 
+pub const ELECTOR_SIGNATURE_UNVERIFIED: CheckSpec = CheckSpec {
+    id: "elector-signature-unverified",
+    title: "Elector branch tip does not verify against the key its row binds",
+    severity: Severity::Error,
+    rationale:
+        "RFC-0012, amended: a signature buys integrity and third-party verification, and it \
+         is worth having for those and claimed for nothing more — under one operator it does \
+         not distinguish seats from one another, and `electors.md` says so. This gates rather \
+         than warns because the repository decided it: the check is vacuous until a row binds \
+         a key, and binding one is a declaration that this seat's commits verify against it. \
+         The allowed-signers file is generated from the registry at verification time and \
+         never committed, so the trust anchor cannot drift from the record, and a key the \
+         registry does not carry verifies nothing.",
+};
+
 /// A seat whose tip does not verify against the key its own registry row binds.
 pub(crate) fn elector_signature_unverified(attestations: &[Attestation]) -> Check {
     let violations = attestations
@@ -296,20 +311,7 @@ pub(crate) fn elector_signature_unverified(attestations: &[Attestation]) -> Chec
             Some(Violation::new(a.branch.clone(), detail))
         })
         .collect();
-    Check::new(
-        "elector-signature-unverified",
-        "Elector branch tip does not verify against the key its row binds",
-        Severity::Error,
-        "RFC-0012, amended: a signature buys integrity and third-party verification, and it \
-         is worth having for those and claimed for nothing more — under one operator it does \
-         not distinguish seats from one another, and `electors.md` says so. This gates rather \
-         than warns because the repository decided it: the check is vacuous until a row binds \
-         a key, and binding one is a declaration that this seat's commits verify against it. \
-         The allowed-signers file is generated from the registry at verification time and \
-         never committed, so the trust anchor cannot drift from the record, and a key the \
-         registry does not carry verifies nothing.",
-        violations,
-    )
+    Check::new(&ELECTOR_SIGNATURE_UNVERIFIED, violations)
 }
 
 #[cfg(test)]

@@ -75,7 +75,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use super::history::read_blobs;
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::cmd::sangha::{parse_electors, ElectorRow, Resolution};
 
 /// The registry, at whatever revision it is being read from.
@@ -318,6 +318,24 @@ enum Ground {
     Disagrees(Independence, Independence),
 }
 
+pub const RESOLUTION_INDEPENDENCE_MISMATCH: CheckSpec = CheckSpec {
+    id: "resolution-independence-mismatch",
+    title: "Resolution's stated independence is not the one its seats derive",
+    severity: Severity::Info,
+    rationale:
+        "`independence:` states what `electors.md` distinguishes among the seats a resolution \
+         read, and it is derivable rather than judged: the record names its tips, each tip \
+         names a seat, and the registry carries `Kind`, `Model`, `Version` and `Config`. That \
+         makes a stated value that disagrees with the registry the one part of the record \
+         which is checkable and was, until this check, invisible. It reports rather than \
+         gates because every record written before the field existed carries no value at all, \
+         so a gate would be red on the whole corpus the day it armed — and it carries the \
+         derived answer rather than only the complaint, so the finding is also the repair. \
+         The registry is read at each seat's own tip, never at HEAD: a seat's row is mutable \
+         and a model upgrade is material, so reading HEAD would turn somebody else's upgrade \
+         into a finding against a record that was correct when it was written.",
+};
+
 /// A resolution whose `independence:` is not the one its seats derive.
 ///
 /// The severity and the silences are argued in the module docs. Four populations reach this
@@ -359,23 +377,7 @@ pub(crate) fn independence_mismatch(audits: &[IndependenceAudit]) -> Check {
             format!("{opening} — at the tips it names, {}", derived.because),
         ));
     }
-    Check::new(
-        "resolution-independence-mismatch",
-        "Resolution's stated independence is not the one its seats derive",
-        Severity::Info,
-        "`independence:` states what `electors.md` distinguishes among the seats a resolution \
-         read, and it is derivable rather than judged: the record names its tips, each tip \
-         names a seat, and the registry carries `Kind`, `Model`, `Version` and `Config`. That \
-         makes a stated value that disagrees with the registry the one part of the record \
-         which is checkable and was, until this check, invisible. It reports rather than \
-         gates because every record written before the field existed carries no value at all, \
-         so a gate would be red on the whole corpus the day it armed — and it carries the \
-         derived answer rather than only the complaint, so the finding is also the repair. \
-         The registry is read at each seat's own tip, never at HEAD: a seat's row is mutable \
-         and a model upgrade is material, so reading HEAD would turn somebody else's upgrade \
-         into a finding against a record that was correct when it was written.",
-        violations,
-    )
+    Check::new(&RESOLUTION_INDEPENDENCE_MISMATCH, violations)
 }
 
 // ── reading the repository ────────────────────────────────────────────────────

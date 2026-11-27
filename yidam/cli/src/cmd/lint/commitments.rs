@@ -38,7 +38,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use super::lineage::git;
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::git::RefKind;
 
 const SANGHA: &str = ".yidam/sangha";
@@ -66,6 +66,20 @@ pub(crate) struct Commitments {
 
 // ── the checks ────────────────────────────────────────────────────────────────
 
+pub const ELECTOR_COMMITMENTS_ABSENT: CheckSpec = CheckSpec {
+    id: "elector-commitments-absent",
+    title: "Elector branch carries no commitments file",
+    severity: Severity::Info,
+    rationale:
+        "A seat that has argued something is standing on it, and between two acts of the same \
+         seat nothing in this repository said what. Info rather than Error because adopting the \
+         file is a decision a sangha makes once and an unadopted convention is not a defect — a \
+         corpus mid-adoption would otherwise be told its every seat is in violation. It fires \
+         only for a seat that has actually filed a position: a branch opened this morning has \
+         nothing to index yet, and reporting it would train people to ignore the check before it \
+         ever had a subject.",
+};
+
 pub(crate) fn absent(seats: &[Commitments]) -> Check {
     let violations = seats
         .iter()
@@ -80,20 +94,21 @@ pub(crate) fn absent(seats: &[Commitments]) -> Check {
             )
         })
         .collect();
-    Check::new(
-        "elector-commitments-absent",
-        "Elector branch carries no commitments file",
-        Severity::Info,
-        "A seat that has argued something is standing on it, and between two acts of the same \
-         seat nothing in this repository said what. Info rather than Error because adopting the \
-         file is a decision a sangha makes once and an unadopted convention is not a defect — a \
-         corpus mid-adoption would otherwise be told its every seat is in violation. It fires \
-         only for a seat that has actually filed a position: a branch opened this morning has \
-         nothing to index yet, and reporting it would train people to ignore the check before it \
-         ever had a subject.",
-        violations,
-    )
+    Check::new(&ELECTOR_COMMITMENTS_ABSENT, violations)
 }
+
+pub const ELECTOR_COMMITMENTS_MALFORMED: CheckSpec = CheckSpec {
+    id: "elector-commitments-malformed",
+    title: "Commitments file does not carry both required sections",
+    severity: Severity::Error,
+    rationale:
+        "This gates because otherwise the file disarms the rest. A commitments file with no \
+         headings parses to two empty sections, empty sections lose nothing, and every vanished \
+         ground would read as clean — a seat could turn `elector-commitment-vanished` off by \
+         writing a worse file. The two headings are the whole of the required shape, and nothing \
+         below them is prescribed: order, grouping, and how much of the argument is restated are \
+         the elector's, because an index of positions is structural where a position is argument.",
+};
 
 pub(crate) fn malformed(seats: &[Commitments]) -> Check {
     let violations = seats
@@ -113,19 +128,22 @@ pub(crate) fn malformed(seats: &[Commitments]) -> Check {
             )
         })
         .collect();
-    Check::new(
-        "elector-commitments-malformed",
-        "Commitments file does not carry both required sections",
-        Severity::Error,
-        "This gates because otherwise the file disarms the rest. A commitments file with no \
-         headings parses to two empty sections, empty sections lose nothing, and every vanished \
-         ground would read as clean — a seat could turn `elector-commitment-vanished` off by \
-         writing a worse file. The two headings are the whole of the required shape, and nothing \
-         below them is prescribed: order, grouping, and how much of the argument is restated are \
-         the elector's, because an index of positions is structural where a position is argument.",
-        violations,
-    )
+    Check::new(&ELECTOR_COMMITMENTS_MALFORMED, violations)
 }
+
+pub const ELECTOR_POSITION_UNINDEXED: CheckSpec = CheckSpec {
+    id: "elector-position-unindexed",
+    title: "A seat's own position appears in neither section of its commitments",
+    severity: Severity::Info,
+    rationale:
+        "The earliest visible symptom of a seat losing its thread, and the cheapest to answer: \
+         either the position argued a ground the seat still holds, or it argued one the seat has \
+         since retired, and saying which is one line. Info because a third answer is legitimate \
+         and common — the position argued something about procedure, or about another seat, and \
+         is no ground of this seat's at all. A check that cannot tell those apart must not gate, \
+         and this one cannot: which of a seat's positions carry commitments is exactly the \
+         judgement Article V's commentary leaves with the elector.",
+};
 
 pub(crate) fn position_unindexed(seats: &[Commitments]) -> Check {
     let violations = seats
@@ -143,20 +161,23 @@ pub(crate) fn position_unindexed(seats: &[Commitments]) -> Check {
             })
         })
         .collect();
-    Check::new(
-        "elector-position-unindexed",
-        "A seat's own position appears in neither section of its commitments",
-        Severity::Info,
-        "The earliest visible symptom of a seat losing its thread, and the cheapest to answer: \
-         either the position argued a ground the seat still holds, or it argued one the seat has \
-         since retired, and saying which is one line. Info because a third answer is legitimate \
-         and common — the position argued something about procedure, or about another seat, and \
-         is no ground of this seat's at all. A check that cannot tell those apart must not gate, \
-         and this one cannot: which of a seat's positions carry commitments is exactly the \
-         judgement Article V's commentary leaves with the elector.",
-        violations,
-    )
+    Check::new(&ELECTOR_POSITION_UNINDEXED, violations)
 }
+
+pub const ELECTOR_COMMITMENT_VANISHED: CheckSpec = CheckSpec {
+    id: "elector-commitment-vanished",
+    title: "A ground left a seat's commitments without being withdrawn",
+    severity: Severity::Error,
+    rationale:
+        "Article III forbids a resolution silently discarding a tension it could not resolve. \
+         This is the same rule read across one elector instead of across several: a ground may be \
+         held, and it may be withdrawn — which is the interesting case and the one the loop was \
+         built to produce — and it may not stop existing. Reversing a commitment is not the \
+         violation and is never reported; leaving no trace of the reversal is. Deleting the file \
+         is reported here rather than as the file going absent, because a deletion that takes \
+         held grounds with it is precisely the silent discard, and routing it to the Info check \
+         would make removing the file the cheapest way past the Error one.",
+};
 
 pub(crate) fn commitment_vanished(seats: &[Commitments]) -> Check {
     let violations = seats
@@ -174,29 +195,25 @@ pub(crate) fn commitment_vanished(seats: &[Commitments]) -> Check {
             })
         })
         .collect();
-    Check::new(
-        "elector-commitment-vanished",
-        "A ground left a seat's commitments without being withdrawn",
-        Severity::Error,
-        "Article III forbids a resolution silently discarding a tension it could not resolve. \
-         This is the same rule read across one elector instead of across several: a ground may be \
-         held, and it may be withdrawn — which is the interesting case and the one the loop was \
-         built to produce — and it may not stop existing. Reversing a commitment is not the \
-         violation and is never reported; leaving no trace of the reversal is. Deleting the file \
-         is reported here rather than as the file going absent, because a deletion that takes \
-         held grounds with it is precisely the silent discard, and routing it to the Info check \
-         would make removing the file the cheapest way past the Error one.",
-        violations,
-    )
+    Check::new(&ELECTOR_COMMITMENT_VANISHED, violations)
 }
 
-pub(crate) fn checks(seats: &[Commitments]) -> [Check; 4] {
-    [
-        absent(seats),
-        malformed(seats),
-        position_unindexed(seats),
-        commitment_vanished(seats),
-    ]
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) elector_commitments_absent: Check,
+    pub(crate) elector_commitments_malformed: Check,
+    pub(crate) elector_position_unindexed: Check,
+    pub(crate) elector_commitment_vanished: Check,
+}
+
+pub(crate) fn checks(seats: &[Commitments]) -> Checks {
+    Checks {
+        elector_commitments_absent: absent(seats),
+        elector_commitments_malformed: malformed(seats),
+        elector_position_unindexed: position_unindexed(seats),
+        elector_commitment_vanished: commitment_vanished(seats),
+    }
 }
 
 // ── reading a file ────────────────────────────────────────────────────────────
@@ -587,6 +604,19 @@ mod tests {
 
     #[test]
     fn nothing_fires_on_a_repository_with_no_seats() {
-        assert!(checks(&[]).iter().all(Check::passed));
+        let Checks {
+            elector_commitments_absent,
+            elector_commitments_malformed,
+            elector_position_unindexed,
+            elector_commitment_vanished,
+        } = checks(&[]);
+        assert!([
+            elector_commitments_absent,
+            elector_commitments_malformed,
+            elector_position_unindexed,
+            elector_commitment_vanished,
+        ]
+        .iter()
+        .all(Check::passed));
     }
 }

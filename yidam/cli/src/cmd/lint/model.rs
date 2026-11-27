@@ -160,6 +160,26 @@ impl Violation {
     }
 }
 
+/// What a check is before it has run: the four things its report says about it whether it
+/// found anything or not.
+///
+/// **Declared once, beside the function that produces the check** (#1630). The roster lists
+/// these, and the producer builds its [`Check`] from the same constant with [`Check::new`], so
+/// the id a report carries and the id the roster declares are one value rather than two
+/// spellings held together by a test. A `const` rather than a `static` so the roster can be a
+/// `const` too; `&SPEC` is promoted to `'static` either way.
+#[derive(Debug)]
+pub struct CheckSpec {
+    /// See [`Check::id`].
+    pub id: &'static str,
+    pub title: &'static str,
+    /// The level the check declares. A producer may raise it from what the corpus says —
+    /// `resolution-executor-unrecorded` does — but never by naming another spec.
+    pub severity: Severity,
+    /// See [`Check::rationale`].
+    pub rationale: &'static str,
+}
+
 /// One invariant, its findings, and why anyone should care.
 #[derive(Debug, Clone)]
 pub struct Check {
@@ -205,7 +225,26 @@ pub struct Check {
 }
 
 impl Check {
-    pub fn new(
+    /// This check's findings, under the id, title, severity and rationale its spec declares.
+    pub fn new(spec: &'static CheckSpec, violations: Vec<Violation>) -> Self {
+        Self {
+            id: spec.id,
+            title: spec.title,
+            severity: spec.severity,
+            rationale: spec.rationale,
+            escalate_after: None,
+            escalation_eligible: false,
+            span_scope: SpanScope::Body,
+            violations,
+        }
+    }
+
+    /// A check under an id no spec declares, for a test whose subject is the report's
+    /// accounting rather than any one check.
+    ///
+    /// Test-only, so production code has exactly one way to name a check: its spec.
+    #[cfg(test)]
+    pub fn unregistered(
         id: &'static str,
         title: &'static str,
         severity: Severity,
@@ -311,7 +350,7 @@ mod tests {
 
     #[test]
     fn a_check_with_no_violations_passes() {
-        let c = Check::new("x", "X", Severity::Error, "because", vec![]);
+        let c = Check::unregistered("x", "X", Severity::Error, "because", vec![]);
         assert!(c.passed());
     }
 
@@ -332,7 +371,7 @@ mod tests {
     /// be one corpus's judgement arriving as a build failure in every other.
     #[test]
     fn a_corpus_that_declares_no_threshold_escalates_nothing() {
-        let c = Check::new(
+        let c = Check::unregistered(
             "orphan-in",
             "T",
             Severity::Info,
@@ -345,7 +384,7 @@ mod tests {
 
     #[test]
     fn a_finding_at_the_threshold_escalates_and_a_younger_sibling_does_not() {
-        let c = Check::new(
+        let c = Check::unregistered(
             "orphan-in",
             "T",
             Severity::Info,
@@ -365,7 +404,7 @@ mod tests {
     /// be rewritten to fix a verb, so there is nothing for a threshold to act on.
     #[test]
     fn a_finding_with_no_age_never_escalates() {
-        let c = Check::new(
+        let c = Check::unregistered(
             "x",
             "T",
             Severity::Warn,
@@ -380,7 +419,7 @@ mod tests {
     /// whose findings happen to be young.
     #[test]
     fn a_young_finding_on_an_error_check_still_gates() {
-        let c = Check::new(
+        let c = Check::unregistered(
             "dangling-edge",
             "T",
             Severity::Error,

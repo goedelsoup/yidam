@@ -29,7 +29,7 @@ use crate::corpus::{Class, Corpus, DecisionRecord, Edges, Node, Overlay, Source}
 use super::{
     articles, asks, attest, calculators, checks, citations, commitments, deliberation, edge_claims,
     elector_receipt, independence, line_citations, lineage, local_citations, quotations, scope,
-    ttl, Check, Options,
+    ttl, Options,
 };
 
 /// The corpus, the options, and every reading the checks are answered from.
@@ -81,24 +81,25 @@ pub(crate) struct Input<'a> {
 
     // ── whole groups ────────────────────────────────────────────────────────────
     //
-    // Seven producers answer several checks from one walk, and the roster reaches into the
-    // array they return. Cached here rather than at the call site so the walk happens once
-    // however many of its checks are asked for — and so that a roster entry is still one
-    // expression. Which index is which id is not left to the reader: every entry declares
-    // its id and `the_roster_declares_the_id_each_entry_produces` compares the two.
-    citation_checks: OnceLock<[Check; 4]>,
-    local_citation_checks: OnceLock<[Check; 4]>,
-    ask_checks: OnceLock<[Check; 2]>,
-    quotation_checks: OnceLock<[Check; 3]>,
-    edge_claim_checks: OnceLock<[Check; 4]>,
-    article_checks: OnceLock<[Check; 4]>,
-    scope_checks: OnceLock<[Check; 2]>,
-    lineage_checks: OnceLock<[Check; 3]>,
-    commitment_checks: OnceLock<[Check; 4]>,
-    calculator_checks: OnceLock<[Check; 3]>,
-    pin_checks: OnceLock<[Check; 5]>,
+    // Twelve producers answer several checks from one walk, and the roster takes one field of
+    // the `Checks` each returns. Cached here rather than at the call site so the walk happens
+    // once however many of its checks are asked for — and so that a roster entry is still one
+    // expression. A field is named for the spec its check is built from, and
+    // `every_entry_produces_the_check_its_spec_declares` runs every entry to hold the two
+    // together (#1630).
+    citation_checks: OnceLock<citations::Checks>,
+    local_citation_checks: OnceLock<local_citations::Checks>,
+    ask_checks: OnceLock<asks::Checks>,
+    quotation_checks: OnceLock<quotations::Checks>,
+    edge_claim_checks: OnceLock<edge_claims::Checks>,
+    article_checks: OnceLock<articles::Checks>,
+    scope_checks: OnceLock<scope::Checks>,
+    lineage_checks: OnceLock<lineage::Checks>,
+    commitment_checks: OnceLock<commitments::Checks>,
+    calculator_checks: OnceLock<calculators::Checks>,
+    pin_checks: OnceLock<super::pins::Checks>,
     declared_tables: OnceLock<Vec<super::tables::Table>>,
-    table_checks: OnceLock<[Check; 3]>,
+    table_checks: OnceLock<super::tables::Checks>,
 }
 
 impl<'a> Input<'a> {
@@ -737,7 +738,7 @@ impl<'a> Input<'a> {
 
     /// One walk of the citations, four readings of it — the same predicate `check_citation`
     /// answers from over MCP (#357).
-    pub(crate) fn citation_checks(&self) -> &[Check; 4] {
+    pub(crate) fn citation_checks(&self) -> &citations::Checks {
         self.citation_checks
             .get_or_init(|| citations::checks(self.nodes(), self.deps()))
     }
@@ -746,13 +747,13 @@ impl<'a> Input<'a> {
     /// in this corpus (RFC-0034). No dependency, no network, no pin — which is why it is the
     /// arm every corpus can actually use, and the external four have never had a subject in
     /// any measured corpus.
-    pub(crate) fn local_citation_checks(&self) -> &[Check; 4] {
+    pub(crate) fn local_citation_checks(&self) -> &local_citations::Checks {
         self.local_citation_checks
             .get_or_init(|| local_citations::checks(self.nodes(), self.claim_fields()))
     }
 
     /// `.yidam/asks/`, read once for both of its checks (#1467).
-    pub(crate) fn ask_checks(&self) -> &[Check; 2] {
+    pub(crate) fn ask_checks(&self) -> &asks::Checks {
         self.ask_checks.get_or_init(|| asks::checks(self.root()))
     }
 
@@ -762,7 +763,7 @@ impl<'a> Input<'a> {
     /// rather than a lint run that fails.
     /// The code-artifact pin checks (RFC-0051 §3): one `git cat-file` per repository the
     /// catalog pins into, shared by all five.
-    pub(crate) fn pin_checks(&self) -> &[Check; 5] {
+    pub(crate) fn pin_checks(&self) -> &super::pins::Checks {
         self.pin_checks
             .get_or_init(|| super::pins::checks(self.root(), self.sources()))
     }
@@ -776,12 +777,12 @@ impl<'a> Input<'a> {
         })
     }
 
-    pub(crate) fn table_checks(&self) -> &[Check; 3] {
+    pub(crate) fn table_checks(&self) -> &super::tables::Checks {
         self.table_checks
             .get_or_init(|| super::tables::checks(self.declared_tables(), self.nodes()))
     }
 
-    pub(crate) fn quotation_checks(&self) -> &[Check; 3] {
+    pub(crate) fn quotation_checks(&self) -> &quotations::Checks {
         self.quotation_checks.get_or_init(|| {
             let cache = crate::vault::Cache::resolve(|k| std::env::var(k).ok()).ok();
             quotations::checks(
@@ -800,7 +801,7 @@ impl<'a> Input<'a> {
     /// fields go in — a node's standing is a property its class declared `type: claim`. The
     /// fourth resolves what an edge's `source:` names against the catalog and the decision
     /// log (#1067), which is why those go in too.
-    pub(crate) fn edge_claim_checks(&self) -> &[Check; 4] {
+    pub(crate) fn edge_claim_checks(&self) -> &edge_claims::Checks {
         self.edge_claim_checks.get_or_init(|| {
             edge_claims::checks(
                 self.nodes(),
@@ -815,7 +816,7 @@ impl<'a> Input<'a> {
     }
 
     /// The domain articles, read from the genesis commit and evaluated (#593).
-    pub(crate) fn article_checks(&self) -> &[Check; 4] {
+    pub(crate) fn article_checks(&self) -> &articles::Checks {
         self.article_checks.get_or_init(|| {
             articles::checks(&articles::read(self.root, || {
                 articles::input(self.sangha(), self.nodes())
@@ -823,17 +824,17 @@ impl<'a> Input<'a> {
         })
     }
 
-    pub(crate) fn scope_checks(&self) -> &[Check; 2] {
+    pub(crate) fn scope_checks(&self) -> &scope::Checks {
         self.scope_checks
             .get_or_init(|| scope::checks(self.scope_audits()))
     }
 
-    pub(crate) fn lineage_checks(&self) -> &[Check; 3] {
+    pub(crate) fn lineage_checks(&self) -> &lineage::Checks {
         self.lineage_checks
             .get_or_init(|| lineage::checks(self.standings()))
     }
 
-    pub(crate) fn commitment_checks(&self) -> &[Check; 4] {
+    pub(crate) fn commitment_checks(&self) -> &commitments::Checks {
         self.commitment_checks
             .get_or_init(|| commitments::checks(self.commitments()))
     }
@@ -844,7 +845,7 @@ impl<'a> Input<'a> {
     /// builds a gluon VM and typechecks a prelude, and the three checks that read the verdict
     /// must not each pay for one. A corpus declaring no typed calculator — every corpus today —
     /// walks no VM at all, because the list is empty.
-    pub(crate) fn calculator_checks(&self) -> &[Check; 3] {
+    pub(crate) fn calculator_checks(&self) -> &calculators::Checks {
         self.calculator_checks.get_or_init(|| {
             calculators::checks(
                 self.scripts

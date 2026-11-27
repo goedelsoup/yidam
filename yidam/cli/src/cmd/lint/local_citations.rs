@@ -69,16 +69,62 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::citations::{flatten, truncate, Finding};
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::corpus::Node;
 use crate::parse::ExternalCitation;
 
 /// The four check ids, named once. A filter keyed on a literal would drift from the id the
 /// baseline records the moment either was reworded.
-pub const UNRESOLVED: &str = "local-citation-unresolved";
-pub const SPAN_DRIFT: &str = "local-citation-span-drift";
-pub const TAG_DRIFT: &str = "local-citation-tag-drift";
-pub const UNTAGGED: &str = "local-citation-untagged";
+pub const UNRESOLVED: CheckSpec = CheckSpec {
+    id: "local-citation-unresolved",
+    title: "A local citation names a node this corpus does not hold",
+    severity: Severity::Error,
+    rationale: "A `cites:` entry with no `package:` rests on a node in this corpus. Renaming or \
+         deleting that node breaks the claim, and nothing else notices: `graph-check` reads \
+         `links:` and a citation is deliberately not a link, because a citation is not a \
+         relationship and must never enter a traversal. Error, under the baseline ratchet like \
+         every other citation defect a person here can fix. The population is empty in a corpus \
+         that writes no local citations, so this cannot fail a repository that predates it.",
+};
+pub const SPAN_DRIFT: CheckSpec = CheckSpec {
+    id: "local-citation-span-drift",
+    title: "A local citation's span is no longer in the node it names",
+    severity: Severity::Error,
+    rationale:
+        "`agent-conduct.md`: *cite a span, not a node*. A node reference alone rots invisibly, \
+         because the node keeps its name while its content is rewritten — and inside one corpus \
+         that rewrite is a normal commit, not a dependency bump somebody had to choose. \
+         Whitespace is normalized on both sides and nothing else is, so a folded scalar and a \
+         re-wrapped quote compare equal while a reworded one does not. The repair is to read \
+         the node and decide whether the claim survives; re-quoting the new text to clear the \
+         finding is the one response that destroys what the check is for.",
+};
+pub const TAG_DRIFT: CheckSpec = CheckSpec {
+    id: "local-citation-tag-drift",
+    title: "A local citation declares a standing its own corpus does not hold",
+    severity: Severity::Error,
+    rationale:
+        "A foreign `tag:` is the producer's and `agent-conduct.md` says it does not transfer and \
+         cannot be checked — which is why the external family has no equivalent of this and \
+         reports a moved pin at Warn instead. A local one has no such excuse: the producer is \
+         this corpus, the claim is in the same tree, and a citation resting on `[verified]` over \
+         a paragraph this corpus tags `[inference]` asserts something its own corpus denies. \
+         The standing is read from the claims that overlap the span, weakest first, which is the \
+         direction a derived assertion's tier is computed in. A span no tagged claim covers is \
+         reported too: there, nothing licenses the standing that was declared.",
+};
+pub const UNTAGGED: CheckSpec = CheckSpec {
+    id: "local-citation-untagged",
+    title: "A local citation records a span and not what it was worth",
+    severity: Severity::Info,
+    rationale: "The span is there and the claim is anchored, which is most of the value. What is \
+         missing is the standing it was read at, and without that a demotion on the far side of \
+         the citation moves nothing: the node it rests on can fall from `[verified]` to `[open]` \
+         and this citation reads exactly as it did. Info, never gates, never baselined — the \
+         remedy is a judgement about the citing node rather than a defect in the corpus, and the \
+         same verdict `external-citation-unpinned` reaches about a citation that records what \
+         was read and not which state it was read from. The count is the thing to watch.",
+};
 
 /// Whether a `cites:` entry names a node in this corpus rather than one in a dependency.
 ///
@@ -228,7 +274,7 @@ pub fn findings(
         .filter(|n: &String| !n.is_empty());
     let Some(target) = target else {
         report(
-            UNRESOLVED,
+            UNRESOLVED.id,
             Severity::Error,
             "a citation with no `package:` names a node in this corpus, and this one names no \
              `node:` either — give it the `<class>/<name>` it rests on, or `package:` if it \
@@ -239,7 +285,7 @@ pub fn findings(
     };
     let Some(text) = corpus.get(&target) else {
         report(
-            UNRESOLVED,
+            UNRESOLVED.id,
             Severity::Error,
             format!(
                 "cites `{target}` and this corpus has no such node — it was renamed or removed, \
@@ -257,7 +303,7 @@ pub fn findings(
         .filter(|s| !s.is_empty());
     let Some(span) = span else {
         report(
-            SPAN_DRIFT,
+            SPAN_DRIFT.id,
             Severity::Error,
             format!(
                 "cites `{target}` with no `span:` — a node reference alone rots invisibly, \
@@ -268,7 +314,7 @@ pub fn findings(
     };
     if !flatten(text).contains(&flatten(span)) {
         report(
-            SPAN_DRIFT,
+            SPAN_DRIFT.id,
             Severity::Error,
             format!(
                 "cites `{target}` for a span that is no longer in it, even ignoring line \
@@ -284,7 +330,7 @@ pub fn findings(
     // ── tag: the standing declared for a span this corpus itself holds ───────
     match cite.tag.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
         None => report(
-            UNTAGGED,
+            UNTAGGED.id,
             Severity::Info,
             format!(
                 "cites `{target}` with no `tag:` — the span is there and nothing records what \
@@ -295,7 +341,7 @@ pub fn findings(
         Some(raw) => {
             let Some(declared) = declared_standing(raw) else {
                 report(
-                    TAG_DRIFT,
+                    TAG_DRIFT.id,
                     Severity::Error,
                     format!(
                         "cites `{target}` at `{raw}`, which is not a standing — expected \
@@ -308,7 +354,7 @@ pub fn findings(
             match governing(text, span, fields) {
                 Some(found) if found == declared => {}
                 Some(found) => report(
-                    TAG_DRIFT,
+                    TAG_DRIFT.id,
                     Severity::Error,
                     format!(
                         "cites `{target}` at [{declared}] and this corpus holds that span at \
@@ -318,7 +364,7 @@ pub fn findings(
                     ),
                 ),
                 None => report(
-                    TAG_DRIFT,
+                    TAG_DRIFT.id,
                     Severity::Error,
                     format!(
                         "cites `{target}` at [{declared}] and no claim in that node governs the \
@@ -346,13 +392,22 @@ fn violations(found: &[(&Node, Vec<Finding>)], id: &str) -> Vec<Violation> {
         .collect()
 }
 
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) unresolved: Check,
+    pub(crate) span_drift: Check,
+    pub(crate) tag_drift: Check,
+    pub(crate) untagged: Check,
+}
+
 /// The four checks, over one walk of the corpus.
 ///
 /// Returned together and destructured at the call site rather than exposed as four public
 /// functions, for the reason [`super::citations::checks`] is: four functions is what made four
 /// walks look free.
 #[must_use]
-pub fn checks(nodes: &[Node], fields: &crate::claims::ClaimFields) -> [Check; 4] {
+pub fn checks(nodes: &[Node], fields: &crate::claims::ClaimFields) -> Checks {
     let corpus = corpus(nodes);
     let found: Vec<(&Node, Vec<Finding>)> = nodes
         .iter()
@@ -367,76 +422,28 @@ pub fn checks(nodes: &[Node], fields: &crate::claims::ClaimFields) -> [Check; 4]
                 .collect::<Vec<_>>()
         })
         .collect();
-    [
-        local_citation_unresolved(violations(&found, UNRESOLVED)),
-        local_citation_span_drift(violations(&found, SPAN_DRIFT)),
-        local_citation_tag_drift(violations(&found, TAG_DRIFT)),
-        local_citation_untagged(violations(&found, UNTAGGED)),
-    ]
+    Checks {
+        unresolved: local_citation_unresolved(violations(&found, UNRESOLVED.id)),
+        span_drift: local_citation_span_drift(violations(&found, SPAN_DRIFT.id)),
+        tag_drift: local_citation_tag_drift(violations(&found, TAG_DRIFT.id)),
+        untagged: local_citation_untagged(violations(&found, UNTAGGED.id)),
+    }
 }
 
 fn local_citation_unresolved(violations: Vec<Violation>) -> Check {
-    Check::new(
-        UNRESOLVED,
-        "A local citation names a node this corpus does not hold",
-        Severity::Error,
-        "A `cites:` entry with no `package:` rests on a node in this corpus. Renaming or \
-         deleting that node breaks the claim, and nothing else notices: `graph-check` reads \
-         `links:` and a citation is deliberately not a link, because a citation is not a \
-         relationship and must never enter a traversal. Error, under the baseline ratchet like \
-         every other citation defect a person here can fix. The population is empty in a corpus \
-         that writes no local citations, so this cannot fail a repository that predates it.",
-        violations,
-    )
+    Check::new(&UNRESOLVED, violations)
 }
 
 fn local_citation_span_drift(violations: Vec<Violation>) -> Check {
-    Check::new(
-        SPAN_DRIFT,
-        "A local citation's span is no longer in the node it names",
-        Severity::Error,
-        "`agent-conduct.md`: *cite a span, not a node*. A node reference alone rots invisibly, \
-         because the node keeps its name while its content is rewritten — and inside one corpus \
-         that rewrite is a normal commit, not a dependency bump somebody had to choose. \
-         Whitespace is normalized on both sides and nothing else is, so a folded scalar and a \
-         re-wrapped quote compare equal while a reworded one does not. The repair is to read \
-         the node and decide whether the claim survives; re-quoting the new text to clear the \
-         finding is the one response that destroys what the check is for.",
-        violations,
-    )
+    Check::new(&SPAN_DRIFT, violations)
 }
 
 fn local_citation_tag_drift(violations: Vec<Violation>) -> Check {
-    Check::new(
-        TAG_DRIFT,
-        "A local citation declares a standing its own corpus does not hold",
-        Severity::Error,
-        "A foreign `tag:` is the producer's and `agent-conduct.md` says it does not transfer and \
-         cannot be checked — which is why the external family has no equivalent of this and \
-         reports a moved pin at Warn instead. A local one has no such excuse: the producer is \
-         this corpus, the claim is in the same tree, and a citation resting on `[verified]` over \
-         a paragraph this corpus tags `[inference]` asserts something its own corpus denies. \
-         The standing is read from the claims that overlap the span, weakest first, which is the \
-         direction a derived assertion's tier is computed in. A span no tagged claim covers is \
-         reported too: there, nothing licenses the standing that was declared.",
-        violations,
-    )
+    Check::new(&TAG_DRIFT, violations)
 }
 
 fn local_citation_untagged(violations: Vec<Violation>) -> Check {
-    Check::new(
-        UNTAGGED,
-        "A local citation records a span and not what it was worth",
-        Severity::Info,
-        "The span is there and the claim is anchored, which is most of the value. What is \
-         missing is the standing it was read at, and without that a demotion on the far side of \
-         the citation moves nothing: the node it rests on can fall from `[verified]` to `[open]` \
-         and this citation reads exactly as it did. Info, never gates, never baselined — the \
-         remedy is a judgement about the citing node rather than a defect in the corpus, and the \
-         same verdict `external-citation-unpinned` reaches about a citation that records what \
-         was read and not which state it was read from. The count is the thing to watch.",
-        violations,
-    )
+    Check::new(&UNTAGGED, violations)
 }
 
 #[cfg(test)]
@@ -478,7 +485,12 @@ mod tests {
 
     fn run(dir: &tempfile::TempDir) -> BTreeMap<&'static str, Check> {
         let fields = crate::claims::ClaimFields::default();
-        let [unresolved, drift, tag, untagged] = checks(&nodes(dir.path()), &fields);
+        let Checks {
+            unresolved,
+            span_drift: drift,
+            tag_drift: tag,
+            untagged,
+        } = checks(&nodes(dir.path()), &fields);
         [
             ("unresolved", unresolved),
             ("drift", drift),
@@ -756,8 +768,7 @@ mod tests {
                 .iter()
                 .map(|(class, field)| (class.to_string(), vec![field.to_string()])),
         );
-        let [_, _, tag, _] = checks(&nodes(dir.path()), &fields);
-        tag
+        checks(&nodes(dir.path()), &fields).tag_drift
     }
 
     /// #1147: the span sits in a property the **cited** class declares a claim, and the citing

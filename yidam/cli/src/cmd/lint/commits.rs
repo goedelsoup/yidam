@@ -12,7 +12,7 @@ use yidam_core::git::is_recognized_verb;
 
 use crate::kuten::{Registers, Touch};
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 
 /// One commit's subject, reduced to what the vocabulary cares about.
 pub struct Subject {
@@ -283,6 +283,20 @@ pub(crate) fn autosquash_prefix(subject: &str) -> Option<&'static str> {
         .find(|p| subject.starts_with(p))
 }
 
+pub const UNRECOGNIZED_VERB: CheckSpec = CheckSpec {
+    id: "unrecognized-verb",
+    title: "Commit outside the closed vocabulary",
+    severity: Severity::Warn,
+    rationale: "The commit vocabulary in GRAPH.md is what makes the epistemic/operational split \
+         recoverable by anything other than a person reading all of it. An open vocabulary \
+         decays into one verb per commit: a repository derived from this template ran ~60 \
+         distinct leading words across 100 commits, each evocative and collectively \
+         useless. Reported rather than gated, because history cannot be rewritten to fix it. \
+         Nor can it be blessed away: the baseline records error-severity checks only, so a \
+         pre-vocabulary log keeps reporting. Read the findings as a guide to what to write \
+         next, not as a list to clear.",
+};
+
 /// The corpus vocabulary, checked against the commits the corpus register governs.
 ///
 /// # The register scopes recognition and never classification
@@ -368,20 +382,7 @@ pub fn unrecognized_verb(subjects: &[Subject], registers: &Registers) -> Check {
             Violation::new(short, detail)
         })
         .collect();
-    Check::new(
-        "unrecognized-verb",
-        "Commit outside the closed vocabulary",
-        Severity::Warn,
-        "The commit vocabulary in GRAPH.md is what makes the epistemic/operational split \
-         recoverable by anything other than a person reading all of it. An open vocabulary \
-         decays into one verb per commit: a repository derived from this template ran ~60 \
-         distinct leading words across 100 commits, each evocative and collectively \
-         useless. Reported rather than gated, because history cannot be rewritten to fix it. \
-         Nor can it be blessed away: the baseline records error-severity checks only, so a \
-         pre-vocabulary log keeps reporting. Read the findings as a guide to what to write \
-         next, not as a list to clear.",
-        violations,
-    )
+    Check::new(&UNRECOGNIZED_VERB, violations)
 }
 
 fn truncate(s: &str) -> String {

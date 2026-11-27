@@ -18,11 +18,22 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use super::pins::{resolve_commits, Lookup};
 use crate::corpus::{Node, Source};
 
-pub(crate) const ID: &str = "prose-commit-unpinned";
+pub(crate) const ID: CheckSpec = CheckSpec {
+    id: "prose-commit-unpinned",
+    title: "Prose names a commit that is not in this repository",
+    severity: Severity::Warn,
+    rationale:
+        "\"At <commit>\" in a node or catalog entry dates a read, and a reader can follow it \
+         only in the repository that has the commit. A commit in this repository is \
+         unambiguous and left alone. One that is not, usually a sibling's, reads as a dead \
+         reference here; the finding names the `path` dependency it resolves in, so the read \
+         can move into a catalog location pinned with `commit` and `repo`. Only `.yidam/` is \
+         read: `docs/` is the project's own prose.",
+};
 
 /// The check over every node and catalog entry.
 pub(crate) fn check(root: &Path, nodes: &[Node], sources: &[Source]) -> Check {
@@ -50,18 +61,7 @@ pub(crate) fn check(root: &Path, nodes: &[Node], sources: &[Source]) -> Check {
                 .collect()
         })
         .unwrap_or_default();
-    Check::new(
-        ID,
-        "Prose names a commit that is not in this repository",
-        Severity::Warn,
-        "\"At <commit>\" in a node or catalog entry dates a read, and a reader can follow it \
-         only in the repository that has the commit. A commit in this repository is \
-         unambiguous and left alone. One that is not, usually a sibling's, reads as a dead \
-         reference here; the finding names the `path` dependency it resolves in, so the read \
-         can move into a catalog location pinned with `commit` and `repo`. Only `.yidam/` is \
-         read: `docs/` is the project's own prose.",
-        violations,
-    )
+    Check::new(&ID, violations)
 }
 
 /// Whether prose at `rel` is this corpus's: under `.yidam/`, and not a dependency's

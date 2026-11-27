@@ -2577,10 +2577,10 @@ mod tests {
             .expect("check_citation documents its response");
 
         for id in [
-            citations::UNRESOLVED,
-            citations::SPAN_DRIFT,
-            citations::PIN_MOVED,
-            citations::UNPINNED,
+            citations::UNRESOLVED.id,
+            citations::SPAN_DRIFT.id,
+            citations::PIN_MOVED.id,
+            citations::UNPINNED.id,
         ] {
             assert!(
                 notes.contains(id),

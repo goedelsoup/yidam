@@ -43,7 +43,7 @@ use std::path::Path;
 
 use serde_json::Value as Json;
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::git::Git;
 use crate::policy::Policies;
 
@@ -311,8 +311,55 @@ pub(crate) fn input(
     })
 }
 
-/// `domain-article-violated`, `-edited`, `-unproven` and `-unverifiable`, in that order.
-pub(crate) fn checks(sealed: &Sealed) -> [Check; 4] {
+pub const DOMAIN_ARTICLE_VIOLATED: CheckSpec = CheckSpec {
+    id: "domain-article-violated",
+    title: "The corpus breaks a domain article this repository was born with",
+    severity: Severity::Error,
+    rationale: "A domain article is part of this repository's constitution, committed at genesis \
+             and permanent. Its rule is evaluated as the genesis commit holds it, so each \
+             finding here is a refusal the article made before any of today's work existed. \
+             The repair is to the corpus, never to the rule.",
+};
+
+pub const DOMAIN_ARTICLE_EDITED: CheckSpec = CheckSpec {
+    id: "domain-article-edited",
+    title: "A file under .yidam/constitution/ differs from the genesis commit",
+    severity: Severity::Error,
+    rationale: "A domain article binds permanently, so an edit to it is detected rather than \
+             obeyed: lint keeps evaluating the genesis text. Leaving the edit in place makes \
+             the file on disk say something the repository does not enforce. Restoring the \
+             genesis text is always possible, so this gates.",
+};
+
+pub const DOMAIN_ARTICLE_UNPROVEN: CheckSpec = CheckSpec {
+    id: "domain-article-unproven",
+    title: "A domain article's rule has no passing test beside it",
+    severity: Severity::Warn,
+    rationale: "A rule with no case beside it may refuse nothing its article says, and nothing \
+             would show it. This warns rather than gates: the rule and its test are sealed at \
+             genesis, so no commit this repository can make would repair them.",
+};
+
+pub const DOMAIN_ARTICLE_UNVERIFIABLE: CheckSpec = CheckSpec {
+    id: "domain-article-unverifiable",
+    title: "Domain articles are present and the genesis commit cannot be read",
+    severity: Severity::Warn,
+    rationale: "The genesis commit is what seals a domain article. Without it, evaluating the \
+             working tree's rule would obey whatever it says now, so nothing is evaluated and \
+             this says so. Fetch the full history to check them.",
+};
+
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) domain_article_violated: Check,
+    pub(crate) domain_article_edited: Check,
+    pub(crate) domain_article_unproven: Check,
+    pub(crate) domain_article_unverifiable: Check,
+}
+
+/// `domain-article-violated`, `-edited`, `-unproven` and `-unverifiable`, one field each.
+pub(crate) fn checks(sealed: &Sealed) -> Checks {
     let mut violated = Vec::new();
     let mut edited = Vec::new();
     let mut unproven = Vec::new();
@@ -377,46 +424,12 @@ pub(crate) fn checks(sealed: &Sealed) -> [Check; 4] {
         }
     }
 
-    [
-        Check::new(
-            "domain-article-violated",
-            "The corpus breaks a domain article this repository was born with",
-            Severity::Error,
-            "A domain article is part of this repository's constitution, committed at genesis \
-             and permanent. Its rule is evaluated as the genesis commit holds it, so each \
-             finding here is a refusal the article made before any of today's work existed. \
-             The repair is to the corpus, never to the rule.",
-            violated,
-        ),
-        Check::new(
-            "domain-article-edited",
-            "A file under .yidam/constitution/ differs from the genesis commit",
-            Severity::Error,
-            "A domain article binds permanently, so an edit to it is detected rather than \
-             obeyed: lint keeps evaluating the genesis text. Leaving the edit in place makes \
-             the file on disk say something the repository does not enforce. Restoring the \
-             genesis text is always possible, so this gates.",
-            edited,
-        ),
-        Check::new(
-            "domain-article-unproven",
-            "A domain article's rule has no passing test beside it",
-            Severity::Warn,
-            "A rule with no case beside it may refuse nothing its article says, and nothing \
-             would show it. This warns rather than gates: the rule and its test are sealed at \
-             genesis, so no commit this repository can make would repair them.",
-            unproven,
-        ),
-        Check::new(
-            "domain-article-unverifiable",
-            "Domain articles are present and the genesis commit cannot be read",
-            Severity::Warn,
-            "The genesis commit is what seals a domain article. Without it, evaluating the \
-             working tree's rule would obey whatever it says now, so nothing is evaluated and \
-             this says so. Fetch the full history to check them.",
-            unverifiable,
-        ),
-    ]
+    Checks {
+        domain_article_violated: Check::new(&DOMAIN_ARTICLE_VIOLATED, violated),
+        domain_article_edited: Check::new(&DOMAIN_ARTICLE_EDITED, edited),
+        domain_article_unproven: Check::new(&DOMAIN_ARTICLE_UNPROVEN, unproven),
+        domain_article_unverifiable: Check::new(&DOMAIN_ARTICLE_UNVERIFIABLE, unverifiable),
+    }
 }
 
 #[cfg(test)]
@@ -458,15 +471,34 @@ mod tests {
         ]}})
     }
 
-    fn ids(checks: &[Check; 4]) -> Vec<(&str, usize)> {
-        checks.iter().map(|c| (c.id, c.violations.len())).collect()
+    fn ids(checks: &Checks) -> Vec<(&str, usize)> {
+        let Checks {
+            domain_article_violated,
+            domain_article_edited,
+            domain_article_unproven,
+            domain_article_unverifiable,
+        } = checks;
+        [
+            domain_article_violated,
+            domain_article_edited,
+            domain_article_unproven,
+            domain_article_unverifiable,
+        ]
+        .iter()
+        .map(|c| (c.id, c.violations.len()))
+        .collect()
     }
 
     #[test]
     fn the_samudaya_example_ships_with_passing_cases() {
         let tmp = tempfile::TempDir::new().unwrap();
         born_with_article(tmp.path());
-        let [_, edited, unproven, unverifiable] = checks(&read(tmp.path(), two_tips));
+        let Checks {
+            domain_article_edited: edited,
+            domain_article_unproven: unproven,
+            domain_article_unverifiable: unverifiable,
+            ..
+        } = checks(&read(tmp.path(), two_tips));
         assert!(edited.violations.is_empty());
         assert!(unproven.violations.is_empty(), "{:?}", unproven.violations);
         assert!(unverifiable.violations.is_empty());
@@ -477,7 +509,10 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         born_with_article(tmp.path());
 
-        let [violated, ..] = checks(&read(tmp.path(), one_tip));
+        let Checks {
+            domain_article_violated: violated,
+            ..
+        } = checks(&read(tmp.path(), one_tip));
         assert_eq!(violated.severity, Severity::Error);
         assert_eq!(violated.violations.len(), 1);
         assert_eq!(violated.violations[0].node, RULE);
@@ -489,7 +524,10 @@ mod tests {
             violated.violations[0].detail
         );
 
-        let [violated, ..] = checks(&read(tmp.path(), two_tips));
+        let Checks {
+            domain_article_violated: violated,
+            ..
+        } = checks(&read(tmp.path(), two_tips));
         assert!(violated.violations.is_empty());
     }
 
@@ -514,9 +552,9 @@ mod tests {
                 ("domain-article-unverifiable", 0),
             ]
         );
-        assert_eq!(c[1].severity, Severity::Error);
-        assert_eq!(c[1].violations[0].node, RULE);
-        assert!(c[1].violations[0]
+        assert_eq!(c.domain_article_edited.severity, Severity::Error);
+        assert_eq!(c.domain_article_edited.violations[0].node, RULE);
+        assert!(c.domain_article_edited.violations[0]
             .detail
             .starts_with("changed since the genesis commit"));
 
@@ -524,8 +562,8 @@ mod tests {
         git(root, &["revert", "--no-edit", "HEAD"]);
         write(root, RULE, loosened);
         let c = checks(&read(root, one_tip));
-        assert_eq!(c[0].violations.len(), 1);
-        assert_eq!(c[1].violations.len(), 1);
+        assert_eq!(c.domain_article_violated.violations.len(), 1);
+        assert_eq!(c.domain_article_edited.violations.len(), 1);
     }
 
     #[test]
@@ -544,15 +582,18 @@ mod tests {
 
         let c = checks(&read(root, one_tip));
         // The deleted rule is still evaluated from genesis; the added one is not.
-        assert_eq!(c[0].violations.len(), 1);
-        assert_eq!(c[0].violations[0].node, RULE);
-        let edited: Vec<(&str, bool)> = c[1]
+        assert_eq!(c.domain_article_violated.violations.len(), 1);
+        assert_eq!(c.domain_article_violated.violations[0].node, RULE);
+        let edited: Vec<(&str, bool)> = c
+            .domain_article_edited
             .violations
             .iter()
             .map(|v| (v.node.as_str(), v.detail.starts_with("deleted")))
             .collect();
         assert_eq!(edited, [(RULE, true), (TEST, true), (later, false)]);
-        assert!(c[1].violations[2].detail.starts_with("added after"));
+        assert!(c.domain_article_edited.violations[2]
+            .detail
+            .starts_with("added after"));
     }
 
     /// A repository's own policy file claiming the article's package changes nothing: the rule
@@ -569,14 +610,16 @@ mod tests {
         );
         commit(root, "revise: try to override the article");
         let c = checks(&read(root, one_tip));
-        assert_eq!(c[0].violations.len(), 1);
+        assert_eq!(c.domain_article_violated.violations.len(), 1);
         // The article's own refusal, not a collision between the two files.
         assert!(
-            c[0].violations[0].detail.contains("reads 1 tip(s)"),
+            c.domain_article_violated.violations[0]
+                .detail
+                .contains("reads 1 tip(s)"),
             "{}",
-            c[0].violations[0].detail
+            c.domain_article_violated.violations[0].detail
         );
-        assert!(c[1].violations.is_empty());
+        assert!(c.domain_article_edited.violations.is_empty());
     }
 
     #[test]
@@ -602,7 +645,11 @@ mod tests {
         );
         commit(root, "genesis");
 
-        let [violated, _, unproven, _] = checks(&read(root, one_tip));
+        let Checks {
+            domain_article_violated: violated,
+            domain_article_unproven: unproven,
+            ..
+        } = checks(&read(root, one_tip));
         assert!(violated.violations.is_empty());
         assert_eq!(unproven.severity, Severity::Warn);
         let got: Vec<&str> = unproven
@@ -647,7 +694,10 @@ mod tests {
         }
         commit(root, "genesis");
 
-        let [violated, ..] = checks(&read(root, one_tip));
+        let Checks {
+            domain_article_violated: violated,
+            ..
+        } = checks(&read(root, one_tip));
         let got: Vec<(&str, &str)> = violated
             .violations
             .iter()
@@ -680,7 +730,7 @@ mod tests {
         commit(tmp.path(), "genesis");
         let s = read(tmp.path(), || panic!("no rule, so no input"));
         assert!(matches!(s, Sealed::Absent));
-        assert!(checks(&s).iter().all(|c| c.violations.is_empty()));
+        assert!(ids(&checks(&s)).iter().all(|(_, n)| *n == 0));
 
         // And outside git altogether.
         let bare = tempfile::TempDir::new().unwrap();
@@ -703,7 +753,12 @@ mod tests {
         );
         let shallow = tmp.path().join("shallow");
 
-        let [violated, edited, _, unverifiable] = checks(&read(&shallow, one_tip));
+        let Checks {
+            domain_article_violated: violated,
+            domain_article_edited: edited,
+            domain_article_unverifiable: unverifiable,
+            ..
+        } = checks(&read(&shallow, one_tip));
         assert!(violated.violations.is_empty());
         assert!(edited.violations.is_empty());
         assert_eq!(unverifiable.severity, Severity::Warn);

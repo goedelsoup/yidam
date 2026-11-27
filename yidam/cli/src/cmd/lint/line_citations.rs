@@ -127,7 +127,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::checks::ProseLink;
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 
 /// A `#L<n>` or `#L<n>-L<m>` fragment, 1-indexed and inclusive at both ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -832,6 +832,17 @@ pub fn label_symbols(label: &str, target: &str) -> Vec<String> {
 
 // ── The checks ───────────────────────────────────────────────────────────────
 
+pub const DEAD_LINE_CITATION: CheckSpec = CheckSpec {
+    id: "dead-line-citation",
+    title: "A citation names lines that are not there",
+    severity: Severity::Error,
+    rationale: "A `#L` fragment names a line range in a file this repository owns, and unlike a \
+         heading anchor it is decidable: the range either exists and holds text or it does \
+         not. The founding instance cited a blank line — the passage had moved and the \
+         number kept pointing at where it used to be. Error severity, under the baseline \
+         ratchet like every other citation defect a person here can fix.",
+};
+
 pub fn dead_line_citation(citations: &[LineCitation]) -> Check {
     let violations = citations
         .iter()
@@ -841,43 +852,14 @@ pub fn dead_line_citation(citations: &[LineCitation]) -> Check {
             })
         })
         .collect();
-    Check::new(
-        "dead-line-citation",
-        "A citation names lines that are not there",
-        Severity::Error,
-        "A `#L` fragment names a line range in a file this repository owns, and unlike a \
-         heading anchor it is decidable: the range either exists and holds text or it does \
-         not. The founding instance cited a blank line — the passage had moved and the \
-         number kept pointing at where it used to be. Error severity, under the baseline \
-         ratchet like every other citation defect a person here can fix.",
-        violations,
-    )
+    Check::new(&DEAD_LINE_CITATION, violations)
 }
 
-pub fn slid_line_citation(citations: &[LineCitation]) -> Check {
-    let violations = citations
-        .iter()
-        .filter(|c| {
-            c.dead_reason().is_none()
-                && !c.quotes.is_empty()
-                && !c.quotes.iter().any(|q| quote_matches(q, &c.range))
-        })
-        .map(|c| {
-            Violation::new(
-                format!("{}:{}", c.file, c.line),
-                format!(
-                    "the quoted words beside `{}` do not appear in the cited lines{}",
-                    c.anchor(),
-                    c.moved_clause()
-                ),
-            )
-        })
-        .collect();
-    Check::new(
-        "slid-line-citation",
-        "The quoted passage is not in the cited lines",
-        Severity::Error,
-        "An edit above a cited range moves the range off its passage without breaking \
+pub const SLID_LINE_CITATION: CheckSpec = CheckSpec {
+    id: "slid-line-citation",
+    title: "The quoted passage is not in the cited lines",
+    severity: Severity::Error,
+    rationale: "An edit above a cited range moves the range off its passage without breaking \
          anything a file-level check can see: the citation still resolves, the lines still \
          hold text, and the text is now something else. Twelve citations rotted that way \
          at once, silently, and two came to point at words written long after the \
@@ -900,9 +882,52 @@ pub fn slid_line_citation(citations: &[LineCitation]) -> Check {
          re-deriving that by hand was the whole recurring cost. That range is where the \
          quoted words are and nothing wider, so a citation that deliberately spanned more \
          than it quoted is widened back out by hand.",
-        violations,
-    )
+};
+
+pub fn slid_line_citation(citations: &[LineCitation]) -> Check {
+    let violations = citations
+        .iter()
+        .filter(|c| {
+            c.dead_reason().is_none()
+                && !c.quotes.is_empty()
+                && !c.quotes.iter().any(|q| quote_matches(q, &c.range))
+        })
+        .map(|c| {
+            Violation::new(
+                format!("{}:{}", c.file, c.line),
+                format!(
+                    "the quoted words beside `{}` do not appear in the cited lines{}",
+                    c.anchor(),
+                    c.moved_clause()
+                ),
+            )
+        })
+        .collect();
+    Check::new(&SLID_LINE_CITATION, violations)
 }
+
+pub const CITATION_LABEL_NOT_CITED: CheckSpec = CheckSpec {
+    id: "citation-label-not-cited",
+    title: "A citation's label names something its lines do not say",
+    severity: Severity::Error,
+    rationale: "The strong anchor is a quote, and 176 of this repository's 229 line citations \
+         carry none. Each of those was checked for existence and nothing else, which \
+         leaves the whole of the interesting failure uncovered: a range that slides onto \
+         lines that are neither blank nor quoted is invisible to `dead-line-citation` and \
+         `slid-line-citation` at once. Seven citations had already rotted through that gap \
+         when a person found them by hand while looking at something else (#627), and six \
+         of the seven were labelled with the very check they cited. The label is the anchor \
+         they were carrying all along: the house writes a citation of code with its symbol \
+         in the label and its coordinate in the fragment, so the label is a claim about the \
+         target's content that a check can decide. Read only where nothing quotes the \
+         passage — a quote is better evidence and decides alone — and only where the label \
+         names a symbol rather than restating the line number, which is the other house \
+         form and 109 of the 176. Matched on words exactly as a quote is, so wrapping, \
+         emphasis and an argument list cannot manufacture a drift, and any one `::` segment \
+         is enough. Error, under the baseline ratchet like every other citation defect a \
+         person here can fix: this is a latch on a population that is already correct, not \
+         a backlog.",
+};
 
 pub fn citation_label_not_cited(citations: &[LineCitation]) -> Check {
     let violations = citations
@@ -925,50 +950,14 @@ pub fn citation_label_not_cited(citations: &[LineCitation]) -> Check {
             )
         })
         .collect();
-    Check::new(
-        "citation-label-not-cited",
-        "A citation's label names something its lines do not say",
-        Severity::Error,
-        "The strong anchor is a quote, and 176 of this repository's 229 line citations \
-         carry none. Each of those was checked for existence and nothing else, which \
-         leaves the whole of the interesting failure uncovered: a range that slides onto \
-         lines that are neither blank nor quoted is invisible to `dead-line-citation` and \
-         `slid-line-citation` at once. Seven citations had already rotted through that gap \
-         when a person found them by hand while looking at something else (#627), and six \
-         of the seven were labelled with the very check they cited. The label is the anchor \
-         they were carrying all along: the house writes a citation of code with its symbol \
-         in the label and its coordinate in the fragment, so the label is a claim about the \
-         target's content that a check can decide. Read only where nothing quotes the \
-         passage — a quote is better evidence and decides alone — and only where the label \
-         names a symbol rather than restating the line number, which is the other house \
-         form and 109 of the 176. Matched on words exactly as a quote is, so wrapping, \
-         emphasis and an argument list cannot manufacture a drift, and any one `::` segment \
-         is enough. Error, under the baseline ratchet like every other citation defect a \
-         person here can fix: this is a latch on a population that is already correct, not \
-         a backlog.",
-        violations,
-    )
+    Check::new(&CITATION_LABEL_NOT_CITED, violations)
 }
 
-pub fn unverified_line_citation(citations: &[LineCitation]) -> Check {
-    let violations = citations
-        .iter()
-        .filter(|c| c.is_unanchored())
-        .map(|c| {
-            Violation::new(
-                format!("{}:{}", c.file, c.line),
-                format!(
-                    "`{}` names lines but nothing beside the link quotes them or names what \
-                     they say, so only their existence was checked",
-                    c.anchor()
-                ),
-            )
-        })
-        .collect();
-    Check::new(
-        "unverified-line-citation",
-        "A line citation with nothing to hold it to",
-        Severity::Info,
+pub const UNVERIFIED_LINE_CITATION: CheckSpec = CheckSpec {
+    id: "unverified-line-citation",
+    title: "A line citation with nothing to hold it to",
+    severity: Severity::Info,
+    rationale:
         "A citation with neither anchor can only be checked for existence, and a range that \
          slid onto the wrong lines still exists. Info is not the whole answer to that and \
          was never meant to be — seven citations rotted through this exact gap and nothing \
@@ -985,9 +974,41 @@ pub fn unverified_line_citation(citations: &[LineCitation]) -> Check {
          thing to watch: it is how much of the citation surface is taken on trust — and \
          this repository does watch it, holding the population to a committed list a person has to \
          edit down, because a population nobody counts is one that grows (#899).",
-        violations,
-    )
+};
+
+pub fn unverified_line_citation(citations: &[LineCitation]) -> Check {
+    let violations = citations
+        .iter()
+        .filter(|c| c.is_unanchored())
+        .map(|c| {
+            Violation::new(
+                format!("{}:{}", c.file, c.line),
+                format!(
+                    "`{}` names lines but nothing beside the link quotes them or names what \
+                     they say, so only their existence was checked",
+                    c.anchor()
+                ),
+            )
+        })
+        .collect();
+    Check::new(&UNVERIFIED_LINE_CITATION, violations)
 }
+
+pub const CITATION_RANGE_STATED_TWICE: CheckSpec = CheckSpec {
+    id: "citation-range-stated-twice",
+    title: "A citation's label and its link name different lines",
+    severity: Severity::Error,
+    rationale:
+        "The house style states the cited range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` \
+         — and 158 of the 229 line citations in this repository write both copies. Until \
+         #622 nothing read the left-hand one, so the two could disagree indefinitely: the \
+         scan sees the fragment, and the label is what a reader's eye lands on. The failure \
+         this forecloses is half a repair. A citation that slid is fixed by editing a \
+         number, and editing the one number that resolves leaves the other one lying. No \
+         citation disagreed on the day this landed, which is the point — it is a latch on a \
+         population that is already correct, not a backlog. A label that names no range is \
+         the other house form and not a finding: most citations of code label a symbol.",
+};
 
 pub fn citation_range_stated_twice(citations: &[LineCitation]) -> Check {
     let violations = citations
@@ -1007,21 +1028,7 @@ pub fn citation_range_stated_twice(citations: &[LineCitation]) -> Check {
             ))
         })
         .collect();
-    Check::new(
-        "citation-range-stated-twice",
-        "A citation's label and its link name different lines",
-        Severity::Error,
-        "The house style states the cited range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` \
-         — and 158 of the 229 line citations in this repository write both copies. Until \
-         #622 nothing read the left-hand one, so the two could disagree indefinitely: the \
-         scan sees the fragment, and the label is what a reader's eye lands on. The failure \
-         this forecloses is half a repair. A citation that slid is fixed by editing a \
-         number, and editing the one number that resolves leaves the other one lying. No \
-         citation disagreed on the day this landed, which is the point — it is a latch on a \
-         population that is already correct, not a backlog. A label that names no range is \
-         the other house form and not a finding: most citations of code label a symbol.",
-        violations,
-    )
+    Check::new(&CITATION_RANGE_STATED_TWICE, violations)
 }
 
 #[cfg(test)]

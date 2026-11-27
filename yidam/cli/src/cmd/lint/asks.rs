@@ -6,14 +6,38 @@
 
 use std::path::Path;
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::asks::{Ask, STATUSES};
 
-pub const UNRESOLVED: &str = "ask-unresolved";
-pub const MALFORMED: &str = "ask-malformed";
+pub const UNRESOLVED: CheckSpec = CheckSpec {
+    id: "ask-unresolved",
+    title: "Ask addressed to a corpus this repository does not depend on",
+    severity: Severity::Error,
+    rationale: "An ask's directory is the corpus it is addressed to, and the pin it was read \
+             against means something only against a dependency this repository declares. An \
+             ask to an undeclared corpus can never come due, so it would sit in the outbox \
+             unread — the failure the directory exists to end.",
+};
+pub const MALFORMED: CheckSpec = CheckSpec {
+    id: "ask-malformed",
+    title: "Ask whose header cannot say what state it is in",
+    severity: Severity::Error,
+    rationale: "An ask records the far-side commit it was read against and where it stands. \
+             Without a pin nothing can tell when the far side has moved past it, and with a \
+             status outside the four, or an answer with no commit, a reader is back to \
+             maintaining its state in prose — which is how drafts went stale before this \
+             directory existed.",
+};
 
-/// Both checks over one read of the directory, in registry order.
-pub fn checks(root: &Path) -> [Check; 2] {
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) unresolved: Check,
+    pub(crate) malformed: Check,
+}
+
+/// Both checks over one read of the directory, one field each.
+pub fn checks(root: &Path) -> Checks {
     let asks = crate::asks::read(root);
     // Degrades inside `run_checks`, which the editor reads mid-edit; `lint` refuses an
     // unparseable file before any check runs (#1616).
@@ -38,29 +62,13 @@ pub fn checks(root: &Path) -> [Check; 2] {
             Some(_) => None,
         })
         .collect();
-    [
-        Check::new(
-            UNRESOLVED,
-            "Ask addressed to a corpus this repository does not depend on",
-            Severity::Error,
-            "An ask's directory is the corpus it is addressed to, and the pin it was read \
-             against means something only against a dependency this repository declares. An \
-             ask to an undeclared corpus can never come due, so it would sit in the outbox \
-             unread — the failure the directory exists to end.",
-            unresolved,
-        ),
-        Check::new(
-            MALFORMED,
-            "Ask whose header cannot say what state it is in",
-            Severity::Error,
-            "An ask records the far-side commit it was read against and where it stands. \
-             Without a pin nothing can tell when the far side has moved past it, and with a \
-             status outside the four, or an answer with no commit, a reader is back to \
-             maintaining its state in prose — which is how drafts went stale before this \
-             directory existed.",
+    Checks {
+        unresolved: Check::new(&UNRESOLVED, unresolved),
+        malformed: Check::new(
+            &MALFORMED,
             asks.iter().flat_map(|a| malformed(a, &asks)).collect(),
         ),
-    ]
+    }
 }
 
 fn malformed(ask: &Ask, all: &[Ask]) -> Vec<Violation> {
@@ -120,11 +128,8 @@ mod tests {
 
     const DECLARED: (&str, &str) = (".yidam/tonpa.toml", "[dependencies.up]\npath = \"../up\"\n");
 
-    fn found(tmp: &tempfile::TempDir, id: &str) -> Vec<String> {
-        checks(tmp.path())
-            .into_iter()
-            .find(|c| c.id == id)
-            .unwrap()
+    fn found(tmp: &tempfile::TempDir, pick: fn(Checks) -> Check) -> Vec<String> {
+        pick(checks(tmp.path()))
             .violations
             .iter()
             .map(|v| v.detail.clone())
@@ -137,8 +142,8 @@ mod tests {
             DECLARED,
             (".yidam/asks/up/q.md", "---\npin: abc\nstatus: open\n---\n"),
         ]);
-        assert!(found(&tmp, UNRESOLVED).is_empty());
-        assert!(found(&tmp, MALFORMED).is_empty());
+        assert!(found(&tmp, |c| c.unresolved).is_empty());
+        assert!(found(&tmp, |c| c.malformed).is_empty());
     }
 
     #[test]
@@ -151,7 +156,7 @@ mod tests {
             ),
             (".yidam/asks/loose.md", "---\npin: a\nstatus: open\n---\n"),
         ]);
-        let v = found(&tmp, UNRESOLVED);
+        let v = found(&tmp, |c| c.unresolved);
         assert_eq!(v.len(), 2, "{v:?}");
         assert!(v.iter().any(|d| d.contains("`elsewhere`")), "{v:?}");
         assert!(v.iter().any(|d| d.contains("names no dependency")), "{v:?}");
@@ -177,7 +182,7 @@ mod tests {
             ),
             (".yidam/asks/up/broken.md", "---\npin: [\n---\n"),
         ]);
-        let v = found(&tmp, MALFORMED);
+        let v = found(&tmp, |c| c.malformed);
         for needle in [
             "no `pin:`",
             "no `status:`",
@@ -201,6 +206,6 @@ mod tests {
             ),
             (".yidam/asks/up/new.md", "---\npin: b\nstatus: open\n---\n"),
         ]);
-        assert!(found(&tmp, MALFORMED).is_empty());
+        assert!(found(&tmp, |c| c.malformed).is_empty());
     }
 }

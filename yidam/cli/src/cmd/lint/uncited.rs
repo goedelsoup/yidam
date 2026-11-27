@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use super::checks::{prose_lines, ProseLink};
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::corpus::{normalize, DecisionRecord, Node, Source};
 
 // ── decision-uncited ────────────────────────────────────────────────────────────
@@ -71,6 +71,18 @@ fn mentioned(texts: &[(String, String)], name: impl Fn(&str) -> Vec<usize>) -> V
     }
     out
 }
+
+pub const DECISION_UNCITED: CheckSpec = CheckSpec {
+    id: "decision-uncited",
+    title: "Decision record nothing refers to",
+    severity: Severity::Info,
+    rationale: "A decision record says why the corpus is shaped as it is. One that no file, edge \
+         or later record refers to cannot be reached by a reader of the corpus: it is found \
+         only by listing the directory. It may be a record of the tooling rather than \
+         of the knowledge, which is fine, or a decision whose consequence was never written \
+         where it applies. Name it, as `decisions/<stem>`, from the node, page or code it \
+         shaped. A REGEN block a generator wrote does not count.",
+};
 
 /// Decision records nothing refers to.
 ///
@@ -181,18 +193,7 @@ pub fn decision_uncited(
             )
         })
         .collect();
-    Check::new(
-        "decision-uncited",
-        "Decision record nothing refers to",
-        Severity::Info,
-        "A decision record says why the corpus is shaped as it is. One that no file, edge \
-         or later record refers to cannot be reached by a reader of the corpus: it is found \
-         only by listing the directory. It may be a record of the tooling rather than \
-         of the knowledge, which is fine, or a decision whose consequence was never written \
-         where it applies. Name it, as `decisions/<stem>`, from the node, page or code it \
-         shaped. A REGEN block a generator wrote does not count.",
-        violations,
-    )
+    Check::new(&DECISION_UNCITED, violations)
 }
 
 // ── source-unregistered ─────────────────────────────────────────────────────────
@@ -280,6 +281,20 @@ impl Registered {
     }
 }
 
+pub const SOURCE_UNREGISTERED: CheckSpec = CheckSpec {
+    id: "source-unregistered",
+    title: "URL in prose no catalog entry registers",
+    severity: Severity::Info,
+    rationale:
+        "The catalog is where a corpus says what it read. A URL cited in a node or a catalog \
+         entry's body that no `location:` covers is a source the catalog does not know about: \
+         nothing records when it was retrieved, and `catalog-expired` cannot age it. A location \
+         covers a URL on the same host at its own path or beneath it; scheme, `www.`, query \
+         and fragment are ignored. Info, because some URLs are a subject of study rather than \
+         a source, and only a person can tell which. A corpus that declares no URL location \
+         is not read.",
+};
+
 /// URLs in prose that no catalog `location:` covers.
 ///
 /// Node files and the bodies of catalog entries are read. Decision records are not: their
@@ -338,19 +353,7 @@ pub fn source_unregistered(sources: &[Source], nodes: &[Node]) -> Check {
             }
         }
     }
-    Check::new(
-        "source-unregistered",
-        "URL in prose no catalog entry registers",
-        Severity::Info,
-        "The catalog is where a corpus says what it read. A URL cited in a node or a catalog \
-         entry's body that no `location:` covers is a source the catalog does not know about: \
-         nothing records when it was retrieved, and `catalog-expired` cannot age it. A location \
-         covers a URL on the same host at its own path or beneath it; scheme, `www.`, query \
-         and fragment are ignored. Info, because some URLs are a subject of study rather than \
-         a source, and only a person can tell which. A corpus that declares no URL location \
-         is not read.",
-        violations,
-    )
+    Check::new(&SOURCE_UNREGISTERED, violations)
 }
 
 #[cfg(test)]
