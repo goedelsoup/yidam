@@ -75,8 +75,8 @@ use std::path::Path;
 
 use yidam_core::uri::{parse_reference, reference_conforms, render_reference, Kind};
 
-use super::migrate::MigrateReport;
-use super::rename::Edit;
+use super::migrate::{file_eol, settle_ends, MigrateReport};
+use super::rename::{join_lines, split_lines, Edit};
 use crate::claims::detail_tags;
 
 /// One reference lifted out of one tag.
@@ -364,7 +364,10 @@ fn rewrite(text: &str, plan: &NodePlan) -> String {
         return out;
     }
     let items: Vec<String> = plan.append.iter().map(|r| item(r)).collect();
-    let lines: Vec<&str> = out.lines().collect();
+    // The lines this adds take the file's ending, and every other line keeps its own (#1693).
+    let split = split_lines(&out);
+    let eol = file_eol(&split);
+    let lines: Vec<&str> = split.iter().map(|(l, _)| l.as_str()).collect();
     match references_block(&lines) {
         Some((key, end)) => {
             // Match the indentation the block already uses, so the diff is the new lines only.
@@ -373,22 +376,22 @@ fn rewrite(text: &str, plan: &NodePlan) -> String {
                 .find_map(|l| l.find("- ").map(|k| &l[..k]))
                 .unwrap_or("  ")
                 .to_string();
-            let mut all: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
-            let added: Vec<String> = items.iter().map(|i| format!("{indent}- {i}")).collect();
-            all.splice(end..end, added);
-            let mut joined = all.join("\n");
-            if out.ends_with('\n') {
-                joined.push('\n');
-            }
-            joined
+            let mut all = split.clone();
+            all.splice(
+                end..end,
+                items.iter().map(|i| (format!("{indent}- {i}"), eol)),
+            );
+            settle_ends(&mut all, eol, out.ends_with('\n'));
+            join_lines(&all)
         }
         None => {
             if !out.ends_with('\n') {
-                out.push('\n');
+                out.push_str(eol);
             }
-            out.push_str("references:\n");
+            out.push_str("references:");
+            out.push_str(eol);
             for i in &items {
-                let _ = writeln!(out, "  - {i}");
+                let _ = write!(out, "  - {i}{eol}");
             }
             out
         }
@@ -811,5 +814,23 @@ mod tests {
             Some(vec!["issue/362".into(), "crate/project".into()])
         );
         assert_eq!(parsed.class.as_deref(), Some("concept"));
+    }
+
+    /// A CRLF node is written back CRLF whether its `references:` block exists or not, and
+    /// the lines added take the file's ending (#1693).
+    #[test]
+    fn a_crlf_node_keeps_its_line_endings() {
+        let f = Fixture::new();
+        let crlf = |s: &str| s.replace('\n', "\r\n");
+        for lf in [
+            "class: concept\ndescription: |\n  A claim [verified — #362].\n",
+            "class: concept\ndescription: |\n  A claim [verified — #362].\nreferences:\n  - issue/1\n",
+            "class: concept\ndescription: |\n  A claim [verified — #362].\nreferences:\n  - issue/1\nz: 1\n",
+        ] {
+            let plan = f.plan(&crlf(lf));
+            let out = rewrite(&crlf(lf), &plan);
+            assert_eq!(out, crlf(&rewrite(lf, &f.plan(lf))), "{lf}");
+            assert!(out.contains("issue/362"), "{out:?}");
+        }
     }
 }

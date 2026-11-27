@@ -28,7 +28,8 @@
 
 use std::path::Path;
 
-use super::migrate::MigrateReport;
+use super::migrate::{file_eol, settle_ends, MigrateReport};
+use super::rename::{join_lines, split_lines};
 
 /// The file the block goes into, relative to the repository root.
 const FILE: &str = "AGENTS.md";
@@ -193,12 +194,7 @@ pub(crate) fn apply(root: &Path, report: &mut MigrateReport) -> anyhow::Result<(
     let path = root.join(FILE);
     let text = std::fs::read_to_string(&path)?;
     let (start, end, _) = locate(&text).map_err(anyhow::Error::msg)?;
-    let mut lines: Vec<&str> = text.lines().collect();
-    lines.splice(start..end, routes.block.lines());
-    let mut out = lines.join("\n");
-    if text.ends_with('\n') {
-        out.push('\n');
-    }
+    let out = spliced(&text, start, end, &routes.block);
     // The whole point is that the generator finds the block. If it would not, the file is left
     // as it was: a written block `regen` cannot see is the silent no-op this exists to end.
     if !has_block(&out) {
@@ -206,6 +202,17 @@ pub(crate) fn apply(root: &Path, report: &mut MigrateReport) -> anyhow::Result<(
     }
     std::fs::write(&path, out)?;
     Ok(())
+}
+
+/// `text` with its lines `start..end` replaced by `block`'s, every other line as it was.
+///
+/// A line the block adds takes the file's own ending, so a CRLF file stays CRLF (#1693).
+fn spliced(text: &str, start: usize, end: usize, block: &str) -> String {
+    let mut lines = split_lines(text);
+    let eol = file_eol(&lines);
+    lines.splice(start..end, block.lines().map(|l| (l.to_string(), eol)));
+    settle_ends(&mut lines, eol, text.ends_with('\n'));
+    join_lines(&lines)
 }
 
 /// One line, for the report once planned.
@@ -296,5 +303,52 @@ Files under `.yidam/.vendor/` are read-only.
         assert!(!has_block(
             "<!-- REGEN: yidam routes-old\n-->\nx\n<!-- /REGEN -->\n"
         ));
+    }
+
+    /// A CRLF `AGENTS.md` is written back CRLF, the block's lines with it (#1693). Only the
+    /// replaced list changes; the lines around it are byte for byte as they were.
+    #[test]
+    fn a_crlf_file_keeps_its_line_endings() {
+        let dir = tempfile::tempdir().unwrap();
+        let crlf = DERIVED.replace('\n', "\r\n");
+        std::fs::write(dir.path().join(FILE), &crlf).unwrap();
+        let (start, end, _) = locate(&crlf).unwrap();
+        let mut report = MigrateReport::new(
+            dir.path(),
+            dir.path(),
+            &super::super::migrate::Operation::Routes,
+        );
+        report.routes = Some(Routes {
+            file: FILE.into(),
+            line: start + 1,
+            lines: end - start,
+            replaced: vec![],
+            block: format!("{OPEN}\n- [one](a)\n- [two](b)\n{CLOSE}"),
+            already: false,
+        });
+        apply(dir.path(), &mut report).unwrap();
+        let out = std::fs::read_to_string(dir.path().join(FILE)).unwrap();
+        assert_eq!(
+            out.matches('\n').count(),
+            out.matches("\r\n").count(),
+            "{out:?}"
+        );
+        let lines: Vec<&str> = crlf.split_inclusive('\n').collect();
+        assert!(out.starts_with(&lines[..start].concat()));
+        assert!(out.ends_with(&lines[end..].concat()));
+        assert!(out.contains("- [one](a)\r\n- [two](b)\r\n"), "{out:?}");
+    }
+
+    /// An LF file is written as it always was, and a file with no last newline gets none.
+    #[test]
+    fn an_lf_file_is_written_as_it_was() {
+        let (start, end, _) = locate(DERIVED).unwrap();
+        let out = spliced(DERIVED, start, end, "a\nb");
+        let lines: Vec<&str> = DERIVED.split_inclusive('\n').collect();
+        assert_eq!(
+            out,
+            format!("{}a\nb\n{}", lines[..start].concat(), lines[end..].concat())
+        );
+        assert_eq!(spliced("# t\n- x", 1, 2, "a\nb"), "# t\na\nb");
     }
 }
