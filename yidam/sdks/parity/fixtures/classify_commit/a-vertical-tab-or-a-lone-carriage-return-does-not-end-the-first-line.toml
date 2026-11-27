@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "A vertical tab and a carriage return with no newline after it are part of the line they sit in (#1666)"
+
+[input]
+hash = "1666002"
+message = "fix: a\u000Bb\rc"
+
+[expected]
+kind = "Operational"
+verb = "fix"
+subject = "a\u000Bb\rc"

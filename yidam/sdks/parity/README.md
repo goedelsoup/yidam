@@ -168,6 +168,17 @@ suite carries a float. The domain suite does, and its rule — bit-identical by 
 tolerance only when declared with its unit and its reason — is in
 [`domains/parity/README.md`](https://github.com/goedelsoup/yidam/blob/main/yidam/domains/parity/README.md#comparing-floats).
 
+**`classify_commit` reads its first line by the rule `parse_markers` does (#1666).** The first
+line ends at the first `\n`, with one `\r` directly before it dropped, and the line, the verb
+and the subject are each trimmed by Unicode `White_Space`, as Rust's `str::lines` and
+`str::trim` do. A U+2028, a form feed or a lone `\r` is part of the subject; a leading U+0085
+is trimmed, so the commit is classified by the verb after it; a U+FEFF or U+001C–U+001F stays
+on the verb, so the commit is not Operational. Python's `splitlines` cut the subject at the first
+of these and lost the whole line when one led it, and `strip` and JavaScript's `trim` each moved
+a commit between kinds. Both SDKs now share the line rule and the `White_Space` set with their
+marker modules rather than calling the built-ins. The fixtures with `(#1666)` in their
+description are what fail when either is put back.
+
 ## Fixture format
 
 Each fixture is a TOML file under `fixtures/<function>/`:

@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "U+FEFF is not White_Space, so it is not trimmed off the verb and the commit is not Operational (#1666)"
+
+[input]
+hash = "1666009"
+message = "\uFEFFfix: a"
+
+[expected]
+kind = "Epistemic"
+verb = "\uFEFFfix"
+subject = "a"

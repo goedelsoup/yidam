@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from ._text import WHITE_SPACE, first_line
+
 
 class CommitKind(str, Enum):
     Epistemic = "Epistemic"
@@ -82,14 +84,17 @@ def is_recognized_verb(verb: str) -> bool:
 
 
 def classify_commit(hash: str, message: str) -> CommitEvent:
-    first_line = message.splitlines()[0].strip() if message else ""
-    if ": " in first_line:
-        pos = first_line.index(": ")
-        verb = first_line[:pos].strip()
-        subject = first_line[pos + 2:].strip()
+    # The first line and the trim are the Rust SDK's rule, not ``splitlines`` and ``strip``:
+    # those cut a subject at a U+2028, lost a line led by U+0085, and stripped U+001F from a
+    # verb, so one commit had a different kind here than in the other two SDKs (#1666).
+    line = first_line(message).strip(WHITE_SPACE)
+    if ": " in line:
+        pos = line.index(": ")
+        verb = line[:pos].strip(WHITE_SPACE)
+        subject = line[pos + 2:].strip(WHITE_SPACE)
     else:
         verb = ""
-        subject = first_line
+        subject = line
 
     kind = CommitKind.Operational if verb in _OPERATIONAL_VERBS else CommitKind.Epistemic
 

@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "A form feed is not a newline, so the subject runs past it to the end of the line (#1666)"
+
+[input]
+hash = "1666001"
+message = "fix: a\fb"
+
+[expected]
+kind = "Operational"
+verb = "fix"
+subject = "a\fb"

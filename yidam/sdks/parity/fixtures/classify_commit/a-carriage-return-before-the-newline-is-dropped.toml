@@ -1,0 +1,11 @@
+function = "classify_commit"
+description = "One carriage return directly before the newline is not part of the first line (#1666)"
+
+[input]
+hash = "1666004"
+message = "fix: a\r\nbody"
+
+[expected]
+kind = "Operational"
+verb = "fix"
+subject = "a"

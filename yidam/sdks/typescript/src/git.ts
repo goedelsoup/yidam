@@ -1,3 +1,5 @@
+import { firstLine, trim } from './text.ts'
+
 export type CommitKind = 'Epistemic' | 'Operational'
 
 export interface CommitEvent {
@@ -44,16 +46,19 @@ export function isRecognizedVerb(verb: string): boolean {
 }
 
 export function classifyCommit(hash: string, message: string): CommitEvent {
-  const firstLine = (message.split('\n')[0] ?? '').trim()
-  const colonPos = firstLine.indexOf(': ')
+  // The trim is the Rust SDK's `White_Space`, not `String.prototype.trim`: that stripped a
+  // BOM before a verb and kept a U+0085, so one commit had a different kind here than in the
+  // other two SDKs (#1666).
+  const line = trim(firstLine(message))
+  const colonPos = line.indexOf(': ')
   let verb: string
   let subject: string
   if (colonPos !== -1) {
-    verb = firstLine.slice(0, colonPos).trim()
-    subject = firstLine.slice(colonPos + 2).trim()
+    verb = trim(line.slice(0, colonPos))
+    subject = trim(line.slice(colonPos + 2))
   } else {
     verb = ''
-    subject = firstLine
+    subject = line
   }
 
   const kind: CommitKind = OPERATIONAL_VERBS.has(verb) ? 'Operational' : 'Epistemic'
