@@ -2,7 +2,7 @@
 //!
 //! #464 proposed escalating `clippy::unwrap_used` to deny "in the modules that must not
 //! panic", on the estimate that production carried 78 panic paths. Measured with test modules
-//! excluded it carries **23, across 13 files** — even more affordable than the issue thought.
+//! excluded it carried **23, across 13 files** — even more affordable than the issue thought.
 //!
 //! It is still not switched on, and the reason is in `Cargo.toml` beside the `[lints]` table:
 //! a lint level there applies to the whole package, this repository's tests unwrap freely,
