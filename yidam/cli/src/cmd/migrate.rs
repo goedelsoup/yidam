@@ -1532,17 +1532,17 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
     for e in &report.edits {
         by_file.entry(&e.file).or_default().push(e);
     }
+    // Every file's new text first, and the writes only once each edit has been placed: an edit
+    // that cannot be is a refusal with nothing touched, not a count that includes it (#1614).
+    let mut written = vec![];
+    let mut skipped = vec![];
     for (file, edits) in &by_file {
         let path = root.join(file);
         let text = std::fs::read_to_string(&path)?;
-        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-        for e in edits {
-            let Some(line) = lines.get_mut(e.line - 1) else {
-                continue;
-            };
-            // Re-locate rather than trusting a recorded span: the plan and the apply are two
-            // reads of the same file, and rewriting a range that has moved would corrupt it.
-            let span = ["target", "class", "name", "type", "relationship"]
+        // Re-locate rather than trusting a recorded span: the plan and the apply are two
+        // reads of the same file, and rewriting a range that has moved would corrupt it.
+        let (out, missed) = super::rename::apply_edits(&text, edits, |line, e| {
+            ["target", "class", "name", "type", "relationship"]
                 .iter()
                 .find_map(|key| scalar_on(line, key).filter(|(_, _, v)| *v == e.from))
                 .map(|(s, t, _)| (s, t))
@@ -1583,14 +1583,16 @@ fn apply(root: &Path, corpus: &Path, op: &Operation, report: &mut MigrateReport)
                             .map(|(s, t, _)| (s, t))
                     })
                 })
-                .or_else(|| mapping_key_on(line, &e.from));
-            let Some((start, end)) = span else { continue };
-            line.replace_range(start..end, &e.to);
-        }
-        let mut out = lines.join("\n");
-        if text.ends_with('\n') {
-            out.push('\n');
-        }
+                .or_else(|| mapping_key_on(line, &e.from))
+        });
+        skipped.extend(missed.into_iter().map(super::rename::unplaced));
+        written.push((path, out));
+    }
+    if !skipped.is_empty() {
+        report.blocked = skipped;
+        return Ok(());
+    }
+    for (path, out) in written {
         std::fs::write(&path, out)?;
     }
 
@@ -2195,13 +2197,11 @@ pub fn migrate(op: Operation, dry_run: bool, format: crate::report::Format) -> R
         apply(&root, &corpus, &op, &mut report)?;
     }
 
-    crate::report::finish(&root, format, &report, |r| {
+    // The refusal is the report, as `rename`'s is: no `Error:` line under it (#1614).
+    let blocked = !report.blocked.is_empty();
+    crate::report::gate(&root, format, report, !blocked, |r| {
         println!("{}", render_migrate(r))
-    })?;
-    if !report.blocked.is_empty() {
-        anyhow::bail!("migrate: blocked");
-    }
-    Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -2275,6 +2275,53 @@ mod tests {
             ]
         );
         assert!(render_migrate(&r).contains("station/a.yml:3  moved-from: ../gauge/a.yml"));
+    }
+
+    /// A CRLF instance is written back CRLF, the `moved-from:` line with it (#1614). Its one
+    /// edit used to rewrite every line of it to LF.
+    #[test]
+    fn a_class_rename_keeps_a_crlf_instances_line_endings() {
+        let (_t, root, corpus) = corpus();
+        std::fs::write(corpus.join("gauge/a.yml"), "class: gauge\r\nlabel: A\r\n").unwrap();
+        let op = class_rename("gauge", "station");
+        let mut r = plan(&root, &corpus, &op);
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        apply(&root, &corpus, &op, &mut r).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(corpus.join("station/a.yml")).unwrap(),
+            "class: station\r\nlabel: A\r\nmoved-from: ../gauge/a.yml\r\n"
+        );
+    }
+
+    /// An edit the apply cannot place blocks the migration with nothing written — no file,
+    /// no move, no record — rather than being counted in the record and the commit subject
+    /// over a file that does not have it (#1614). The plan and the apply are two reads; this
+    /// changes the file between them.
+    #[test]
+    fn an_edit_the_apply_cannot_place_blocks_the_migration() {
+        let (_t, root, corpus) = corpus();
+        std::fs::write(corpus.join("gauge/a.yml"), "class: gauge\nlabel: A\n").unwrap();
+        let op = class_rename("gauge", "station");
+        let mut r = plan(&root, &corpus, &op);
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        let changed = "label: A\nclass: gauge\n";
+        std::fs::write(corpus.join("gauge/a.yml"), changed).unwrap();
+        apply(&root, &corpus, &op, &mut r).unwrap();
+        assert!(!r.applied);
+        assert!(
+            r.blocked
+                .iter()
+                .any(|b| b.starts_with(".yidam/corpus/gauge/a.yml:1: `gauge`")),
+            "{:?}",
+            r.blocked
+        );
+        assert_eq!(
+            std::fs::read_to_string(corpus.join("gauge/a.yml")).unwrap(),
+            changed
+        );
+        assert!(!corpus.join("station").exists());
+        assert!(!root.join(".yidam/migrations").exists());
+        assert!(render_migrate(&r).starts_with("Cannot migrate"));
     }
 
     /// The line is the one the history fold reads. Rename the class of an uncited open

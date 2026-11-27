@@ -467,13 +467,86 @@ pub(crate) fn moved_from_text(e: &Edit) -> String {
 /// past the last.
 pub(crate) fn write_moved_from(path: &Path, e: &Edit) -> Result<()> {
     let text = std::fs::read_to_string(path)?;
-    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-    match lines.get_mut(e.line - 1) {
-        Some(line) => *line = moved_from_text(e),
-        None => lines.push(moved_from_text(e)),
+    let mut lines = split_lines(&text);
+    // A line added past the end takes the file's own line ending, as the rest of it has.
+    let eol = lines
+        .iter()
+        .map(|(_, eol)| *eol)
+        .find(|eol| !eol.is_empty())
+        .unwrap_or("\n");
+    match e.line.checked_sub(1).and_then(|i| lines.get_mut(i)) {
+        Some((line, _)) => *line = moved_from_text(e),
+        None => lines.push((moved_from_text(e), eol)),
     }
-    std::fs::write(path, lines.join("\n") + "\n")?;
+    if let Some((_, last)) = lines.last_mut() {
+        if last.is_empty() {
+            *last = eol;
+        }
+    }
+    std::fs::write(path, join_lines(&lines))?;
     Ok(())
+}
+
+/// `text`'s lines as [`str::lines`] numbers them, each with the ending it had: `"\r\n"`, `"\n"`,
+/// or `""` for a last line with none.
+///
+/// The line rewriters edit the first half and put the second back, so a CRLF file is written
+/// back CRLF (#1614). Splitting with `lines()` and joining with `"\n"` rewrote every line of
+/// it for an edit to one.
+pub(crate) fn split_lines(text: &str) -> Vec<(String, &'static str)> {
+    text.split_inclusive('\n')
+        .map(|l| {
+            if let Some(line) = l.strip_suffix("\r\n") {
+                (line.to_string(), "\r\n")
+            } else if let Some(line) = l.strip_suffix('\n') {
+                (line.to_string(), "\n")
+            } else {
+                (l.to_string(), "")
+            }
+        })
+        .collect()
+}
+
+/// The text [`split_lines`] read, with whatever edits were made to its lines.
+pub(crate) fn join_lines(lines: &[(String, &str)]) -> String {
+    lines.iter().map(|(l, eol)| format!("{l}{eol}")).collect()
+}
+
+/// `edits` made to `text`, each at the span `locate` finds for it on its line, and the edits
+/// that could not be placed.
+///
+/// `migrate` and `rename` both plan a list of edits and make them on a second read of each
+/// file, re-locating each one rather than trusting a recorded span. An edit whose line is gone,
+/// or whose line `locate` finds nothing on, used to be dropped while the report and the commit
+/// subject still counted it (#1614). The caller refuses and writes nothing when the second
+/// list is not empty.
+pub(crate) fn apply_edits<'a>(
+    text: &str,
+    edits: &[&'a Edit],
+    locate: impl Fn(&str, &Edit) -> Option<(usize, usize)>,
+) -> (String, Vec<&'a Edit>) {
+    let mut lines = split_lines(text);
+    let mut skipped = vec![];
+    for &e in edits {
+        let Some((line, _)) = e.line.checked_sub(1).and_then(|i| lines.get_mut(i)) else {
+            skipped.push(e);
+            continue;
+        };
+        let Some((start, end)) = locate(line, e) else {
+            skipped.push(e);
+            continue;
+        };
+        line.replace_range(start..end, &e.to);
+    }
+    (join_lines(&lines), skipped)
+}
+
+/// The refusal for an edit [`apply_edits`] could not place.
+pub(crate) fn unplaced(e: &Edit) -> String {
+    format!(
+        "{}:{}: `{}` could not be rewritten on that line, so nothing was written",
+        e.file, e.line, e.from
+    )
 }
 
 /// The keys whose value names a catalog entry: an edge's `source:`, and a quotation's `of:`
@@ -656,9 +729,10 @@ pub(crate) fn git_mv(root: &Path, from: &Path, to: &Path) -> bool {
 
 /// Apply the plan.
 ///
-/// The move goes first, because every edit is recorded under the path its file has when the
-/// command finishes and one of those files is the node being moved. Ordering the other way
-/// would mean translating that one path back to the name it is leaving, on every write.
+/// Every edit is placed before anything is written, and one that cannot be placed blocks the
+/// whole rename (#1614). Every edit is recorded under the path its file has when the command
+/// finishes, so the moved node's are read from the name it is leaving; the move then goes
+/// before the writes, which land at the names in the plan.
 ///
 /// Nothing observes a half-state either way: the gate reads the working tree, and the tree is
 /// only read once the command returns.
@@ -666,6 +740,52 @@ fn apply(root: &Path, report: &mut RenameReport) -> Result<()> {
     let base = root.join(&report.corpus_dir);
     let old_path = base.join(&report.from);
     let new_path = base.join(&report.to);
+
+    // Every file's new text first, and the move and the writes only once each edit has been
+    // placed: an edit that cannot be is a refusal with nothing touched, not a count that
+    // includes it over a file that does not.
+    let moved = report.moved_file();
+    let mut by_file: std::collections::BTreeMap<&str, Vec<&Edit>> = Default::default();
+    for e in &report.edits {
+        by_file.entry(&e.file).or_default().push(e);
+    }
+    let mut written = vec![];
+    let mut skipped = vec![];
+    for (file, edits) in by_file {
+        // The mover's edits are filed under its new name, and it is still at its old one.
+        let read = if file == moved {
+            old_path.clone()
+        } else {
+            root.join(file)
+        };
+        let text = std::fs::read_to_string(&read)?;
+        // Re-read rather than trusting the recorded span: the plan and the apply are two
+        // reads of the same file, and rewriting a range that has moved would corrupt it.
+        // A catalog entry's edits are `source:` and `of:` values and markdown links; the
+        // last is found by its own syntax, and a line holding two of them is rewritten
+        // twice, each pass finding the first one still spelled the old way.
+        let keys: &[&str] = if report.catalog {
+            &CATALOG_KEYS
+        } else {
+            &["target"]
+        };
+        let (out, missed) = apply_edits(&text, &edits, |line, e| {
+            match keys.iter().find_map(|k| value_on(line, k)) {
+                Some((start, end, value)) if value == e.from => Some((start, end)),
+                _ if report.catalog => link_span(line, &e.from),
+                _ => None,
+            }
+        });
+        skipped.extend(missed.into_iter().map(unplaced));
+        written.push((root.join(file), out));
+    }
+    if !skipped.is_empty() {
+        report.blocked = skipped;
+        report.moves.clear();
+        report.moved_from = None;
+        return Ok(());
+    }
+
     if let Some(parent) = new_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -674,43 +794,7 @@ fn apply(root: &Path, report: &mut RenameReport) -> Result<()> {
         // `git mv` is for history, not for correctness.
         std::fs::rename(&old_path, &new_path)?;
     }
-
-    let mut by_file: std::collections::BTreeMap<&str, Vec<&Edit>> = Default::default();
-    for e in &report.edits {
-        by_file.entry(&e.file).or_default().push(e);
-    }
-    for (file, edits) in by_file {
-        let path = root.join(file);
-        let text = std::fs::read_to_string(&path)?;
-        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-        for e in edits {
-            let Some(line) = lines.get_mut(e.line - 1) else {
-                continue;
-            };
-            // Re-read rather than trusting the recorded span: the plan and the apply are two
-            // reads of the same file, and rewriting a range that has moved would corrupt it.
-            // A catalog entry's edits are `source:` and `of:` values and markdown links; the
-            // last is found by its own syntax, and a line holding two of them is rewritten
-            // twice, each pass finding the first one still spelled the old way.
-            let keys: &[&str] = if report.catalog {
-                &CATALOG_KEYS
-            } else {
-                &["target"]
-            };
-            let span = match keys.iter().find_map(|k| value_on(line, k)) {
-                Some((start, end, value)) if value == e.from => Some((start, end)),
-                _ if report.catalog => link_span(line, &e.from),
-                _ => None,
-            };
-            let Some((start, end)) = span else {
-                continue;
-            };
-            line.replace_range(start..end, &e.to);
-        }
-        let mut out = lines.join("\n");
-        if text.ends_with('\n') {
-            out.push('\n');
-        }
+    for (path, out) in written {
         std::fs::write(&path, out)?;
     }
 
@@ -1230,6 +1314,89 @@ mod tests {
             read(&corpus.join("concept/b.yml")),
             original.replace("old.yml", "new.yml")
         );
+    }
+
+    /// A CRLF file is written back CRLF: the edited line, and the `moved-from:` line added to
+    /// the mover (#1614). Both were written LF, which rewrote every line of the file.
+    #[test]
+    fn a_crlf_file_keeps_its_line_endings() {
+        let (_t, root, corpus) = corpus();
+        write(
+            &corpus.join("concept/old.yml"),
+            "class: concept\r\nlabel: Old\r\n",
+        );
+        let inbound =
+            "class: concept\r\nlinks:\r\n  - target: ../concept/old.yml\r\n    relationship: r\r\n";
+        write(&corpus.join("concept/b.yml"), inbound);
+        let mut r = plan(&root, &corpus, "concept/old", "concept/new");
+        apply(&root, &mut r).unwrap();
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        assert_eq!(
+            read(&corpus.join("concept/b.yml")),
+            inbound.replace("old.yml", "new.yml")
+        );
+        assert_eq!(
+            read(&corpus.join("concept/new.yml")),
+            "class: concept\r\nlabel: Old\r\nmoved-from: ../concept/old.yml\r\n"
+        );
+    }
+
+    /// An edit the plan found and the apply cannot place blocks the rename, and nothing is
+    /// moved or written (#1614). A link with a title is one: the plan reads its target, and
+    /// the apply looks for `](target)`. It used to be counted as rewritten, and left pointing
+    /// at a file the rename moved.
+    #[test]
+    fn an_edit_the_apply_cannot_place_blocks_the_rename() {
+        let (_t, root, corpus) = corpus();
+        catalog(&root, "old.md", "---\nobtained: true\n---\n# Old\n");
+        let citing = "---\nobtained: true\n---\nSee [Old](old.md \"the old one\").\n";
+        catalog(&root, "other.md", citing);
+        let mut r = plan(&root, &corpus, "catalog/old", "new");
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
+        assert_eq!(r.edits.len(), 1, "{:?}", r.edits);
+        apply(&root, &mut r).unwrap();
+        assert!(!r.applied);
+        assert_eq!(
+            r.blocked,
+            [".yidam/catalog/other.md:4: `old.md` could not be rewritten on that line, so nothing was written"]
+        );
+        assert!(r.moves.is_empty());
+        assert!(root.join(".yidam/catalog/old.md").is_file());
+        assert!(!root.join(".yidam/catalog/new.md").exists());
+        assert_eq!(read(&root.join(".yidam/catalog/other.md")), citing);
+        assert!(render_rename(&r).starts_with("Cannot rename"));
+    }
+
+    /// A line that is gone, or a line 0, is an edit not made — not an index panic and not a
+    /// silent drop.
+    #[test]
+    fn an_edit_off_the_end_of_the_file_is_reported_unplaced() {
+        let edit = |line| Edit {
+            file: "f".into(),
+            line,
+            from: "a".into(),
+            to: "b".into(),
+        };
+        let (gone, zero, here) = (edit(3), edit(0), edit(1));
+        let (out, skipped) = apply_edits("a\r\n", &[&gone, &zero, &here], |line, e| {
+            line.find(&e.from).map(|s| (s, s + e.from.len()))
+        });
+        assert_eq!(out, "b\r\n");
+        assert_eq!(skipped.iter().map(|e| e.line).collect::<Vec<_>>(), [3, 0]);
+    }
+
+    /// The ending each line had, including none on the last and a lone `\r` inside one.
+    #[test]
+    fn split_lines_round_trips() {
+        for text in ["", "a", "a\n", "a\r\nb\nc", "a\r\n\r\n", "a\rb\n"] {
+            let lines = split_lines(text);
+            assert_eq!(join_lines(&lines), text);
+            assert_eq!(
+                lines.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>(),
+                text.lines().collect::<Vec<_>>(),
+                "{text:?}"
+            );
+        }
     }
 
     /// A catalog entry is renamed with its own tolerance for how the name is written.
