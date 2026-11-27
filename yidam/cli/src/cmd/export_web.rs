@@ -202,6 +202,50 @@ mod tests {
         assert!(config["embed_config"].is_null());
     }
 
+    /// The stylesheet asks the network for nothing (#1680).
+    ///
+    /// `yidam/design/tokens/fonts.css` is an `@import` from Google Fonts, and the design
+    /// bundle used to carry it into every exported page as its first rule: a request to a
+    /// third party, made on open, that no config names and no consent covers — from a page
+    /// whose one stylesheet is one file so that it works offline. `build.rs` drops it, and
+    /// this is the half that reads what a reader's browser is actually handed.
+    ///
+    /// Comments are skipped, since the design files name `@import` in prose. The tokens are
+    /// asserted present first, because an empty stylesheet imports nothing either.
+    #[test]
+    fn the_stylesheet_requests_nothing_over_the_network() {
+        let files = render_web(&indexed_model(), None).unwrap();
+        let css = std::str::from_utf8(file(&files, "assets/main.css")).unwrap();
+        assert!(
+            css.contains("--font-serif:") && css.contains("--ink-900:"),
+            "the exported stylesheet carries no design tokens, so there is nothing to check"
+        );
+
+        let mut rules = String::new();
+        let mut rest = css;
+        while let Some(open) = rest.find("/*") {
+            rules.push_str(&rest[..open]);
+            rest = rest[open + 2..]
+                .split_once("*/")
+                .map_or("", |(_, after)| after);
+        }
+        rules.push_str(rest);
+
+        assert!(
+            !rules.contains("@import"),
+            "assets/main.css has an @import. A relative one resolves to a file the export \
+             never writes; a remote one is a request the reader was not asked about."
+        );
+        for scheme in ["http://", "https://", "url(//", "url('//", "url(\"//"] {
+            assert!(
+                !rules.contains(scheme),
+                "assets/main.css names a remote resource (`{scheme}`), and the page is opened \
+                 over file://. Network access belongs in web.config.json's `cdn`, behind the \
+                 reader's consent."
+            );
+        }
+    }
+
     #[test]
     fn bundle_matches_render_bundle_output() {
         let m = indexed_model();

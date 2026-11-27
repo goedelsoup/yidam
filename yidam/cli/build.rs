@@ -12,6 +12,20 @@
 use std::fmt::Write as _;
 use std::process::Command;
 
+/// `css` with every `/* … */` removed, so a rule named in prose is not read as a rule.
+fn without_comments(css: &str) -> String {
+    let mut out = String::new();
+    let mut rest = css;
+    while let Some(open) = rest.find("/*") {
+        out.push_str(&rest[..open]);
+        rest = rest[open + 2..]
+            .split_once("*/")
+            .map_or("", |(_, after)| after);
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The design system, concatenated into one string the binary can embed.
 ///
 /// `export --format web` writes a self-contained artifact — it is opened over `file://` and
@@ -59,7 +73,31 @@ fn emit_design_tokens() {
             )
         });
         let _ = write!(bundle, "\n/* {rel} */\n");
-        bundle.push_str(&css);
+        // Every `@import` is dropped, because a concatenation has no use for one. The
+        // relative ones (`styles.css` is nothing else) name files already inlined above, and
+        // would resolve against the exported page's `assets/` if a browser honoured them. The
+        // remote one is `tokens/fonts.css` asking Google for the four families — a request to
+        // a third party from a page that is opened over `file://`, made before anything on it
+        // is clicked and named in no config (#1680). Without it the page renders in the
+        // families the reader has installed, or the fallbacks `typography.css` declares.
+        let mut omitted = 0;
+        for line in css.lines() {
+            if line.trim_start().starts_with("@import") {
+                omitted += 1;
+            } else {
+                bundle.push_str(line);
+                bundle.push('\n');
+            }
+        }
+        // Said in the output, because the file's own header may still describe the rule that
+        // is no longer under it — `fonts.css` opens by saying the families load from a CDN.
+        if omitted > 0 {
+            let _ = writeln!(
+                bundle,
+                "/* {omitted} import rule(s) omitted from this bundle: an exported page \
+                 requests nothing. */"
+            );
+        }
     }
 
     // A bundle that resolved to nothing would still compile and still export, producing an
@@ -69,6 +107,27 @@ fn emit_design_tokens() {
         "the design bundle is missing tokens the web agent uses; the manifest's \
          globalCssPaths no longer name the palette"
     );
+
+    // The filter above reads lines, and CSS is not line-oriented: an `@import` that opens
+    // mid-line, or a `url()` naming a host, would put the request back with nothing here
+    // changing. So the result is checked as rules, comments aside.
+    let rules = without_comments(&bundle);
+    assert!(
+        !rules.contains("@import"),
+        "the design bundle still carries an @import, so the exported page would make a \
+         request its reader was not asked about (#1680)"
+    );
+    for (at, _) in rules.match_indices("url(") {
+        let target = rules[at + 4..].trim_start_matches([' ', '\'', '"']);
+        assert!(
+            !["http:", "https:", "//"]
+                .iter()
+                .any(|scheme| target.starts_with(scheme)),
+            "the design bundle names a remote resource, and the exported page is opened \
+             offline (#1680): url({}",
+            target.chars().take(60).collect::<String>()
+        );
+    }
 
     let out = std::path::Path::new(&std::env::var("OUT_DIR").expect("cargo sets OUT_DIR"))
         .join("design-tokens.css");
