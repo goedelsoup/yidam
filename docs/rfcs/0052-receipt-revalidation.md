@@ -1,6 +1,6 @@
 # RFC-0052 — A re-run that reproduces its outputs is recorded, not committed (receipt re-validation)
 
-- **Status:** Implemented
+- **Status:** Accepted
 - **Track:** I38
 - **Relates to:**
   - RFC-0026 (the orchestrator layer: the receipt, its input state, and the lander that holds the only credential for a ref)
@@ -11,6 +11,7 @@
 - **Amended 2026-11-27 (#1598, #1600):** §2.7 lets a step declare an output whose consumer
   requires the input commit. `doctor` reports that output as declared rather than warning, and
   `run` judges its reproduction with the commit masked. One manifest key, `stamps_input_commit`.
+  §2.1 to §2.6 are implemented. The status reads `Accepted` until §2.7 is.
 
 ## Summary
 
@@ -272,6 +273,10 @@ A step may therefore name the outputs that carry the commit by contract:
 
 ```toml
 [capability.engine-pack]
+kind = "calculator"
+run = ["sh", ".yidam/capabilities/engine-pack.sh"]
+verb = "compute"
+reads = ["corpus/**"]
 writes = [".yidam/computed/engine-pack.json", ".yidam/computed/engine-pack-omissions.yml"]
 stamps_input_commit = [".yidam/computed/engine-pack.json"]
 ```
@@ -283,22 +288,35 @@ naming a path that no `writes` glob covers fails to load, with the path named.
 is reported as declared, in the `ok` detail, and is not warned on. An undeclared one is warned
 on as before. So the declaration clears the warning for exactly the outputs it names. The
 companion omissions file above still warns if it carries the commit, which is the case
-land-use-activity and traffic-design already fixed by hand.
+land-use-activity and traffic-design already fixed by hand. A declared output whose committed
+bytes do not contain the receipt's `input.commit` is warned on as a stale declaration, with the
+path named. The consumer may have dropped the field, and a declaration that masks nothing should
+not go on claiming a contract.
 
 **What `run` does.** §2.2's first test compares the produced bytes with the parent's. For a
 declared output, the comparison is made after every occurrence of this run's full input commit is
 replaced with the full `input.commit` of the parent's receipt. When the replaced bytes equal the
 committed ones, and the receipt built from them reproduces the committed receipt, the run
 reproduced its receipt. It writes a note and no commit, as §2.2 says, and the committed output
-keeps the commit it already carries.
+keeps the commit it already carries. The step has already written its own bytes, carrying this
+run's commit, so `run` writes the replaced bytes back over each declared output before it
+returns. The working tree then matches the parent, and a later step that reads the file reads
+the committed commit.
 
 That commit is still true for the consumer. The output says its spans were read at the commit it
 names. The note says a later commit's inputs gave the same answer. The consumer's pin moves only
 when an answer moves, which is the reproducibility #1600 asks for.
 
 When the replaced bytes differ, the output is committed as produced, carrying this run's commit.
-Only the full 40-character commit is masked. A step that also writes an abbreviation reproduces
-nothing, and commits as it does today.
+Only the full commit id is masked: 40 hex characters in a SHA-1 repository, 64 in a SHA-256
+one. A step that also writes an abbreviation reproduces nothing, and commits as it does today.
+
+**The other routes.** On the proposal route (§2.5) the parent is HEAD or the pending
+proposal's tip, and the comparison is made against that parent's receipt in the same way. With
+no pending proposal, a run that reproduces under masking opens no proposal. With one, a re-run
+that moves only the commit lands nothing on the proposal, as #1162 does for an identical tree.
+The cluster path (§2.5.1) builds its commit in the pod and writes no note, so until the lander
+question is settled it lands the stamp-only commit, as it lands the receipt-only one today.
 
 **What it does not do.** It does not change `YIDAM_INPUT_COMMIT`, which is still this run's
 commit. It does not change the receipt format: the receipt of a committed run records the
