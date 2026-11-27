@@ -494,3 +494,24 @@ fn the_corpus_gates_are_the_commands_that_take_staged() {
         .collect();
     assert_eq!(takes_staged, gates);
 }
+
+/// The sweep before a staged run leaves another user's run alone (#1703). pid 1 always runs
+/// and, unless the tests run as root, may not be signalled; an exited child's pid is swept.
+#[cfg(unix)]
+#[test]
+fn a_staged_run_sweeps_an_exited_runs_files_and_not_a_running_ones() {
+    let tmp = clean();
+    let root = tmp.path();
+    let mut child = Command::new("true").spawn().unwrap();
+    let dead = child.id();
+    child.wait().unwrap();
+    let git_dir = root.join(".git");
+    let others = git_dir.join("yidam-staged-1-index");
+    let exited = git_dir.join(format!("yidam-staged-{dead}-index"));
+    std::fs::write(&others, "").unwrap();
+    std::fs::write(&exited, "").unwrap();
+    let r = run(root, &["regen", "--check", "--staged"]);
+    assert_eq!(r.code, 0, "{}{}", r.stdout, r.stderr);
+    assert!(others.exists(), "pid 1's file was swept");
+    assert!(!exited.exists(), "an exited run's file was left");
+}

@@ -1599,6 +1599,7 @@ fn gc_keeps_what_the_catalog_and_the_lock_name_and_drops_the_rest() {
 /// **`gc` sweeps what an interrupted write left, and nothing a running one is writing
 /// (#1658).** A temporary is named for its process: one whose process has exited is stale,
 /// one whose process is this test is live. Near misses and a person's file are not swept.
+/// pid 1 runs and may belong to another user, so its temporary is live too (#1703).
 #[test]
 fn gc_sweeps_stale_temporaries_and_leaves_live_ones_alone() {
     let store = tempfile::tempdir().unwrap();
@@ -1620,10 +1621,12 @@ fn gc_sweeps_stale_temporaries_and_leaves_live_ones_alone() {
     let digest = "de".to_string() + &"a".repeat(62);
     let stale = format!("sha256/de/.{digest}.{dead}.part");
     let live = format!("sha256/de/.{digest}.{alive}.part");
+    let others = format!("sha256/de/.{digest}.1.part");
     let packing = format!(".index.{dead}.packing");
     let untouched = ["sha256/de/.deadbeef.9.part", "notes.txt"];
     write(&cache.join(&stale), b"partial");
     write(&cache.join(&live), b"still writing");
+    write(&cache.join(&others), b"another user's write");
     write(&cache.join(&packing), b"packed");
     for name in untouched {
         write(&cache.join(name), b"not ours");
@@ -1633,11 +1636,15 @@ fn gc_sweeps_stale_temporaries_and_leaves_live_ones_alone() {
     assert!(said.contains("2 left by an interrupted write"), "{said}");
     assert!(said.contains(&stale) && said.contains(&packing), "{said}");
     assert!(!said.contains(&live), "a live write is not listed: {said}");
-    assert!(said.contains("1 still being written"), "{said}");
+    assert!(
+        !said.contains(&others),
+        "pid 1's write is not listed: {said}"
+    );
+    assert!(said.contains("2 still being written"), "{said}");
     assert!(said.contains("Nothing was deleted"), "{said}");
     let mut before = cache_files(&cache);
     before.sort();
-    assert_eq!(before.len(), 6, "without --yes nothing moves: {before:?}");
+    assert_eq!(before.len(), 7, "without --yes nothing moves: {before:?}");
 
     let said = run(tmp.path(), &cache, &["vault", "gc", "--yes"])
         .ok()
@@ -1647,6 +1654,7 @@ fn gc_sweeps_stale_temporaries_and_leaves_live_ones_alone() {
     after.sort();
     let mut expected: Vec<String> = untouched.iter().map(|s| s.to_string()).collect();
     expected.push(live);
+    expected.push(others);
     expected.push(format!("sha256/{}/{kept}", &kept[..2]));
     expected.sort();
     assert_eq!(after, expected, "{said}");
