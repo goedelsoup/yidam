@@ -420,7 +420,7 @@ pub fn render(available: &[(String, String)]) -> String {
 /// Render the short listing: the commands a session usually needs, flat and in order.
 ///
 /// Flat on purpose. The grouping in [`render`] earns its headings over the full list and
-/// would cost more than it buys over thirteen — four of the groups would print a single row
+/// would cost more than it buys over the short one — four of the groups would print a single row
 /// under a heading longer than the row. What the order carries instead is the sequence: ask
 /// whether something is wrong, then what is owed, then read the corpus, then write to it,
 /// then serve or derive. That is [`GROUPS`]' own order, so there is nothing here to keep in
@@ -635,8 +635,8 @@ mod tests {
             .collect()
     }
 
-    /// The point of the short listing. Nothing about printing thirteen rows resists a
-    /// fourteenth, and a short list that grows is the long one arriving by instalments —
+    /// The point of the short listing. Nothing about printing a short list resists
+    /// one more row, and a short list that grows is the long one arriving by instalments —
     /// which is how `--help` reached ninety lines the first time (#921).
     ///
     /// A ceiling and not an exact count, so a command can leave the list without a test

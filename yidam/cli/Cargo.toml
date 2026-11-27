@@ -40,8 +40,8 @@ path = "src/main.rs"
 # goes red (#464). A level in the manifest is read by every invocation, which is the point.
 #
 # **`clippy::unwrap_used` is deliberately NOT here**, and the measurement is why. Production
-# code carries few enough panic paths once test modules are excluded — an affordable
-# number, which is what #464 expected. But `[lints]` applies to the whole package, tests
+# code carries few panic paths once test modules are excluded (`BUDGET` in `panic_paths.rs`),
+# an affordable number, which is what #464 expected. But `[lints]` applies to the package, tests
 # included, and this repository's tests unwrap freely: switching it on emits **1,831**
 # warnings, and since every gate passes `-D warnings`, a warn-level lint here is a deny.
 #
