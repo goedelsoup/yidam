@@ -414,9 +414,7 @@ pub struct Diff {
     /// finding that has been sitting in their baseline for two hundred commits would be a
     /// lie, and a confusing one.
     pub expired: Vec<Expired>,
-    /// What `expire_record` says about `expire_after`. [`diff`] leaves it
-    /// [`Argument::Unset`]; the caller, which has the repository, reads it with
-    /// [`argument`].
+    /// What `expire_record` says about `expire_after`, read by [`gate`].
     pub argument: Argument,
 }
 
@@ -492,7 +490,7 @@ impl Argument {
 ///
 /// The record's key is read as an untyped value: the record is shared with every other
 /// reader of decision records, and one without the key must not fail to parse.
-pub fn argument(root: &Path, baseline: &Baseline) -> Argument {
+fn argument(root: &Path, baseline: &Baseline) -> Argument {
     let decisions = root.join(".yidam").join("decisions");
     let held = |id: &str| crate::cmd::decisions::find_decision(&decisions, id);
     match (baseline.expire_after, baseline.expire_record.as_deref()) {
@@ -538,6 +536,45 @@ fn stated_expiry(text: &str) -> Option<usize> {
         .and_then(|n| usize::try_from(n).ok())
 }
 
+/// A run read through the ratchet: the committed baseline, and what the run and it disagree
+/// about.
+#[derive(Debug)]
+pub struct Gated {
+    pub baseline: Baseline,
+    pub diff: Diff,
+}
+
+/// The ratchet's verdict on a run, as `yidam lint` gates on it (#1613).
+///
+/// The only way a [`Diff`] leaves this file. It loads the committed baseline, compares the
+/// run against it on the corpus's own clock, and reads what `expire_record` says about
+/// `expire_after`. `lint`, `cycle`, `propose` and the language server's report each did
+/// some of that themselves, and two of them skipped the last step. `cycle` then reported
+/// nothing blocked on a baseline `lint` failed.
+///
+/// A baseline that does not parse is an error, never an empty baseline. An empty one
+/// forgives nothing and fails nothing, so reading it silently gives a verdict on a file
+/// nobody wrote.
+pub fn gate(root: &Path, checks: &[Check]) -> Result<Gated> {
+    let baseline = Baseline::load(root)?;
+    let corpus_commits = super::history::corpus_commits(root);
+    let mut diff = compare(checks, &baseline, &corpus_commits, &super::unasked(checks));
+    diff.argument = argument(root, &baseline);
+    Ok(Gated { baseline, diff })
+}
+
+/// [`compare`] for tests that judge an in-memory baseline. The argument is left
+/// [`Argument::Unset`].
+#[cfg(test)]
+pub(super) fn diff(
+    checks: &[Check],
+    baseline: &Baseline,
+    corpus_commits: &[String],
+    unasked: &[&str],
+) -> Diff {
+    compare(checks, baseline, corpus_commits, unasked)
+}
+
 /// Compare a run against the baseline as a multiset of `(check id, node)`.
 ///
 /// `corpus_commits` is every commit that touched the corpus, oldest first — the clock an
@@ -549,7 +586,10 @@ fn stated_expiry(text: &str) -> Option<usize> {
 /// [`Diff::carried`] rather than [`Diff::resolved`]: absent from `checks` because nobody put
 /// the question, not because the answer changed (#1114). Pass only ids the roster knows —
 /// an id it no longer has is not on the list, and its entries resolve as stale.
-pub fn diff(
+///
+/// The argument is left [`Argument::Unset`]: reading it needs the repository, which
+/// [`gate`] has.
+fn compare(
     checks: &[Check],
     baseline: &Baseline,
     corpus_commits: &[String],

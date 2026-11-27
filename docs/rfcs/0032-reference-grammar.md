@@ -134,7 +134,7 @@ relative path, which is a *fifth* convention, and unrelated to any of the above.
 | `../other-class/thing.yml` | [`resolve_link_target`](../../yidam/cli/src/model.rs#L567) | — | — |
 | `yidam://corpus/class/name` | [`resources.rs:56`](../../yidam/cli/src/cmd/serve/resources.rs#L56) | — | — |
 | the same string as an RDF subject | [`instance_iri`](../../yidam/cli/src/cmd/export_rdf.rs#L138) | — | — |
-| `file:///…/class/name.yml` | [`path_to_uri`](../../yidam/cli/src/cmd/lsp.rs#L107) | n/a | — |
+| `file:///…/class/name.yml` | [`path_to_uri`](../../yidam/cli/src/cmd/lsp.rs#L110) | n/a | — |
 | `/node/class/name` | [`nodeHref`](../../yidam/editors/web/src/lib/graph.ts#L195-L196) | — | — |
 | a GraphML `node id` | `export_graphml.rs` | — | — |
 | `{package, node, commit, tag}` | [`ExternalCitation`](../../yidam/sdks/rust/src/corpus.rs#L83) | yes | yes |

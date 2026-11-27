@@ -56,6 +56,9 @@ struct Server {
     /// Without it a finding that is fixed stays on screen until the client is restarted.
     published: HashSet<String>,
     graph: Option<GraphReport>,
+    /// The last baseline error shown, so a broken baseline is said once and not on every
+    /// keystroke.
+    baseline_error: Option<String>,
     shutdown: bool,
 }
 
@@ -202,6 +205,7 @@ impl Server {
             docs: HashMap::new(),
             published: HashSet::new(),
             graph: None,
+            baseline_error: None,
             shutdown: false,
         }
     }
@@ -247,8 +251,33 @@ impl Server {
     /// Run every check through the overlay and publish, clearing what has gone clean.
     fn publish(&mut self, out: &mut dyn Write) {
         let checks = run_checks_with(&self.root, &Options::default(), &self.overlay);
-        let baseline = super::lint::load_baseline(&self.root);
-        let report = super::lint::build_report(&self.root, &checks, &baseline);
+        // A baseline that does not parse fails `yidam lint`, so it is said here rather than
+        // read as an empty one, which would mark every inherited finding a regression. The
+        // diagnostics already on screen stay until the baseline reads again (#1613).
+        let report = match super::lint::build_report(&self.root, &checks) {
+            Ok(report) => {
+                self.baseline_error = None;
+                report
+            }
+            Err(e) => {
+                let message = format!("yidam: {e:#}");
+                if self.baseline_error.as_deref() != Some(message.as_str()) {
+                    let _ = write!(
+                        out,
+                        "{}",
+                        frame(&json!({
+                            "jsonrpc": "2.0",
+                            "method": "window/showMessage",
+                            // MessageType.Error, which is not a diagnostic severity.
+                            "params": {"type": 1, "message": message},
+                        }))
+                    );
+                    let _ = out.flush();
+                    self.baseline_error = Some(message);
+                }
+                return;
+            }
+        };
 
         let mut by_uri: HashMap<String, Vec<Value>> = HashMap::new();
         for check in &report.checks {
