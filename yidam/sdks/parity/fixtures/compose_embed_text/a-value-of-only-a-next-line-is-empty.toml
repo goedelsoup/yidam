@@ -1,0 +1,15 @@
+function = "compose_embed_text"
+description = "U+0085 is White_Space, so a value of only that character is empty and the node says nothing (#1699)"
+
+[input]
+content = """
+class: measure
+label: L
+description: "\\x85"
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = []
+
+[expected]
+text = "L"

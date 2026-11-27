@@ -18,6 +18,7 @@
  * the two (#777). So this module parses structurally for any input and answers
  * `referenceConforms` separately, rather than refusing what it was handed.
  */
+import { trim } from './text.ts'
 
 /**
  * What a reference names. The `<kind>` slot of the grammar.
@@ -236,7 +237,7 @@ function splitKind(rest: string): [Kind, string] | null {
  * so the rule is only visible on input that already failed `referenceConforms`.
  */
 export function parseReference(input: string): Reference | null {
-  const s0 = input.trim()
+  const s0 = trim(input)
   if (s0 === '') return null
 
   const hash = s0.indexOf('#')

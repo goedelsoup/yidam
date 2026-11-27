@@ -1,0 +1,10 @@
+function = "parse_reference"
+description = "U+FEFF is not White_Space, so the one character is not empty and is read as a relative path (#1699)"
+
+[input]
+text = "\uFEFF"
+
+[expected]
+parses = true
+kind = "node"
+path = "\uFEFF"

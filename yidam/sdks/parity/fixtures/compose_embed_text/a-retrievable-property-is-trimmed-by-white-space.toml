@@ -1,0 +1,18 @@
+function = "compose_embed_text"
+description = "A retrievable property is read by the same rule as prose: U+001F and U+FEFF are text, and U+0085 is White_Space and leaves nothing (#1699)"
+
+[input]
+content = """
+class: gage
+label: G
+properties:
+  separator: "\\x1F"
+  mark: "\\uFEFF"
+  next_line: "\\x85"
+"""
+prose_keys = ["description"]
+prose_properties = []
+retrievable_properties = ["separator", "mark", "next_line"]
+
+[expected]
+text = "G \u001F\n\uFEFF"

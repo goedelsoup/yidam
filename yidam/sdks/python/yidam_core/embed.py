@@ -20,6 +20,7 @@ why the union runs one way, and why absent means false.
 from dataclasses import dataclass, field
 
 from . import prose
+from ._text import WHITE_SPACE
 from .corpus import CorpusInstance, CorpusLink
 
 
@@ -60,7 +61,7 @@ def of(inst: CorpusInstance, fields: EmbedFields) -> list[tuple[str, str]]:
         if key in already:
             continue
         value = props.get(name)
-        if isinstance(value, str) and value.strip():
+        if isinstance(value, str) and value.strip(WHITE_SPACE):
             out.append((key, value))
 
     return out
@@ -130,7 +131,7 @@ def compose_embed_text(inst: CorpusInstance, fields: EmbedFields) -> str:
     if inst.label:
         parts.append(inst.label)
 
-    said = "\n".join(v.rstrip() for _, v in of(inst, fields))
+    said = "\n".join(v.rstrip(WHITE_SPACE) for _, v in of(inst, fields))
     if said:
         parts.append(said)
 

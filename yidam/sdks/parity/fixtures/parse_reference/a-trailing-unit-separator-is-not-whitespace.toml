@@ -1,0 +1,11 @@
+function = "parse_reference"
+description = "U+001F is not White_Space, so it is not trimmed off the end and stays in the path (#1699)"
+
+[input]
+text = "yidam://c/node/x\u001F"
+
+[expected]
+parses = true
+corpus = "c"
+kind = "node"
+path = "node/x\u001F"
