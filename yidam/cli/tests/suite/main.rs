@@ -22,6 +22,7 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+mod apt_install;
 mod asks;
 mod bench;
 mod bench_baseline;

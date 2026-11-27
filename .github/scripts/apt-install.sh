@@ -19,11 +19,23 @@
 # no integrity, because apt checks every index against Ubuntu's archive signing key whoever
 # serves it. `archive.ubuntu.com` stays in the list as the second choice.
 #
-# `apt-get update` does not catch the failure: an unreachable mirror is a warning there
-# ("Some index files failed to download. They have been ignored"), and update exits 0. So the
-# failure shows up at install, and that is where this script retries. The packages, and the
-# gate that needs them, are unchanged. Only the place they are downloaded from changes, and
-# only when the first attempt failed.
+# `apt-get update` does not catch that failure: a mirror whose name does not resolve is a
+# warning there ("Some index files failed to download. They have been ignored"), and update
+# exits 0. So the failure shows up at install, and that is where this script retries. The
+# packages, and the gate that needs them, are unchanged. Only the place they are downloaded
+# from changes, and only when the first attempt failed.
+#
+# A host that answers is another matter. On 2026-11-27 `packages.microsoft.com`, a source the
+# runner image adds and that none of these packages come from, answered 403 on its `InRelease`
+# for a few minutes. apt treats that as a hard error, so update exited 100 while every Ubuntu
+# index downloaded normally. The script ran `update && install`, so install never ran, and the
+# retry failed the same way because it rewrites only the Ubuntu mirror (#1653).
+#
+# So update's exit status decides nothing here. It is logged as a warning and the install runs
+# against whatever indexes update did fetch. If an index the packages need is missing, install
+# fails on its own, and that is what triggers the retry. Leaving out the sources this script
+# does not need would also have worked, but only for as long as the image keeps its `/etc/apt`
+# layout, and the image is not this repository's to pin.
 set -euo pipefail
 
 if [[ $# -eq 0 ]]; then
@@ -39,7 +51,10 @@ MIRRORS="${APT_MIRRORS_FILE:-/etc/apt/apt-mirrors.txt}"
 SOURCES_DIR="${APT_SOURCES_DIR:-/etc/apt}"
 
 install() {
-  sudo apt-get update && sudo apt-get install -y "$@"
+  if ! sudo apt-get update; then
+    echo "::warning::apt-get update failed for at least one source; installing from the indexes it did fetch"
+  fi
+  sudo apt-get install -y "$@"
 }
 
 if install "$@"; then
