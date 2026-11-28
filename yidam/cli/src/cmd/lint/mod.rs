@@ -33,6 +33,8 @@ pub(crate) mod scope;
 pub(crate) mod skills;
 pub(crate) mod symbols;
 pub(crate) mod tables;
+#[cfg(test)]
+mod testkit;
 pub(crate) mod ttl;
 pub(crate) mod uncited;
 
@@ -285,7 +287,7 @@ struct Entry {
 ///
 /// ## Why a hand-written list is not the hole it looks like (#680)
 ///
-/// A `pub fn … -> Check` added to `checks.rs` and not added here would compile, pass its own
+/// A `pub fn … -> Check` added to `checks/` and not added here would compile, pass its own
 /// unit tests, and never run — and the corpus would report clean.
 ///
 /// It cannot. `mod cmd;` is private (`lib.rs:3`), `lint` and `checks` are `pub(crate)`, and

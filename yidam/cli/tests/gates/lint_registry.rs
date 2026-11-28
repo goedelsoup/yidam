@@ -40,7 +40,7 @@
 //!
 //! ## The exception, and why the guarantee is not universal
 //!
-//! It holds for a check function that is not re-exported, which is all forty in `checks.rs`
+//! It holds for a check function that is not re-exported, which is all forty in `checks/`
 //! and every producer in `attest.rs`, `commits.rs`, `citations.rs`, `scope.rs` and
 //! `lineage.rs`. It does **not** hold for five in `line_citations.rs`. `lib.rs` names
 //! `dead_line_citation`, `slid_line_citation`, `citation_label_not_cited`,

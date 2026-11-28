@@ -41,7 +41,7 @@ cheap is gone.
 
 The rules themselves are unusually well specified, which is what makes this worth building.
 Thirteen checks with stable ids and three severities live in
-[`lint/checks.rs`](../../yidam/cli/src/cmd/lint/checks.rs); each is a `Check` carrying `id`,
+[`lint/checks/`](../../yidam/cli/src/cmd/lint/checks/mod.rs); each is a `Check` carrying `id`,
 `title`, `severity`, `rationale`, and a `Vec<Violation{node, detail}>`
 ([`lint/model.rs:44-74`](../../yidam/cli/src/cmd/lint/model.rs#L44-L74)). This is already an
 editor diagnostic in all but serialization.
@@ -84,7 +84,7 @@ gating against `.yidam/lint-baseline.yml`
 ([`lint/mod.rs`](../../yidam/cli/src/cmd/lint/mod.rs), and the rationale in its module doc:
 conflating the two "produces a gate that is either permanently red or permanently ignored").
 Two distinct things fail it — a violation not in the baseline, and a baseline entry that no
-longer occurs ([`lint/mod.rs:1257`](../../yidam/cli/src/cmd/lint/mod.rs#L1257): *"the baseline is stale"*).
+longer occurs ([`lint/mod.rs:1259`](../../yidam/cli/src/cmd/lint/mod.rs#L1259): *"the baseline is stale"*).
 
 An extension that renders every finding as an Error reproduces exactly the failure the baseline
 was designed to prevent, one layer up: a Problems panel permanently full of inherited debt is a
