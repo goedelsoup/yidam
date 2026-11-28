@@ -1,7 +1,8 @@
 import math
 import tomllib
 from pathlib import Path
-from yidam_domain_hydrology import rational_product, manning_velocity, return_period
+
+from yidam_domain_hydrology import manning_velocity, rational_product, return_period
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 # Relative, with an absolute floor in each function's output unit.

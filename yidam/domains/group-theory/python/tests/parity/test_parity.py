@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
-from yidam_domain_group_theory import modular_add, modular_mul, additive_order
+
+from yidam_domain_group_theory import additive_order, modular_add, modular_mul
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 

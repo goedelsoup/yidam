@@ -1,5 +1,6 @@
 from math import sqrt
 
+
 def cosine(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = sqrt(sum(x * x for x in a))

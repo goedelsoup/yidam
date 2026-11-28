@@ -409,6 +409,27 @@ jobs:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run supply-chain
 
+  lint:
+    # The checks for the languages rustfmt and clippy do not reach (#1646). vitest strips
+    # types without reading them, so the TypeScript SDK passed its suite over a type error.
+    #
+    # Its own job rather than steps in `ci (parity)`, which has the same toolchains: that job
+    # renders a cargo summary, and `ci_reporting.rs` reads every task such a job runs as a
+    # list of commands, which a task written as a shell script is not. Seconds, not minutes.
+    name: ci (lint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+        with:
+          cache_save: ${{ github.ref == 'refs/heads/main' }}
+      - run: mise run ts-typecheck
+      - run: mise run py-lint
+        if: ${{ !cancelled() }}
+      - run: mise run sh-lint
+        if: ${{ !cancelled() }}
+
   semver:
     # What a release of `yidam-core` would break, asked while it is still a question.
     # `publish-crates.yml` runs this too, immediately before the upload — but a PR is where

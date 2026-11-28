@@ -1,5 +1,6 @@
 import math
 
+
 def modular_add(a: int, b: int, n: int) -> int:
     return (a + b) % n
 

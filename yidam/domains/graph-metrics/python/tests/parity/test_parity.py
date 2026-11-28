@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
-from yidam_domain_graph_metrics import density, degree_centrality
+
+from yidam_domain_graph_metrics import degree_centrality, density
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 

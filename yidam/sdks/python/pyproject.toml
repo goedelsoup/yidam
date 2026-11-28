@@ -22,3 +22,27 @@ embed = ["sentence-transformers>=3"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+# `mise run py-lint` (#1646). Ruff's defaults, less three rules whose rewrites would move this
+# package's control flow away from the TypeScript and Rust implementations it is held equal
+# to by the parity fixtures: a reader comparing the three should find the same shape.
+[tool.ruff.lint]
+extend-ignore = [
+  "FURB188", # an endswith/slice pair as removesuffix: _text.py and uri.py mirror TS's `slice`
+  "PIE810",  # two startswith calls as one tuple call: markers.py lists its cases as TS does
+  "SIM103",  # a final `if c: return False / return True` as `return not c`: uri.py keeps one
+             # early return per rule, as the other two do
+]
+
+# Basic mode: the type errors, not the annotation coverage. `yidam_kit` is the calculator kit
+# in yidam/prelude/kit, which tests/test_calculator_kit.py puts on sys.path itself at run time.
+#
+# `pythonVersion` is `requires-python`'s floor. Without it pyright takes the version of
+# whichever `python` is first on PATH, not the venv's — a macOS system 3.9 reports every
+# `X | None` and `import tomllib` here as an error.
+[tool.pyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["../../prelude/kit"]

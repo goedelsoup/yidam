@@ -140,6 +140,7 @@ printf 'installed %s\n' "$BIN_DIR/yidam"
 
 # Say so rather than assume. A binary on disk that the shell cannot find is the
 # most common way an install "fails" after succeeding.
+# shellcheck disable=SC2016 # the second `$PATH` is printed for the reader to paste, not expanded
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) printf '\n%s is not on your PATH. Add it:\n  export PATH="%s:$PATH"\n' "$BIN_DIR" "$BIN_DIR" ;;

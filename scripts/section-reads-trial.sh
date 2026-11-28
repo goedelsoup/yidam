@@ -25,9 +25,11 @@ out="${2:?usage: section-reads-trial.sh CORPUS OUT_DIR [REPS]}"
 reps="${3:-3}"
 model="${MODEL:-claude-opus-5}"
 
+# shellcheck disable=SC2016 # the backticks are Markdown in the prompt, not command substitution
 prompt='This corpus needs a new class, `program`: a named public assistance program (for example the Housing Choice Voucher program, or HEAP). Write its class declaration at `.yidam/corpus/program.ont.yml`, following the route in AGENTS.md for this occasion. Do not create any instances and do not commit. Stop once the file is written.'
 
 route_line() {
+  # shellcheck disable=SC2016 # Markdown backticks in the `words` line, as in the prompt above
   case "$1" in
     file)   echo '- [Graph model](.yidam/.vendor/prelude/GRAPH.md) — the class contract' ;;
     anchor) echo '- [The class contract](.yidam/.vendor/prelude/GRAPH.md#the-class-contract)' ;;

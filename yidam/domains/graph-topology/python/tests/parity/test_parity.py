@@ -1,5 +1,6 @@
 import tomllib
 from pathlib import Path
+
 from yidam_domain_graph_topology import clustering_coefficient, connected_components
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"

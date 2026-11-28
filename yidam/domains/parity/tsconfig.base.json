@@ -1,0 +1,24 @@
+{
+  // The compiler options every domain package's `typescript/tsconfig.json` extends (#1646).
+  // Here, beside the fixtures and the testkit, because `parity/` is vendored with any domain
+  // a derived repository keeps: a base one level up, at `yidam/domains/`, would not be, and
+  // every package's `extends` would name a file that is not there.
+  //
+  // `src/` only, and no `@types/*`. A domain's library imports nothing; its parity test
+  // imports `node:fs`, whose types no domain package installs, so the tests are not checked.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "types": []
+  }
+}

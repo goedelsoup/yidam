@@ -440,6 +440,103 @@ description = "The whole supply-chain gate: advisories, licences, unused deps."
 # baseline from crates.io, and it answers a different question — what a *release* would
 # break, rather than what this tree carries.
 depends = ["deny", "machete"]
+
+# ── the languages rustfmt and clippy do not reach (#1646) ─────────────────
+#
+# Rust is held by rustfmt, clippy and its compiler. Until these tasks the TypeScript SDK and
+# domain packages were held only by vitest, which strips types without reading them, and the
+# Python and shell in this tree by their tests or by nothing. Each tool is pinned to an exact
+# version per task, for [tasks.verify]'s reason, so a new release of one cannot turn main red.
+
+# TypeScript 6, the major `every_editor_type_checks_with_one_typescript_major` holds the editors
+# to; that gate holds this pin to it too. The SDK checks `src/` and `tests/` against
+# `@types/node`, which its install provides; each domain checks `src/` only, through
+# `yidam/domains/parity/tsconfig.base.json`, and needs no install at all.
+[tasks.ts-typecheck]
+description = "Type-check the TypeScript SDK and every domain package with tsc --noEmit."
+tools = { "npm:typescript" = "6.0.3" }
+run = """
+set -eu
+scripts/npm-ensure.sh yidam/sdks/typescript
+tsc --noEmit -p yidam/sdks/typescript
+
+# Every domain package, discovered by its package.json rather than by its tsconfig.json: a
+# fifteenth domain that came without a tsconfig would otherwise be skipped in silence.
+count=0
+for manifest in yidam/domains/*/typescript/package.json; do
+  [ -f "$manifest" ] || continue
+  dir=$(dirname "$manifest")
+  if [ ! -f "$dir/tsconfig.json" ]; then
+    echo "ERROR: $dir has no tsconfig.json. Give it the two-line one every other domain has,"
+    echo "       extending ../../parity/tsconfig.base.json."
+    exit 1
+  fi
+  tsc --noEmit -p "$dir"
+  count=$((count + 1))
+done
+if [ "$count" -eq 0 ]; then
+  echo "ERROR: no domain packages found under yidam/domains/*/typescript/package.json"
+  echo "       the glob matched nothing — fix the pattern before trusting this task"
+  exit 1
+fi
+echo "ts-typecheck: the SDK and $count domain packages type-check"
+"""
+
+# Ruff with its defaults over the Python SDK and every domain package, each from inside its
+# own directory so first-party imports sort as first-party; then pyright, basic mode, over the
+# SDK. `ruff format --check` is not here: it would rewrite 35 of the 73 files at once, which
+# is a change of its own rather than a finding of this one (#1646).
+[tasks.py-lint]
+description = "Lint the Python SDK and domain packages with ruff; type-check the SDK with pyright."
+tools = { "aqua:astral-sh/ruff" = "0.17.5", "npm:pyright" = "1.1.414" }
+run = """
+set -eu
+root=$(pwd)
+count=0
+for manifest in yidam/sdks/python/pyproject.toml yidam/domains/*/python/pyproject.toml; do
+  [ -f "$manifest" ] || continue
+  dir=$(dirname "$manifest")
+  (cd "$root/$dir" && ruff check --no-cache .)
+  count=$((count + 1))
+done
+# The SDK alone would pass this guard with every domain glob matching nothing.
+if [ "$count" -lt 2 ]; then
+  echo "ERROR: ruff checked $count Python package(s); the domain glob matched nothing"
+  exit 1
+fi
+echo "py-lint: ruff passes over $count packages"
+
+cd yidam/sdks/python
+uv sync --locked --extra dev --quiet
+pyright
+"""
+
+# shellcheck over every tracked shell script, then actionlint over both sets of workflows:
+# this repository's own, and the ones `yidam init` gives a derived repository. actionlint
+# runs shellcheck over each `run:` block itself, which is why the two share a task.
+[tasks.sh-lint]
+description = "Lint every tracked shell script with shellcheck and every workflow with actionlint."
+tools = { "aqua:koalaman/shellcheck" = "0.11.0", "aqua:rhysd/actionlint" = "1.7.12" }
+run = """
+set -eu
+scripts=$(git ls-files -- '*.sh')
+if [ -z "$scripts" ]; then
+  echo "ERROR: git ls-files matched no shell scripts; the pattern is wrong, not the tree clean"
+  exit 1
+fi
+# shellcheck disable=SC2086 # one argument per path; no tracked script has a space in its name
+shellcheck $scripts
+echo "sh-lint: shellcheck passes over $(echo "$scripts" | wc -l | tr -d ' ') scripts"
+
+actionlint
+# The derived repository's workflows, less two rules. All eight findings are in the binary
+# installer that four jobs repeat: a `sed` rewriting the origin URL (SC2001) and the awk tag
+# resolver in single quotes (SC2016). suite/derived_ci_binary.rs holds the four copies equal,
+# and the resolver equal to mise.yidam.toml's, so a rewrite is of five copies at once, which
+# is its own change.
+actionlint -ignore 'SC2001' -ignore 'SC2016' sadhana/github/workflows/*.yml
+echo "sh-lint: actionlint passes over both sets of workflows"
+"""
 # ── design system (#465) ──────────────────────────────────────────────────
 #
 # `_adherence.oxlintrc.json` forbids raw hex, raw px, off-system fonts and undeclared
@@ -1292,6 +1389,9 @@ depends = [
   "ci-editor-web",
   "lint-selftest",
   "parity",
+  "ts-typecheck",
+  "py-lint",
+  "sh-lint",
   "design-lint",
   "supply-chain",
   "bench-scaling",

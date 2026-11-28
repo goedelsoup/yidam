@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
-from yidam_domain_energy import kinetic_energy, potential_energy, power, efficiency
+
+from yidam_domain_energy import efficiency, kinetic_energy, potential_energy, power
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 

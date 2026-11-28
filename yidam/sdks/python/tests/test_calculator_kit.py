@@ -19,7 +19,7 @@ KIT = REPO / "yidam/prelude/kit"
 HOSTILE = REPO / "yidam/cli/tests/fixtures/calculator-kit/hostile.json"
 
 sys.path.insert(0, str(KIT))
-import yidam_kit  # noqa: E402
+import yidam_kit
 
 
 def hostile():

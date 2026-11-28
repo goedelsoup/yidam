@@ -140,6 +140,7 @@ report=$(oxlint --config "$config" "$fixture" -f json 2>/dev/null || true)
 # An unparseable report is its own failure, not an empty one. Left to fall through it would
 # read as "every rule was silent" and print a message naming rules that are working — which
 # is the whole of #877, reproduced in the check written to replace it.
+# shellcheck disable=SC2016 # JavaScript: its `${}` is node's to expand, not the shell's
 if ! fired=$(printf '%s' "$report" | node -e '
   let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
     const diags = JSON.parse(s).diagnostics;
