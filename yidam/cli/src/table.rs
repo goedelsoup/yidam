@@ -454,8 +454,8 @@ pub(crate) fn shape(decl: &Declaration, rows: &Rows) -> Vec<Departure> {
 /// Why `cell` is not a value of `col`, or `None` when it is one.
 ///
 /// The property grammar applied to text: a `number` reads through
-/// [`crate::cmd::lint::checks::numeric_value`] and a `date` through
-/// [`crate::cmd::lint::checks::iso_date_parts`], so a cell and a property of the same type
+/// [`crate::corpus::value::numeric_value`] and a `date` through
+/// [`crate::corpus::value::iso_date_parts`], so a cell and a property of the same type
 /// admit the same values. The empty cell is the absence of a value.
 fn cell_departure(col: &Column, cell: &str) -> Option<String> {
     let v = cell.trim();
@@ -465,10 +465,10 @@ fn cell_departure(col: &Column, cell: &str) -> Option<String> {
             .then(|| "is empty, and the column is required".to_string());
     }
     match col.r#type.as_str() {
-        "number" if crate::cmd::lint::checks::numeric_value(v).is_none() => {
+        "number" if crate::corpus::value::numeric_value(v).is_none() => {
             Some(format!("`{v}` is not a number"))
         }
-        "date" if crate::cmd::lint::checks::iso_date_parts(v).is_none() => Some(format!(
+        "date" if crate::corpus::value::iso_date_parts(v).is_none() => Some(format!(
             "`{v}` is not a date — write `YYYY-MM-DD`, or `YYYY-MM` or `YYYY`"
         )),
         "string" => match &col.values {

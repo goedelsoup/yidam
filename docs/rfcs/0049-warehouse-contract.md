@@ -34,7 +34,7 @@ The corpus's own instances can travel the same route, behind a flag, as one more
 | A warehouse table needs | The ontology already declares | Where |
 |---|---|---|
 | a name | the class stem | `yidam/cli/src/corpus/class.rs:74-81` |
-| typed columns | `properties[].type`: `string`, `text`, `ref`, `number`, `date`, `claim`, `quotation` | [`KNOWN_PROPERTY_TYPES`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L533-L542) |
+| typed columns | `properties[].type`: `string`, `text`, `ref`, `number`, `date`, `claim`, `quotation` | [`KNOWN_PROPERTY_TYPES`](../../yidam/cli/src/corpus/value.rs#L119-L128) |
 | `NOT NULL` | `properties[].required` (#301) | `yidam/cli/src/cmd/graph.rs:84` |
 | an allowed-values constraint | `properties[].values` (RFC-0044) | `docs/rfcs/0044-declared-value-set.md` |
 | join paths | `edges[]` with `relationship`, `target`, `direction` | `yidam/cli/src/cmd/graph.rs:110-119` |
@@ -134,7 +134,7 @@ enforced where it can be:
 #### 2.5 Dates with a precision
 
 `lint` accepts `YYYY`, `YYYY-MM` and `YYYY-MM-DD`
-([`is_iso_date`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L708-L721)). A single `DATE` column would have to invent
+([`is_iso_date`](../../yidam/cli/src/corpus/value.rs#L295-L308)). A single `DATE` column would have to invent
 a day. So a `date` becomes the interval's first day plus its precision: `1893` is stored as
 `1893-01-01` and `year`. That is lossless, it sorts, and a query that cares can widen the
 bound. Feed rows from a source with full timestamps write `day`.

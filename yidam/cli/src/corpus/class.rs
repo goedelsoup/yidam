@@ -33,9 +33,9 @@ pub enum EdgePolicy {
 
 impl EdgePolicy {
     /// Parse the declared value. An unrecognized one is [`EdgePolicy::Unstated`] rather
-    /// than an error, for the reason [`crate::cmd::lint::checks::property_type_violation`] leaves an unknown type
-    /// alone: a check that failed on vocabulary it had not heard of would make coining any
-    /// impossible. `yidam schema` publishes the enum, so a typo is underlined in the editor
+    /// than an error, for the reason [`crate::corpus::value::property_type_violation`] leaves
+    /// an unknown type alone: a check that failed on vocabulary it had not heard of would make
+    /// coining any impossible. `yidam schema` publishes the enum, so a typo is underlined in the editor
     /// where it can be fixed as it is typed.
     fn parse(raw: Option<&str>) -> Self {
         match raw.map(str::trim) {
