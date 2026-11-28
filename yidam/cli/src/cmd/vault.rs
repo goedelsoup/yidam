@@ -315,8 +315,6 @@ fn scope(only: Option<&str>) -> String {
     }
 }
 
-/// A store and who reads it, on one line. The same shape in `push` and in `status`, because
-/// a person comparing the two outputs is looking for the same store in both.
 /// Identity of one planned artifact, for looking its verdict back up.
 ///
 /// The digest alone is not enough: two catalog entries may name the same bytes with different
@@ -325,6 +323,8 @@ fn verdict_key(a: &vault::Named) -> String {
     format!("{}|{}", a.rel, a.hash)
 }
 
+/// A store and who reads it, on one line. The same shape in `push` and in `status`, because
+/// a person comparing the two outputs is looking for the same store in both.
 fn heading(name: &str, cfg: &vault::VaultConfig) -> String {
     format!("{name} — {}", cfg.audience())
 }
