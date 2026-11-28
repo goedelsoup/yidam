@@ -45,6 +45,7 @@ pub mod pin;
 pub mod pinning;
 pub mod resolve;
 pub mod search;
+pub(crate) mod template;
 pub mod transform;
 pub mod version;
 
@@ -517,7 +518,7 @@ fn check_pack(root: &Path, pack: &Pack, m: &Manifest, out: &mut Findings<'_>) {
             }
         }
         let template = s.resolve.template.as_deref().unwrap_or_default();
-        if let Err(unbound) = crate::cmd::catalog::location::bind(template, &bindings) {
+        if let Err(unbound) = template::bind(template, &bindings) {
             out.error(
                 "pack.toml",
                 format!(
@@ -747,7 +748,7 @@ fn check_pin_read(
             pin.read
         ));
     }
-    for slot in crate::cmd::catalog::location::slots(&pin.read) {
+    for slot in template::slots(&pin.read) {
         if !bound(&slot) {
             error(format!(
                 "{} slot `{{{slot}}}` is bound by nothing: it is not `{{id}}` and `mutable` has no group `(?P<{slot}>…)`",
@@ -755,7 +756,7 @@ fn check_pin_read(
             ));
         }
     }
-    let slots = crate::cmd::catalog::location::slots(&pin.pinned);
+    let slots = template::slots(&pin.pinned);
     if !slots.iter().any(|s| s == "pin") {
         error(format!(
             "{} has no `{{pin}}` slot, so the value read is written nowhere",
@@ -800,7 +801,7 @@ fn check_resolve(name: &str, s: &manifest::Scheme, names: &[String], out: &mut F
         }
     };
     let unbound = |url: &str, key: &str, out: &mut Findings<'_>| {
-        let slots = crate::cmd::catalog::location::slots(url);
+        let slots = template::slots(url);
         for slot in slots.iter().filter(|s| *s != "id" && !names.contains(s)) {
             out.error(
                 "pack.toml",
@@ -957,7 +958,7 @@ fn check_search(
             format!("[search] template `{template}` is not an http(s) address"),
         );
     }
-    let slots = crate::cmd::catalog::location::slots(template);
+    let slots = template::slots(template);
     if !slots.iter().any(|s| s == "query") {
         out.error(
             "pack.toml",

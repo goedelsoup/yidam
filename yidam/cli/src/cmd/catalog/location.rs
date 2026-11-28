@@ -27,6 +27,7 @@ use super::transport::{Credential, Policy};
 use crate::parse::CatalogLocation;
 use crate::sources::manifest::{parse_interval, Contact, Paginate};
 use crate::sources::resolve::{archives, Enabled, Resolved, WAYBACK};
+use crate::sources::template::bind;
 
 /// What resolving a location reads besides the location.
 ///
@@ -186,44 +187,6 @@ impl Unfollowable {
             ),
             Self::Unreadable { why } => why.clone(),
         }
-    }
-}
-
-/// The slot names in a template, in the order they appear, without duplicates.
-///
-/// Order is the template's rather than sorted, because the message that names them reads
-/// alongside the value it came from and a reader is matching them off left to right.
-pub fn slots(template: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut rest = template;
-    while let Some(open) = rest.find('{') {
-        let after = &rest[open + 1..];
-        let Some(close) = after.find('}') else {
-            break;
-        };
-        let name = &after[..close];
-        // `{}` is not a slot and neither is `{ }`. A template carrying one is malformed
-        // rather than parameterised, and inventing an empty-named binding for it would make
-        // the refusal message unreadable.
-        if !name.trim().is_empty() && !out.iter().any(|s| s == name) {
-            out.push(name.to_string());
-        }
-        rest = &after[close + 1..];
-    }
-    out
-}
-
-/// Substitute every `{slot}` a binding names, and report what is left.
-pub(crate) fn bind(template: &str, bindings: &[(String, String)]) -> Result<String, Vec<String>> {
-    let mut filled = template.to_string();
-    for (k, v) in bindings {
-        filled = filled.replace(&format!("{{{k}}}"), v);
-    }
-    let remaining = slots(&filled);
-    if remaining.is_empty() {
-        Ok(filled)
-    } else {
-        Err(remaining)
     }
 }
 
@@ -439,29 +402,6 @@ mod tests {
             .iter()
             .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
             .collect()
-    }
-
-    #[test]
-    fn slots_are_named_in_order_and_deduplicated() {
-        assert_eq!(
-            slots("https://x/?sites={site}&p={param}&also={site}"),
-            vec!["site", "param"]
-        );
-        assert_eq!(slots("https://x/no-slots"), Vec::<String>::new());
-    }
-
-    /// The lint check only asserts a `{` is present. `{}` satisfies that and binds nothing,
-    /// so the planner must not treat it as a slot it could ask a caller to fill.
-    #[test]
-    fn an_empty_brace_is_not_a_slot() {
-        assert_eq!(slots("https://x/{}"), Vec::<String>::new());
-        assert_eq!(slots("https://x/{  }"), Vec::<String>::new());
-    }
-
-    #[test]
-    fn an_unclosed_brace_ends_the_scan_rather_than_looping() {
-        assert_eq!(slots("https://x/{site"), Vec::<String>::new());
-        assert_eq!(slots("https://x/{a}/{b"), vec!["a"]);
     }
 
     #[test]
