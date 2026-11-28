@@ -43,6 +43,7 @@ mod feature_split;
 mod feature_tests;
 mod formal_specs;
 mod gluon_arm;
+mod golden_helper;
 mod hook_claims;
 mod index_workflow;
 mod install_script;

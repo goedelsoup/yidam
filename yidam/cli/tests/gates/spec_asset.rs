@@ -18,10 +18,6 @@ fn conformance() -> PathBuf {
     repo_root().join("yidam/sdks/conformance")
 }
 
-fn updating() -> bool {
-    std::env::var("UPDATE_GOLDENS").is_ok()
-}
-
 /// The five repository-independent schemas, exactly as `yidam schema` writes them.
 ///
 /// Also fails on a file under `schemas/` that `schema::all()` does not name: a schema the
@@ -32,7 +28,8 @@ fn committed_schemas_are_what_yidam_schema_writes() {
     let rendered = yidam::core_schemas_rendered().expect("schemas render");
     let named: BTreeSet<String> = rendered.iter().map(|(f, _)| f.to_string()).collect();
 
-    if updating() {
+    // The one part of this a file-by-file golden cannot do: drop a schema nobody emits.
+    if crate::common::golden::updating() {
         std::fs::create_dir_all(&dir).unwrap();
         for entry in std::fs::read_dir(&dir).unwrap().flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
@@ -40,10 +37,6 @@ fn committed_schemas_are_what_yidam_schema_writes() {
                 std::fs::remove_file(entry.path()).unwrap();
             }
         }
-        for (file, text) in &rendered {
-            std::fs::write(dir.join(file), text).unwrap();
-        }
-        return;
     }
 
     let on_disk: BTreeSet<String> = std::fs::read_dir(&dir)
@@ -59,20 +52,7 @@ fn committed_schemas_are_what_yidam_schema_writes() {
         dir.display()
     );
     for (file, text) in &rendered {
-        let path = dir.join(file);
-        let committed = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-            panic!(
-                "missing {}. Re-run with UPDATE_GOLDENS=1 to write it.",
-                path.display()
-            )
-        });
-        assert_eq!(
-            &committed,
-            text,
-            "\n{} drifted from what `yidam schema` writes. If the change is intended, re-run \
-             with UPDATE_GOLDENS=1 and review the diff.\n",
-            path.display()
-        );
+        crate::common::golden::assert(&dir.join(file), text);
     }
 }
 
@@ -101,22 +81,5 @@ fn vocabulary() -> String {
 #[test]
 fn committed_vocabulary_is_the_certified_lists() {
     let path = conformance().join("vocabulary.json");
-    let expected = vocabulary();
-    if updating() {
-        std::fs::write(&path, &expected).unwrap();
-        return;
-    }
-    let committed = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-        panic!(
-            "missing {}. Re-run with UPDATE_GOLDENS=1 to write it.",
-            path.display()
-        )
-    });
-    assert_eq!(
-        committed,
-        expected,
-        "\n{} drifted from OPERATIONAL_VERBS and EPISTEMIC_VERBS. If the change is intended, \
-         re-run with UPDATE_GOLDENS=1 and review the diff.\n",
-        path.display()
-    );
+    crate::common::golden::assert(&path, &vocabulary());
 }

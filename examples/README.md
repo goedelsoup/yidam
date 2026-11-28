@@ -26,8 +26,8 @@ until this gate ran.
 Two consequences worth knowing before editing either side:
 
 - **Change a corpus and the page goes red.** That is the gate working. Re-run it with
-  `UPDATE_TRANSCRIPTS=1 cargo test --manifest-path yidam/cli/Cargo.toml --test
-  walkthrough_transcripts` and read the diff; it rewrites the blocks from a fresh run and
+  `UPDATE_GOLDENS=1 cargo test --manifest-path yidam/cli/Cargo.toml --test suite
+  walkthrough_transcripts::` and read the diff; it rewrites the blocks from a fresh run and
   leaves alone any that differ only in a commit sha.
 - **A page with no corpus may carry no `console` block.** The three sketch walkthroughs teach
   from `samudaya/examples/`, which is markdown rather than a corpus, so there is nothing to

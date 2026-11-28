@@ -207,7 +207,9 @@ fn the_scaling_benchmark_matches_its_baseline() {
     let measured = measure();
     let path = golden_path();
 
-    if std::env::var("UPDATE_GOLDENS").is_ok() {
+    // Not `golden::assert`: the numbers are compared within a tolerance, and a byte diff
+    // would fail on every run that moved one inside it. The one variable is still read here.
+    if crate::common::golden::updating() {
         std::fs::create_dir_all(path.parent().expect("a parent")).expect("goldens dir");
         let mut text = serde_json::to_string_pretty(&measured).expect("serializes");
         text.push('\n');

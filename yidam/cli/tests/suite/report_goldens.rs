@@ -313,23 +313,7 @@ fn run(root: &Path, args: &[&str]) -> Run {
 }
 
 fn assert_golden(name: &str, actual: &str) {
-    let path = fixture_dir().join("expected").join(name);
-    if std::env::var("UPDATE_GOLDENS").is_ok() {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, actual).unwrap();
-        return;
-    }
-    let expected = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-        panic!(
-            "missing golden {}. Run with UPDATE_GOLDENS=1 to create it.",
-            path.display()
-        )
-    });
-    assert_eq!(
-        expected, actual,
-        "\n{name} drifted from its golden. If the change is intended, \
-         re-run with UPDATE_GOLDENS=1 and review the diff.\n"
-    );
+    crate::common::golden::assert(&fixture_dir().join("expected").join(name), actual);
 }
 
 /// Every command that grew a `--format` flag, in both formats.

@@ -125,6 +125,12 @@ pub mod vault;
 mod walk;
 mod warehouse;
 
+/// The golden helper the `gates` and `suite` test binaries share, compiled into the unit tests
+/// too, so a golden held here is compared and rewritten by the same rule (#1634).
+#[cfg(test)]
+#[path = "../tests/common/golden.rs"]
+mod golden;
+
 /// The one tokio runtime (#930). Compiled for exactly the features that pull `tokio` —
 /// `tests/gates/light_build.rs` derives that set from Cargo.toml and holds this list to it.
 #[cfg(any(
