@@ -41,11 +41,65 @@
 //! is still in the file and in one place, so the repair is a transcription rather than a
 //! search (#622). That friction is the feature — it is the moment the twelve rotted
 //! through, made visible.
+//!
+//! The transcription is the part a machine can do, so `UPDATE_GOLDENS=1` does it (#1633):
+//! before any test here reads the docs, every citation whose passage is in exactly one
+//! place, and exactly as wide as the citation, has the digits of its `#L` fragment — and of
+//! its label, where the label restates the range — rewritten in place. Everything else is
+//! left as written and fails below as it always did: an ambiguous or vanished passage, a
+//! citation wider than what it quotes, a label that already disagrees. 90 of 234 edits to
+//! RFC-0018 and RFC-0030 had changed nothing else.
 
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// Appended to every finding the fix mode can clear, so the person reading it learns the
+/// switch exists from the failure rather than from this file.
+const FIX_MODE: &str = "Re-running with UPDATE_GOLDENS=1 rewrites, in place, each one whose \
+                        passage is in one place and exactly as wide as the citation, and \
+                        leaves the rest to fail here as before.";
+
+/// This repository's line citations, as every test below reads them.
+///
+/// Under `UPDATE_GOLDENS=1` the docs are repaired first, once per run: the tests in this
+/// file run in parallel, and each would otherwise rewrite the same files under the others.
+fn citations() -> Vec<yidam::LineCitation> {
+    static REPAIRED: OnceLock<()> = OnceLock::new();
+    let root = repo_root();
+    if std::env::var("UPDATE_GOLDENS").is_ok() {
+        REPAIRED.get_or_init(|| repair_in_place(&root));
+    }
+    yidam::collect_line_citations(&root)
+}
+
+/// Each citing file holding a repairable citation, rewritten by
+/// `yidam::LineCitation::rewrite` and replaced whole, so a test reading it meanwhile sees
+/// the old text or the new and never half of one.
+fn repair_in_place(root: &Path) {
+    let mut by_file: BTreeMap<String, Vec<yidam::LineCitation>> = BTreeMap::new();
+    for c in yidam::collect_line_citations(root) {
+        by_file.entry(c.file.clone()).or_default().push(c);
+    }
+    for (file, cites) in by_file {
+        if cites.iter().all(|c| c.repair.is_none()) {
+            continue;
+        }
+        let path = root.join(&file);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{} is unreadable: {e}", path.display()));
+        let fixed = yidam::LineCitation::rewrite(&text, &cites);
+        if fixed == text {
+            continue;
+        }
+        let tmp = path.with_extension("repairing");
+        std::fs::write(&tmp, fixed).expect("write repaired citations");
+        std::fs::rename(&tmp, &path).expect("replace the citing file");
+    }
 }
 
 fn render(v: &[yidam::LintViolation]) -> String {
@@ -61,7 +115,7 @@ fn render(v: &[yidam::LintViolation]) -> String {
 /// going to zero means the scan broke, not that the docs went quiet.
 #[test]
 fn the_scan_sees_a_population() {
-    let cites = yidam::collect_line_citations(&repo_root());
+    let cites = citations();
     assert!(
         !cites.is_empty(),
         "no line citations found under docs/ — the scan is looking at nothing"
@@ -76,23 +130,23 @@ fn the_scan_sees_a_population() {
 
 #[test]
 fn no_line_citation_is_dead() {
-    let cites = yidam::collect_line_citations(&repo_root());
+    let cites = citations();
     let check = yidam::dead_line_citation(&cites);
     assert!(
         check.passed(),
-        "line citations naming lines that are not there:\n{}",
+        "line citations naming lines that are not there:\n{}\n{FIX_MODE}",
         render(&check.violations)
     );
 }
 
 #[test]
 fn no_quoted_line_citation_has_slid() {
-    let cites = yidam::collect_line_citations(&repo_root());
+    let cites = citations();
     let check = yidam::slid_line_citation(&cites);
     assert!(
         check.passed(),
         "citations whose quoted passage is no longer in the cited lines — the target \
-         moved; re-point the citation:\n{}",
+         moved; re-point the citation:\n{}\n{FIX_MODE}",
         render(&check.violations)
     );
 }
@@ -103,12 +157,12 @@ fn no_quoted_line_citation_has_slid() {
 /// gate green (#627).
 #[test]
 fn no_labelled_symbol_is_missing_from_the_lines_that_cite_it() {
-    let cites = yidam::collect_line_citations(&repo_root());
+    let cites = citations();
     let check = yidam::citation_label_not_cited(&cites);
     assert!(
         check.passed(),
         "citations whose label names something the cited lines do not say — the target \
-         moved; re-point the citation:\n{}",
+         moved; re-point the citation:\n{}\n{FIX_MODE}",
         render(&check.violations)
     );
 }
@@ -120,7 +174,7 @@ fn no_labelled_symbol_is_missing_from_the_lines_that_cite_it() {
 /// citation and one with no line-numbered citation would each look like this test's success.
 #[test]
 fn the_two_house_label_forms_are_both_still_read() {
-    let cites = yidam::collect_line_citations(&repo_root());
+    let cites = citations();
     let quoteless: Vec<_> = cites.iter().filter(|c| c.quotes.is_empty()).collect();
     let anchored = quoteless.iter().filter(|c| !c.symbols.is_empty()).count();
     assert!(
@@ -211,7 +265,7 @@ fn multiset_minus(a: &[String], b: &[String]) -> Vec<String> {
 /// and the count could not see it happen (#954, #1136 — both repaired by quoting instead).
 #[test]
 fn the_unanchored_population_does_not_grow() {
-    let cites = yidam::collect_line_citations(&repo_root());
+    let cites = citations();
     let check = yidam::unverified_line_citation(&cites);
     let mut found: Vec<String> = cites
         .iter()
@@ -308,7 +362,7 @@ fn multiset_minus_counts_repeats() {
 /// latch from then on (#622).
 #[test]
 fn no_citation_states_two_different_ranges() {
-    let cites = yidam::collect_line_citations(&repo_root());
+    let cites = citations();
     let check = yidam::citation_range_stated_twice(&cites);
     assert!(
         check.passed(),
@@ -322,7 +376,7 @@ fn no_citation_states_two_different_ranges() {
 /// it passing over nothing at all.
 #[test]
 fn the_labels_this_repository_writes_are_still_read_as_ranges() {
-    let cites = yidam::collect_line_citations(&repo_root());
+    let cites = citations();
     let labelled = cites
         .iter()
         .filter(|c| yidam::label_range(&c.label).is_some())

@@ -150,3 +150,7 @@ two are compared, so a repair must edit both.
 Line numbers move. When the gate goes red, the finding names the range the passage moved to —
 copy it. That range is only as wide as the quote, so widen it back out if your citation covered
 more.
+
+`UPDATE_GOLDENS=1` does the copying where nothing needs widening. The quote must be in one
+place, and the citation exactly as wide as it. Then the digits are rewritten in the link and in
+the label. The gate goes on naming the rest.

@@ -70,6 +70,12 @@
 //! three times in five days, and three times the answer was re-derived by hand from
 //! information the check already held.
 //!
+//! **Writing it** is [`LineCitation::rewrite`], and it writes less than it suggests (#1633).
+//! A suggestion is a floor a person widens; a rewrite has nobody to widen it, so it is
+//! made only where the floor is the whole answer — every anchor agrees on one window and
+//! the citation is exactly that wide. Anywhere else the citation is left as written and
+//! the finding stands.
+//!
 //! # What counts as a quote
 //!
 //! The citations are written in one house style: the document quotes the passage and then
@@ -188,6 +194,12 @@ pub struct LineCitation {
     /// passage is gone, or the passage now appears more than once. Only a single
     /// unambiguous window earns a suggestion — see [`relocate`].
     pub moved_to: Option<LineFragment>,
+    /// The range [`LineCitation::rewrite`] may write in place of the fragment: `moved_to`,
+    /// kept only where it is a measurement rather than a floor. See [`repair_of`].
+    pub repair: Option<LineFragment>,
+    /// Byte columns of the whole `[label](target)` on the citing line, as [`ProseLink`]
+    /// found it — the bytes a rewrite edits.
+    pub span: (usize, usize),
 }
 
 /// `L4` / `L4-L7`, the fragment without its file.
@@ -301,15 +313,15 @@ pub fn collect<'l>(
         // relocation reads every window of the target, and the overwhelming majority of
         // citations are correct and cost nothing.
         let adrift = !anchors.is_empty() && !anchors.iter().any(|q| quote_matches(q, &range));
-        let moved_to = match adrift {
-            true => anchors
-                .iter()
-                .find_map(|q| match relocate(q, &target_text) {
-                    Relocation::Found(f) => Some(f),
-                    Relocation::Absent | Relocation::Ambiguous => None,
-                }),
-            false => None,
+        let relocations: Vec<Relocation> = match adrift {
+            true => anchors.iter().map(|q| relocate(q, &target_text)).collect(),
+            false => Vec::new(),
         };
+        let moved_to = relocations.iter().find_map(|r| match r {
+            Relocation::Found(f) => Some(*f),
+            Relocation::Absent | Relocation::Ambiguous => None,
+        });
+        let repair = repair_of(fragment, &relocations);
         out.push(LineCitation {
             file: link.file.clone(),
             line: link.line,
@@ -321,6 +333,8 @@ pub fn collect<'l>(
             symbols,
             label,
             moved_to,
+            repair,
+            span: link.span,
         });
     }
     out
@@ -724,6 +738,157 @@ pub fn relocate(quote: &str, target_text: &str) -> Relocation {
             end: e + 1,
         }),
         None => Relocation::Absent,
+    }
+}
+
+// ── Writing the repair ───────────────────────────────────────────────────────
+
+/// The range a fix mode may write over `fragment`, given where each anchor relocated to.
+///
+/// Stricter than `moved_to` in two ways, because a suggestion is read by a person and a
+/// rewrite is not:
+///
+/// - **Every anchor agrees.** One anchor that is ambiguous, or two that are found in
+///   different places, is a choice between candidates, and choosing would be the guess
+///   [`relocate`] exists to withhold. An anchor that is absent says nothing either way.
+/// - **The citation is exactly as wide as the window.** The window is where the quoted
+///   words are and nothing wider, so for a citation that spanned more than it quoted, every
+///   placement of its old width over the window is equally consistent with the file. Only
+///   when the widths agree is the new range decided rather than bounded.
+fn repair_of(fragment: LineFragment, relocations: &[Relocation]) -> Option<LineFragment> {
+    let mut found: Option<LineFragment> = None;
+    for r in relocations {
+        match *r {
+            Relocation::Ambiguous => return None,
+            Relocation::Absent => {}
+            Relocation::Found(f) => match found {
+                Some(g) if g != f => return None,
+                _ => found = Some(f),
+            },
+        }
+    }
+    let f = found?;
+    let width = fragment.end.checked_sub(fragment.start)?;
+    (fragment.start >= 1 && f.end - f.start == width).then_some(f)
+}
+
+/// `n` or `n-m`, a bare range as the continuation label `[`356`]` writes it.
+fn bare_range(s: &str) -> Option<LineFragment> {
+    let num = |t: &str| match !t.is_empty() && t.bytes().all(|c| c.is_ascii_digit()) {
+        true => t.parse().ok(),
+        false => None,
+    };
+    let (a, b) = match s.split_once(['-', '\u{2013}']) {
+        Some((a, b)) => (num(a)?, num(b)?),
+        None => (num(s)?, num(s)?),
+    };
+    Some(LineFragment { start: a, end: b })
+}
+
+/// The byte range of the line numbers in `label`, when the label restates `fragment`.
+///
+/// Two forms restate it: the house form `file.rs:12-19`, read exactly as [`label_range`]
+/// reads it, and the bare `356` a run of citations of one file writes. A label that names a
+/// symbol, or a different range, is left as it is — the second is
+/// [`citation_range_stated_twice`]'s finding, and a rewrite would hide it.
+fn label_range_bytes(label: &str, fragment: LineFragment) -> Option<(usize, usize)> {
+    let end = label.trim_end().trim_end_matches('`').trim_end().len();
+    let head = &label[..end];
+    let run: usize = head
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit() || *c == '-' || *c == '\u{2013}')
+        .map(char::len_utf8)
+        .sum();
+    let start = end - run;
+    let before = &head[..start];
+    let stated = match before.ends_with(':') {
+        true => label_range(label)?,
+        false if before.trim().trim_start_matches('`').is_empty() => bare_range(&head[start..])?,
+        false => return None,
+    };
+    (stated == fragment).then_some((start, end))
+}
+
+/// `new` written the way `old` was: a range keeps its own separator.
+fn render_label_range(old: &str, new: LineFragment) -> String {
+    let sep = match old.contains('\u{2013}') {
+        true => "\u{2013}",
+        false => "-",
+    };
+    match new.start == new.end {
+        true => new.start.to_string(),
+        false => format!("{}{sep}{}", new.start, new.end),
+    }
+}
+
+/// The edits one citation's repair makes to its own line, as `(start, end, replacement)`
+/// byte ranges into it, or nothing when the line does not read back as the citation.
+fn repair_edits(line: &str, c: &LineCitation, new: LineFragment) -> Vec<(usize, usize, String)> {
+    let (s, e) = c.span;
+    let Some(rest) = line.get(s..e).and_then(|w| w.strip_prefix('[')) else {
+        return Vec::new();
+    };
+    let Some(close) = rest.rfind("](") else {
+        return Vec::new();
+    };
+    let label_at = s + 1;
+    let target_at = label_at + close + 2;
+    let target = &line[target_at..e.saturating_sub(1).max(target_at)];
+    let Some(hash) = target.rfind('#') else {
+        return Vec::new();
+    };
+    let frag_at = hash + 1;
+    let frag_len = target[frag_at..]
+        .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-'))
+        .unwrap_or(target.len() - frag_at);
+    if parse_fragment(&target[frag_at..frag_at + frag_len]) != Some(c.fragment) {
+        return Vec::new();
+    }
+    let at = target_at + frag_at;
+    let mut edits = vec![(at, at + frag_len, render_fragment(new))];
+    let label = &line[label_at..label_at + close];
+    if let Some((a, b)) = label_range_bytes(label, c.fragment) {
+        let text = render_label_range(&label[a..b], new);
+        edits.push((label_at + a, label_at + b, text));
+    }
+    edits
+}
+
+impl LineCitation {
+    /// `text`, the citing file, with every citation among `citations` that carries a
+    /// [`LineCitation::repair`] re-pointed at it.
+    ///
+    /// The fix mode behind `UPDATE_GOLDENS=1` in this repository's own gate (#1633). It
+    /// changes digits and nothing else: the `#L` fragment, and the label's copy of the
+    /// range when the label states the same one, since rewriting one copy alone would leave
+    /// the other lying. A citation without a repair, or one whose line no longer reads back
+    /// as the link `collect` found, is left byte for byte — the gate goes on naming it.
+    ///
+    /// Idempotent by construction: a repaired citation holds its passage, so a second
+    /// `collect` finds nothing adrift and no repair to write. An associated function rather
+    /// than a free one, so it reaches the gate through the `LineCitation` export.
+    pub fn rewrite(text: &str, citations: &[Self]) -> String {
+        let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
+        let mut per_line: BTreeMap<usize, Vec<(usize, usize, String)>> = BTreeMap::new();
+        for c in citations {
+            let Some(new) = c.repair else {
+                continue;
+            };
+            let Some(line) = c.line.checked_sub(1).and_then(|i| lines.get(i)) else {
+                continue;
+            };
+            let edits = repair_edits(line, c, new);
+            per_line.entry(c.line - 1).or_default().extend(edits);
+        }
+        for (i, mut edits) in per_line {
+            // Right to left, so each edit's offsets are still the ones it was measured at.
+            edits.sort_by(|a, b| b.0.cmp(&a.0));
+            for (s, e, text) in edits {
+                lines[i].replace_range(s..e, &text);
+            }
+        }
+        lines.concat()
     }
 }
 
@@ -1989,5 +2154,186 @@ The rule is stated in one line ([`target.md:2`](../target.md#L2)).
         ] {
             assert!(check.passed(), "{}: {:?}", check.id, check.violations);
         }
+    }
+
+    // ── The fix mode (#1633) ─────────────────────────────────────────────────
+
+    /// `doc` citing `target`, rewritten, and the rewrite read back: the new text, and
+    /// whether the four enforcing checks now pass on it.
+    fn rewrite(name: &str, target: &str, doc: &str) -> (String, bool) {
+        let (_tmp, c) = cite_named(name, target, doc);
+        let out = LineCitation::rewrite(doc, &c);
+        let (_tmp, again) = cite_named(name, target, &out);
+        let clean = [
+            dead_line_citation(&again),
+            slid_line_citation(&again),
+            citation_label_not_cited(&again),
+            citation_range_stated_twice(&again),
+        ]
+        .iter()
+        .all(Check::passed);
+        (out, clean)
+    }
+
+    const QUOTED_AT_2: &str =
+        "\"The graph does not merely contain knowledge\" ([`target.md:2`](../target.md#L2)).\n";
+
+    #[test]
+    fn a_single_line_citation_that_slid_is_rewritten_label_and_fragment() {
+        let shifted = format!("a new line, added later\n{TARGET}");
+        let (out, clean) = rewrite("target.md", &shifted, QUOTED_AT_2);
+        assert_eq!(
+            out,
+            "\"The graph does not merely contain knowledge\" ([`target.md:3`](../target.md#L3)).\n"
+        );
+        assert!(clean, "the rewrite left a finding: {out}");
+    }
+
+    #[test]
+    fn a_range_citation_that_slid_is_rewritten_as_a_range() {
+        let target = "head\nthe first half of a passage\nand its second half here\ntail\n";
+        let doc = "\"the first half of a passage and its second half\" \
+                   ([`target.md:2-3`](../target.md#L2-L3)).\n";
+        let (out, clean) = rewrite("target.md", &format!("x\ny\n{target}"), doc);
+        assert_eq!(
+            out,
+            "\"the first half of a passage and its second half\" \
+             ([`target.md:4-5`](../target.md#L4-L5)).\n"
+        );
+        assert!(clean, "{out}");
+    }
+
+    /// The en dash a label may write is kept, and the rest of the document is untouched
+    /// byte for byte — including a CRLF line ending and the lines around the citation.
+    #[test]
+    fn only_the_digits_change() {
+        let target = "head\nthe first half of a passage\nand its second half here\ntail\n";
+        let doc = "intro line, L2 and #L2-L3 in prose\r\n\"the first half of a passage and its \
+                   second half\" ([`target.md:2\u{2013}3`](../target.md#L2-L3)).\r\nend\n";
+        let (out, clean) = rewrite("target.md", &format!("x\n{target}"), doc);
+        assert_eq!(
+            out,
+            "intro line, L2 and #L2-L3 in prose\r\n\"the first half of a passage and its \
+             second half\" ([`target.md:3\u{2013}4`](../target.md#L3-L4)).\r\nend\n"
+        );
+        assert!(clean, "{out}");
+    }
+
+    #[test]
+    fn two_citations_on_one_line_are_each_rewritten() {
+        let target = "head\nrenaming a node severs edges\nfiller\nchoose the name well\n";
+        let doc = "\"renaming a node severs edges\" ([`target.md:2`](../target.md#L2)) and \
+                   \"choose the name well\" ([`target.md:4`](../target.md#L4)).\n";
+        let (out, clean) = rewrite("target.md", &format!("x\n{target}"), doc);
+        assert_eq!(
+            out,
+            "\"renaming a node severs edges\" ([`target.md:3`](../target.md#L3)) and \
+             \"choose the name well\" ([`target.md:5`](../target.md#L5)).\n"
+        );
+        assert!(clean, "{out}");
+    }
+
+    /// A symbol label anchors the citation and states no range, so only the fragment moves.
+    #[test]
+    fn a_symbol_labelled_citation_moves_its_fragment_only() {
+        let target = "fn unrelated() {}\npub fn unknown_class(nodes: &[Node]) -> Check {\n";
+        let doc = "the class ([`unknown-class`](../checks.rs#L1), Error).\n";
+        let (out, clean) = rewrite("checks.rs", target, doc);
+        assert_eq!(
+            out,
+            "the class ([`unknown-class`](../checks.rs#L2), Error).\n"
+        );
+        assert!(clean, "{out}");
+    }
+
+    #[test]
+    fn an_ambiguous_passage_is_left_alone() {
+        let target = format!("x\n{TARGET}The graph does not merely contain knowledge.\n");
+        let (out, clean) = rewrite("target.md", &target, QUOTED_AT_2);
+        assert_eq!(out, QUOTED_AT_2);
+        assert!(!clean, "the slide must still be reported");
+    }
+
+    #[test]
+    fn a_passage_that_is_gone_is_left_alone() {
+        let (out, clean) = rewrite("target.md", "one\ntwo\nthree\n", QUOTED_AT_2);
+        assert_eq!(out, QUOTED_AT_2);
+        assert!(!clean, "the slide must still be reported");
+    }
+
+    /// A `::` label is one anchor per segment. Here `unique_fn` is found in one place and
+    /// exactly as wide as the citation, but `shared_mod` is in two: one ambiguous anchor
+    /// vetoes the repair even though the other alone would decide it. The suggestion, which
+    /// takes the first anchor found, still names L2.
+    #[test]
+    fn one_ambiguous_anchor_vetoes_a_found_one() {
+        let target = "fn unrelated() {}\npub fn unique_fn() {}\n\
+                      // shared_mod is used here\n// and shared_mod here\n";
+        let doc = "the function ([`shared_mod::unique_fn`](../checks.rs#L1)).\n";
+        let (_tmp, c) = cite_named("checks.rs", target, doc);
+        assert_eq!(c[0].moved_to, Some(LineFragment { start: 2, end: 2 }));
+        assert_eq!(c[0].repair, None);
+        assert_eq!(LineCitation::rewrite(doc, &c), doc);
+    }
+
+    /// Two anchors, each found once and each exactly as wide as the citation, in different
+    /// places: the file does not say which one the citation meant, so nothing is written.
+    #[test]
+    fn two_anchors_found_apart_are_left_alone() {
+        let target = "fn unrelated() {}\npub fn first_fn() {}\nfiller\npub fn second_fn() {}\n";
+        let doc = "the pair ([`first_fn::second_fn`](../checks.rs#L1)).\n";
+        let (_tmp, c) = cite_named("checks.rs", target, doc);
+        assert_eq!(c[0].moved_to, Some(LineFragment { start: 2, end: 2 }));
+        assert_eq!(c[0].repair, None);
+        assert_eq!(LineCitation::rewrite(doc, &c), doc);
+    }
+
+    /// The suggestion is a floor: three cited lines, one quoted. Any of three placements is
+    /// consistent with the file, so none is written.
+    #[test]
+    fn a_citation_wider_than_its_quote_is_left_alone() {
+        let target = "head\nthe passage worth citing\nmore of the function\nits end\n";
+        let doc = "\"the passage worth citing\" ([`target.md:2-4`](../target.md#L2-L4)).\n";
+        let (_tmp, c) = cite_named("target.md", &format!("x\ny\nz\n{target}"), doc);
+        assert_eq!(c[0].moved_to, Some(LineFragment { start: 5, end: 5 }));
+        assert_eq!(c[0].repair, None);
+        assert_eq!(LineCitation::rewrite(doc, &c), doc);
+    }
+
+    /// A label already disagreeing with its fragment is a half-finished repair, which
+    /// `citation-range-stated-twice` names. The fragment is decided and moves; the label is
+    /// not the rewrite's to settle, so it stays wrong and the finding stays standing.
+    #[test]
+    fn a_label_stating_another_range_is_not_rewritten() {
+        let shifted = format!("x\n{TARGET}");
+        let doc =
+            "\"The graph does not merely contain knowledge\" ([`target.md:9`](../target.md#L2)).\n";
+        let (out, clean) = rewrite("target.md", &shifted, doc);
+        assert_eq!(
+            out,
+            "\"The graph does not merely contain knowledge\" ([`target.md:9`](../target.md#L3)).\n"
+        );
+        assert!(!clean, "the disagreeing label must still be reported");
+    }
+
+    #[test]
+    fn a_second_rewrite_changes_nothing() {
+        let shifted = format!("a new line, added later\n{TARGET}");
+        let (once, _) = rewrite("target.md", &shifted, QUOTED_AT_2);
+        let (twice, clean) = rewrite("target.md", &shifted, &once);
+        assert_eq!(once, twice);
+        assert!(clean);
+    }
+
+    #[test]
+    fn the_bare_continuation_label_is_rewritten_with_its_fragment() {
+        let shifted = format!("x\n{TARGET}");
+        let doc = "\"The graph does not merely contain knowledge\" ([`2`](../target.md#L2)).\n";
+        let (out, clean) = rewrite("target.md", &shifted, doc);
+        assert_eq!(
+            out,
+            "\"The graph does not merely contain knowledge\" ([`3`](../target.md#L3)).\n"
+        );
+        assert!(clean, "{out}");
     }
 }
