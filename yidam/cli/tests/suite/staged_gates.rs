@@ -456,18 +456,18 @@ fn a_staged_run_refuses_an_unmerged_index() {
     assert_eq!(worktrees(root), 1);
 }
 
-/// `CI_GATES` in `doctor.rs` and the commands that take `--staged` are one list (RFC-0070
+/// `CI_GATES` in `doctor/scaffold.rs` and the commands that take `--staged` are one list (RFC-0070
 /// §3). Read from the source, so the list is written once, and asked of the built binary in
 /// both directions: a gate without the flag, and a flag on a command that is not a gate.
 #[test]
 fn the_corpus_gates_are_the_commands_that_take_staged() {
     let src = std::fs::read_to_string(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/cmd/doctor.rs"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/cmd/doctor/scaffold.rs"),
     )
     .unwrap();
     let start = src
         .find("const CI_GATES: &[&str] = &[")
-        .expect("doctor.rs declares CI_GATES");
+        .expect("doctor/scaffold.rs declares CI_GATES");
     let list = &src[start..start + src[start..].find("];").unwrap()];
     let gates: std::collections::BTreeSet<String> = list
         .split('"')

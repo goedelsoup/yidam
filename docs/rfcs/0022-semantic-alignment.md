@@ -50,7 +50,7 @@ That splits the question in two, and only one half was ever open:
 **Decision: no remote model, and pass 4 is dropped rather than deferred.**
 
 Three settled things run against it, each with a stated reason. `doctor` writes nothing and
-does no network, and `cmd/doctor.rs` calls that a constitutional limit rather than a scoping
+does no network, and `cmd/doctor/mod.rs` calls that a constitutional limit rather than a scoping
 one. The **light default build** is what derived-repo CI downloads, so a command behind a
 feature nobody compiles is a command nobody runs. And `tonpa`'s own module comment records
 the same reasoning about buying the network.

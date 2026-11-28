@@ -56,7 +56,7 @@ commits. The `ci` check reads only workflows, so the gate it has is invisible to
 
 ### 0.2 What already exists
 
-- **The three corpus gates are named once.** `doctor.rs::CI_GATES` lists `yidam graph-check`,
+- **The three corpus gates are named once.** `doctor/scaffold.rs::CI_GATES` lists `yidam graph-check`,
   `yidam regen --check` and `yidam lint`. `gates_in` reads shell text for them, following
   `mise run` into the inherited gate tasks and the repository's own tasks.
 - **A scratch checkout is already made.** `regen::fold_for` checks a commit out with
