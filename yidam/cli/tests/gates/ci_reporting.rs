@@ -1056,9 +1056,11 @@ fn every_cache_in_ci_is_saved_only_from_main() {
 
 /// The command lines one `mise.toml` task runs, comments already stripped.
 ///
-/// Both spellings, because both are in this file: `run = "…"` for a task with one command
-/// and `run = [ … ]` for a list. A parser that read only the list form would return an empty
-/// vector for the other, and an empty vector passes every comparison below.
+/// Three spellings, because all three are in this file: `run = "…"` for a task with one
+/// command, `run = [ … ]` for a list, and `run = """ … """` for a script (nine tasks, among
+/// them `domain-fmt`, `parity-check` and `mutants`). A parser that read only some of them
+/// would return an empty vector for the rest, and an empty vector passes every comparison
+/// below — which is why the assertion at the end stays.
 fn task_commands(name: &str) -> Vec<String> {
     let text = mise_toml();
     let block = text
@@ -1067,30 +1069,214 @@ fn task_commands(name: &str) -> Vec<String> {
         .unwrap_or_else(|| panic!("no `[tasks.{name}]` in mise.toml, or it was renamed"))
         .split("\n[")
         .next()
-        .unwrap_or_default()
-        .to_string();
+        .unwrap_or_default();
 
-    let mut out = Vec::new();
-    for line in block.lines().map(str::trim) {
-        let command = if let Some(rest) = line.strip_prefix("run = ") {
-            rest
-        } else if line.starts_with('"') {
-            line
-        } else {
-            continue;
-        };
-        let command = command.trim_matches(|c| c == '"' || c == ',' || c == ' ');
-        if !command.is_empty() && command != "[" && command != "]" {
-            // What cargo is given: the shell expands mise's `[env]` variables in the line.
-            out.push(crate::local_ci::render_mise_env(command));
-        }
-    }
+    // What cargo is given: the shell expands mise's `[env]` variables in the line.
+    let out: Vec<String> = block_commands(block)
+        .iter()
+        .map(|command| crate::local_ci::render_mise_env(command))
+        .collect();
     assert!(
         !out.is_empty(),
         "`[tasks.{name}]` parsed to no commands; every comparison built on this would be \
          vacuous"
     );
     out
+}
+
+/// The commands in the text of one `[tasks.…]` table, in the three spellings above.
+///
+/// A script is read one command per line: blank lines and `#` lines are not commands, and a
+/// line ending in a backslash is joined to the next, so a wrapped `cargo mutants \ --flag …`
+/// is one command and not a command followed by fragments. The body may start on the line of
+/// the opening quotes and end on the line of the closing ones, and `'''` opens and closes a
+/// script the way `"""` does. Not read: a script's own structure. The lines of an `if` or a
+/// `for`, or of a heredoc body, come back as lines like any other, which suits a scan that
+/// asks whether a line contains `cargo clippy` and would not suit one that asked what runs.
+fn block_commands(block: &str) -> Vec<String> {
+    // One finished script line, or the start of a wrapped one.
+    fn push_script_line(line: &str, pending: &mut String, out: &mut Vec<String>) {
+        let line = line.trim();
+        if pending.is_empty() && (line.is_empty() || line.starts_with('#')) {
+            return;
+        }
+        match line.strip_suffix('\\') {
+            Some(wrapped) => {
+                pending.push_str(wrapped.trim_end());
+                pending.push(' ');
+            }
+            None => {
+                pending.push_str(line);
+                let done = pending.trim().to_string();
+                pending.clear();
+                if !done.is_empty() {
+                    out.push(done);
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    let mut pending = String::new();
+    let mut open: Option<&str> = None;
+    for raw in block.lines() {
+        let mut line = raw.trim();
+        if open.is_none() {
+            let command = if let Some(rest) = line.strip_prefix("run = ") {
+                rest
+            } else if line.starts_with('"') {
+                line
+            } else {
+                continue;
+            };
+            let Some(quotes) = ["\"\"\"", "'''"]
+                .into_iter()
+                .find(|q| command.starts_with(q))
+            else {
+                let command = command.trim_matches(|c| c == '"' || c == ',' || c == ' ');
+                if !command.is_empty() && command != "[" && command != "]" {
+                    out.push(command.to_string());
+                }
+                continue;
+            };
+            open = Some(quotes);
+            line = &command[quotes.len()..];
+        }
+        let quotes = open.unwrap_or_default();
+        match line.find(quotes) {
+            Some(end) => {
+                push_script_line(&line[..end], &mut pending, &mut out);
+                open = None;
+            }
+            None => push_script_line(line, &mut pending, &mut out),
+        }
+    }
+    // A script that ends on a trailing backslash: the wrapped line is still a command.
+    if !pending.trim().is_empty() {
+        out.push(pending.trim().to_string());
+    }
+    out
+}
+
+/// A script reads as its commands: `run = """` with nothing after it, the way all nine are.
+#[test]
+fn task_commands_reads_a_script() {
+    let block = "description = \"x\"\nrun = \"\"\"\nset -eu\ncount=0\nfor m in a/*; do\n  \
+                 cargo fmt --manifest-path \"$m\"\ndone\n\"\"\"\n";
+    assert_eq!(
+        block_commands(block),
+        [
+            "set -eu",
+            "count=0",
+            "for m in a/*; do",
+            "cargo fmt --manifest-path \"$m\"",
+            "done"
+        ]
+    );
+}
+
+/// Blank lines and comment lines are not commands, and a wrapped line is one command.
+#[test]
+fn task_commands_skips_blanks_and_comments_in_a_script() {
+    let block = "run = \"\"\"\n\n# a comment\n  # an indented one\nenv A=1 cargo mutants \\\n  \
+                 --in-place \\\n  --timeout 300\n\ncargo fmt\n\"\"\"\n";
+    assert_eq!(
+        block_commands(block),
+        [
+            "env A=1 cargo mutants --in-place --timeout 300",
+            "cargo fmt"
+        ]
+    );
+}
+
+/// The two forms that already worked still do, and a script beside them does not disturb them.
+#[test]
+fn task_commands_still_reads_the_string_and_list_forms() {
+    assert_eq!(
+        block_commands("run = \"cargo fmt --check\"\n"),
+        ["cargo fmt --check"]
+    );
+    assert_eq!(
+        block_commands("run = [\n  # a comment\n  \"cargo fmt\",\n  \"cargo clippy\",\n]\n"),
+        ["cargo fmt", "cargo clippy"]
+    );
+    // A `description` or `env` line is not a command in any form.
+    assert_eq!(
+        block_commands("description = \"x\"\nenv = { A = \"1\" }\nrun = \"a\"\n"),
+        ["a"]
+    );
+}
+
+/// Where the quotes open and close: text after the opening quotes, text before the closing
+/// ones, a script on one line, and `'''`. None of these is in `mise.toml` today; each is
+/// legal TOML, and each reads as no commands at all if it is not handled.
+#[test]
+fn task_commands_reads_a_script_wherever_its_quotes_sit() {
+    assert_eq!(
+        block_commands("run = \"\"\"set -eu\ncargo fmt\"\"\"\n"),
+        ["set -eu", "cargo fmt"]
+    );
+    assert_eq!(
+        block_commands("run = \"\"\"cargo fmt\"\"\"\n"),
+        ["cargo fmt"]
+    );
+    assert_eq!(
+        block_commands("run = '''\ncargo fmt\n# no\ncargo clippy\n'''\n"),
+        ["cargo fmt", "cargo clippy"]
+    );
+    // The line after a script is not part of it.
+    assert_eq!(
+        block_commands("run = \"\"\"\ncargo fmt\n\"\"\"\n\"not a command of the script\"\n"),
+        ["cargo fmt", "not a command of the script"]
+    );
+}
+
+/// Every script task in `mise.toml` parses, and none of them is a nextest run.
+///
+/// The second half is what the nextest scan relies on: a script that runs no cargo suite
+/// contributes lines, but not a line the scan would take for the run whose JUnit a summary
+/// renders. `mutants` says `--test-tool nextest`, which is why [`runs_nextest`] asks for the
+/// whole `cargo nextest run`. A script that does run the suite should be a list task.
+#[test]
+fn every_script_task_in_mise_toml_parses_and_none_is_taken_for_a_nextest_run() {
+    let text = mise_toml();
+    let mut scripts = Vec::new();
+    for table in text.split("\n[tasks.").skip(1) {
+        let (name, rest) = table.split_once("]\n").unwrap_or((table, ""));
+        let body = rest.split("\n[").next().unwrap_or_default();
+        if body.lines().any(|l| l.trim() == "run = \"\"\"") {
+            scripts.push(name.to_string());
+        }
+    }
+    assert!(
+        scripts.len() >= 9,
+        "only {} script tasks found in mise.toml, which had nine when this was written \
+         ({scripts:?}); fewer means this stopped recognising them",
+        scripts.len()
+    );
+    for name in &scripts {
+        let commands = task_commands(name);
+        assert!(
+            commands
+                .iter()
+                .all(|c| !c.starts_with('#') && !c.is_empty()),
+            "`{name}` yields a comment or an empty line as a command: {commands:?}"
+        );
+        assert!(
+            !commands.iter().any(|c| runs_nextest(c)),
+            "`{name}` is a script that runs the suite through nextest. The scan for the run \
+             that leaves the JUnit reads it line by line and would take one fragment of a \
+             shell script for the run; make it a list task. Commands: {commands:?}"
+        );
+    }
+    // One of them, read through the real file rather than a fixture.
+    assert!(
+        task_commands("domain-fmt")
+            .iter()
+            .any(|c| c.starts_with("cargo fmt --all --manifest-path")),
+        "`domain-fmt` no longer reads as running `cargo fmt`: {:?}",
+        task_commands("domain-fmt")
+    );
 }
 
 /// The feature-gated code is compiled on every event, by one job or the other (#922).
