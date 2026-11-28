@@ -970,8 +970,50 @@ fn json_output_matches_its_golden() {
             panic!("{name} --format json is not valid JSON: {e}\n{}", r.stdout)
         });
         assert_eq!(parsed["format_version"], "1", "{name} handshake");
-        assert_golden(&format!("{name}.json"), &r.stdout);
+        let compared = if *name == "lint" {
+            mask_rationale(&r.stdout)
+        } else {
+            r.stdout
+        };
+        assert_golden(&format!("{name}.json"), &compared);
     }
+}
+
+/// What every lint check's `rationale` reads as in the golden.
+const RATIONALE_MASK: &str = "<RATIONALE>";
+
+/// Collapse each lint check's `rationale` to [`RATIONALE_MASK`], when it is non-empty text.
+///
+/// The text is a property of the check registry, not of this fixture: it was two thirds of
+/// `lint.json`, and editing one sentence of one rationale, or adding a check, rewrote the golden
+/// although nothing the report says about the corpus moved (#1634). It is pinned once instead,
+/// against the roster, by `every_rationale_matches_the_registry_golden` in `cmd/lint/mod.rs`,
+/// over `reports/checks.json`. The field stays in the golden, so it still validates against
+/// `report.schema.json`, which requires it, and the editors' views of it still type-check.
+///
+/// **Only text is masked.** A rationale that is empty, `null` or not a string is left as it was
+/// emitted, so the golden's placeholder disagrees with it; one that is missing leaves the
+/// placeholder unmatched. Either way an emitter that stopped carrying the text goes red here.
+fn mask_rationale(out: &str) -> String {
+    // A check's fields sit at a fixed indent under `checks`, as in `redact_conditional_checks`.
+    const KEY: &str = "      \"rationale\": \"";
+    let mut lines: Vec<String> = Vec::new();
+    for line in out.lines() {
+        let masked = line.strip_prefix(KEY).and_then(|rest| {
+            let (value, comma) = match rest.strip_suffix(',') {
+                Some(v) => (v, ","),
+                None => (rest, ""),
+            };
+            let text = value.strip_suffix('"')?;
+            (!text.is_empty()).then(|| format!("{KEY}{RATIONALE_MASK}\"{comma}"))
+        });
+        lines.push(masked.unwrap_or_else(|| line.to_string()));
+    }
+    let mut joined = lines.join("\n");
+    if out.ends_with('\n') {
+        joined.push('\n');
+    }
+    joined
 }
 
 /// The gate must not depend on how the answer was asked for.

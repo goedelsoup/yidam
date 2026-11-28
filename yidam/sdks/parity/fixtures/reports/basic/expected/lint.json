@@ -35,7 +35,7 @@
       "id": "malformed-yaml",
       "title": "File that is not the YAML it is read as",
       "severity": "error",
-      "rationale": "A file the parser rejects reaches every other check as an empty record, and an empty record is not the same claim as an empty file. On an instance that reads as a node declaring nothing, so the report contradicts the file it names. On a `<class>.ont.yml` it reads as a class declaring no properties and licensing no edges, which is indistinguishable from an ontology nobody has filled in — and five checks that gate on those declarations find nothing to check and pass. That is a false negative in a gate, produced by a typo, and nothing else in the report can say it happened. On a catalog entry it reads as an entry with no TTL, no `used-by` and no artifacts that never declared `obtained: false` — so it is read as obtained, governed by nothing, and cited by nothing. On a decision record it reads as a record with no `id:` and no `summary:`, which the log renders under its file stem with an em dash, indistinguishable from a record nobody filled in. On `.yidam/corpus/universal.yml` it reads as a corpus that declared nothing universal, so every property that file permits is reported against the instances carrying it, and the edge-tagging gate it turns on is off. Every other finding about the file is suppressed: fix the parse error and they come back, correct this time.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -43,7 +43,7 @@
       "id": "findings-malformed",
       "title": "Document whose findings block is not the record it is read as",
       "severity": "error",
-      "rationale": "The `yidam:` block is where `yidam propose` records the questions it has opened, and a block the parser rejects was read as no findings at all — so one entry missing its `check:` lost every finding on the document and nothing said so. What follows is not a gap in a report: a document with no readable block looks like a document with nothing outstanding, so `propose` opens every finding on it again with a fresh `opened_at`, and the ids an author has already closed come back. The file itself parses — unknown top-level keys are carried, so neither the instance nor the catalog entry reports a parse failure — which is why this is reported apart from `malformed-yaml`. Nothing but `propose` writes under this key, so a block of the wrong shape is never something a corpus chose.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -51,7 +51,7 @@
       "id": "missing-class",
       "title": "Instance declaring no class",
       "severity": "error",
-      "rationale": "An instance's class is what binds it to a schema. Without one there is nothing to validate the node against and nothing to render it as — it is a YAML file in a corpus directory, not a node.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -59,7 +59,7 @@
       "id": "unknown-class",
       "title": "Instance of a class that has no schema",
       "severity": "error",
-      "rationale": "Either the class file was never written or the instance misspells it. Both leave the node unvalidatable, and a misspelling additionally splits one class into two that no query will join.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -67,7 +67,7 @@
       "id": "orphan-out",
       "title": "Node connected to nothing",
       "severity": "error",
-      "rationale": "Every node must carry at least one outgoing edge. A node with none is unreachable by traversal from anywhere, which in a graph whose value is its connectivity means it is not in the graph at all. A class whose instances legitimately end a path — a root, a glossary entry, a terminal source — says so with `outgoing: optional`.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -75,7 +75,7 @@
       "id": "dangling-edge",
       "title": "Edge pointing at nothing",
       "severity": "error",
-      "rationale": "A broken edge is worse than a missing one: it asserts a relationship to something that is not there, so a reader following it learns nothing and a traversal counting it overstates the graph's connectivity. Renaming a node severs every edge into it, which is why node filenames are meant to be stable.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -93,7 +93,7 @@
       "id": "undeclared-property",
       "title": "Instance property the class never declared",
       "severity": "error",
-      "rationale": "A property absent from the class is invisible to everything that reads the corpus through the ontology — schemas, exports, queries. It reads as data to a human and as nothing to a machine, which is the failure mode worth gating on. A class that declares no `properties:` has said nothing and is not checked, and a property `.yidam/corpus/universal.yml` declares — by name or by pattern — may be carried by any class without being declared on each.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -101,7 +101,7 @@
       "id": "missing-property",
       "title": "Declared property the instance omits",
       "severity": "warn",
-      "rationale": "The commonest cause is a class that grew a field its instances never did — invisible to every reader and obvious in a list. A property declared `required: true` GATES: the class wrote that contract, and an instance omitting it contradicts the ontology, which is what this check's four siblings gate on. `required: false` is not reported: the class said an instance may omit it, and an omission the class licensed is not a finding. A property that says neither is reported and does not gate, because a class that said nothing about a property cannot be read as demanding it — a node that makes no tagged claim is a real state, not a defect, and gating on omission would assert a contract nobody wrote.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -128,7 +128,7 @@
       "id": "node-too-long",
       "title": "Instance longer than its class allows",
       "severity": "warn",
-      "rationale": "A long node is usually two nodes, or a node carrying quoted source that belongs in the catalog entry it cites. The ceiling is the class's own — a class that declares no `max_lines:` is not checked, because the length an instance should be is a question about that class and not about corpora in general. What is counted is the `description` block and not the file: the argument is about prose, and a node that records where each of its edges comes from should not pay for that provenance out of a budget written to stop descriptions sprawling. A corpus that raised `max_lines:` to absorb structural lines can lower it again.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -136,7 +136,7 @@
       "id": "node-too-many-passages",
       "title": "Node too long to embed as one",
       "severity": "warn",
-      "rationale": "A long node is indexed as many passages, so it stays findable, but past a point its length says it is several things. Usually one is an artifact about the entity — a plan, a brief, a decision log — which belongs in a node of its own linking to it, or an account that grew to argue several claims, each of which is a claim node. The measure is the text `yidam embed` composes, not the file, and it applies to every class, whether or not the class declares `max_lines:`.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -144,7 +144,7 @@
       "id": "property-type",
       "title": "Property value that contradicts its declared type",
       "severity": "error",
-      "rationale": "A typed field the ontology declares is read by type, not by eye. A `claim` field holding prose is counted as no claim at all; a `string` holding an unquoted number has lost its leading zeros before anything reads it; a `number` holding a quoted one is text the compiled schema refuses and an ordering cannot compare. A `string` whose class declares `values:` is held to that set: a value outside it is either a widening the class never recorded or prose in a token field, and both are reported so the set the class publishes stays true. A `list` is a non-empty list, and each item is held to the `items:` type or the `fields:` record its class declares: a record is closed as the class is, so a misspelled `claim_tg` is reported rather than read as an entry with no standing. Types the corpus coins for itself are left alone — this reports only the ones it can test, and `property-type-unknown` names the rest.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -152,7 +152,7 @@
       "id": "list-declaration-invalid",
       "title": "Class declares a list whose items cannot be read",
       "severity": "error",
-      "rationale": "A `list` declares its items with `items:`, naming one scalar type, or with `fields:`, declaring a record — or with neither, and then holds any non-empty list. Both at once, an `items:` naming a list, a quotation or a coined type, or a record field typed `list` or `quotation` is a declaration nothing can hold an instance to, and the gate falls back to checking only that the value is a list. Reported here so the fallback is not silent.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -160,7 +160,7 @@
       "id": "property-type-unknown",
       "title": "Class declares a property type nothing reads",
       "severity": "warn",
-      "rationale": "A `type:` the tooling does not define is read by nothing: `property-type` leaves its values alone, the compiled schema admits anything, and a standing or a `source` inside it is neither graded nor resolved. A corpus that coins `type: effect` for a list of evidenced entries gets no finding, and its entries no checks. Reported so the choice is made knowingly: a known type, or a `list` with `fields:` for a value that holds records. Not a gate, because a coined type is unread, not wrong.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -168,7 +168,7 @@
       "id": "unimplemented-class",
       "title": "Class naming an implementation the code does not define",
       "severity": "error",
-      "rationale": "A class declaring `implemented_by:` has stated a fact about `crates/`, and a tree with no type of that name contradicts it — which is what this check's siblings gate on, and an omission is not. A class that declares nothing is not checked, and that silence is measured rather than timid: across twelve derived corpora 129 of 157 declared classes have no type bearing their name, and matching every language in the tree raises it to 88%. Their ontologies model a domain and their code models the pipeline that gathers evidence about it, so a class without a type is the normal case and reporting it would call four fifths of every ontology debt. A rename is invisible: the tree is scanned rather than a diff, so a class implemented under a new name is simply found.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -176,7 +176,7 @@
       "id": "unlicensed-edge",
       "title": "Relationship the class does not declare",
       "severity": "warn",
-      "rationale": "An edge is licensed by the class that authors it, and `edge_policy:` says whether that list bounds the vocabulary or describes it. `exhaustive` closes it and makes anything outside an error; `characteristic` says an undeclared relationship is a deliberate coinage, and none are reported. A class that has said neither is warned about but not gated — a relationship in no declaration is worth seeing, because a traversal that walks by relationship will not find it, but a non-empty `edges:` on its own never claimed to be complete. Only links landing on another instance are read: a link to the class file or into the catalog is a citation, not a relationship. A class that declares no `edges:` has said nothing and is not checked.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -184,7 +184,7 @@
       "id": "edge-target-class",
       "title": "Edge that resolves to a node of the wrong class",
       "severity": "error",
-      "rationale": "`dangling-edge` catches an edge to nothing. This catches an edge to the wrong thing — which resolves, traverses, and exports, and is simply false. The class names the target class for each relationship it declares; a declaration that names none licenses any target.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -192,7 +192,7 @@
       "id": "interval-overlap",
       "title": "More holders of one target at once than it seats, or an interval ending before it starts",
       "severity": "error",
-      "rationale": "A class that declares `interval:` has said which of its properties are an instance's start and end, and one that also declares `exclusive_over:` has said no two instances may hold the same target by that relationship at once — one sheriff at a time. Two that overlap give *who held it then* two answers. A `capacity:` names the target's own count, so three commissioners at once is not a finding. Intervals are half-open and compared as `query` orders dates: at the precision both sides share, so `1893` and `1893-06-01` are adjacent rather than overlapping, and an absent end is still open. A class that declares no `interval:` is not checked.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -200,7 +200,7 @@
       "id": "interval-gap",
       "title": "A span inside a finished line of holders that fewer hold than the target seats",
       "severity": "warn",
-      "rationale": "A target whose `interval.complete:` property is `true` has said its line of holders is finished, so a span inside it that fewer instances hold than it seats is a missing tenure or a wrong date. Only interior spans count: before the first holder the line had not started, and after the last it may have ended. A target that declares nothing is not checked, because most corpora are incomplete by design. Intervals are half-open and compared at the precision both sides share, so a handover on one date is not a gap, and neither is `1893` followed by `1893-06-01`. Warn, because a line marked complete may already hold real gaps.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -208,7 +208,7 @@
       "id": "edge-untagged",
       "title": "An empirical edge that does not say what it rests on",
       "severity": "warn",
-      "rationale": "`agent-conduct.md`: *an edge is a claim written as structure*, asserted in the form a reader is least likely to check. The prose rules have applied to node bodies since the vocabulary existed and the graph — the part a traversal actually walks — was exempt from them. This asks an edge the same question: `claim_tag: verified`, `inference` or `open` on the link, beside `target` and `relationship`, or the honest third option the guidelines name, which is to leave the edge out. A value spelling no standing is reported separately from a missing one, because a typo in the field is a claim graded into somewhere nothing can read it. Runs only where `.yidam/corpus/universal.yml` declares `edge_claims: required: true`, and never on a relationship that file lists as `structural:` — `instance-of`, `concerns`, `subject-of` and whatever else a corpus's bookkeeping is spelled with. Unconditionally it would open with one finding per edge in the graph, which is a gate arriving in a corpus that never agreed to it. Warn, because which of the three standings an edge deserves is the author's judgement and nothing here proposes one.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -216,7 +216,7 @@
       "id": "edge-verified-unsourced",
       "title": "An edge asserted at `verified` that names no source",
       "severity": "warn",
-      "rationale": "The edge half of `verified-unsourced`, and the same one-directional argument: over-counting evidence is the flattering error and it is the one the claim vocabulary exists to prevent. `verified` means supported by a committed primary source; an edge claiming it with no `source:` has claimed a standing it cannot demonstrate. The fix is a source or a demotion, and which of the two is the author's call — nothing here proposes a promotion, ever. This needs no declaration to switch on and gets none: its population is empty in a corpus that tags no edges, because writing `claim_tag: verified` is itself the declaration the check reads. So it cannot put a repository that predates it in debt, and it reports on an edge that asserted `verified` even where the corpus exempted that relationship from being asked — an exemption says the relationship is bookkeeping, and bookkeeping that claims to be verified has stopped being bookkeeping.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -224,7 +224,7 @@
       "id": "edge-standing-unheld",
       "title": "An edge asserts a standing its own endpoints do not hold",
       "severity": "warn",
-      "rationale": "The graph half of `local-citation-tag-drift`: a citation resting on `[verified]` over a paragraph this corpus tags `[inference]` asserts something its own corpus denies, and an edge asserting `verified` between two nodes this corpus grades `[open]` does the same thing in the form a reader is least likely to check. A node's standing here is a property its class declared `type: claim` — the node's own grade, not the weakest marker in its prose, because a synthesis node carries all three tags by design. A node that declares none is compared to nothing. One-directional, like every check in this family: an `open` edge between two `verified` nodes is not a defect, it is a corpus saying it knows both things and not that they are related, which is what the vocabulary is for. The endpoint compared against is the weaker of the two ends, and the edge's own standing is the strongest it spells. Warn, and this one cannot be Error. Every other contradiction check here gates on the ground that its population is empty by construction; this one's is not, because a corpus can adopt edge tags on a graph whose nodes were graded years earlier and inherit findings it did not create. Which of the two sides is wrong is the author's judgement and nothing here proposes an answer.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -242,7 +242,7 @@
       "id": "edge-source-unresolved",
       "title": "An edge's `source:` names nothing this repository holds",
       "severity": "error",
-      "rationale": "`edge-verified-unsourced` asks whether a `verified` edge names a source, and until this check that was the whole of the question: a `source:` naming a catalog entry that was renamed, or that never existed, passed exactly as one that resolves. This resolves it. A value may name a catalog entry by its file stem, a catalog entry by a path written as a `links:` target is, or a decision record by its `id:` — the three spellings the derived corpora were measured writing, and the last admitted because an edge can rest on a rule this corpus wrote rather than on a document it retrieved, for which a catalog entry would be the wrong citation. Error, on the one ground the rest of this family cannot claim. Which standing an edge deserves is the author's judgement and every sibling here is Warn for it; whether the thing an edge cites is in this tree is not a judgement at all, and is the question `dangling-edge` already gates on, one key over. The population is empty in a corpus that writes no `source:`, and was measured at zero across every corpus that writes one, so no repository that predates the check is put in debt by it. It reads every edge that names a source, whatever the tag beside it: an `inference` edge naming a dead source has still cited nothing.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -260,7 +260,7 @@
       "id": "entry-source-unresolved",
       "title": "Evidenced list entry names a source this repository does not hold",
       "severity": "error",
-      "rationale": "An entry of a `list` whose record declares a `claim` field carries its own standing, and a standing rests on a source. Its `source` is resolved as a link's `source:` is: a catalog entry by its file stem or by a path from the node, or a decision record by its `id:`. A name that resolves to nothing cites nothing, whatever standing sits beside it. A blank `source` is not checked, and a list whose record declares no `claim` field is not read at all (RFC-0050).",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -268,7 +268,7 @@
       "id": "external-citation-unresolved",
       "title": "Citation into a dependency that is not there",
       "severity": "error",
-      "rationale": "A citation that does not resolve asserts a provenance that is not there, which is strictly worse than claiming none. The local graph is trustworthy because a link cannot rot silently; a corpus that cites across a boundary without this check has inverted that property at exactly the point where it is hardest to recover. A missing package and a missing node inside a present one are different findings with different repairs, and the message says which.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -276,7 +276,7 @@
       "id": "external-citation-span-drift",
       "title": "Cited span no longer appears in the dependency",
       "severity": "error",
-      "rationale": "A node reference alone rots invisibly: the node keeps its name while its content is rewritten, and the citation still resolves. The span is what makes the rot visible, and it is the only check available across this boundary that needs nothing from the producer — a bundle carries no sangha, no elector register and no resolution history, so the text is the whole of the evidence. Re-quoting to clear the finding is the one repair that is always wrong: the far side changed its mind, and the question is whether the local claim survives it.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -284,7 +284,7 @@
       "id": "external-citation-pin-moved",
       "title": "Citation written against a pin that has moved",
       "severity": "warn",
-      "rationale": "A stale dependency is a normal state: it is pinned deliberately, and where its currency bears on a conclusion the thing to do is say which pin was read. This reports rather than gates because escalating it would let a producer cutting a release turn a stranger's CI red without the stranger changing anything — the exact failure a pin exists to prevent. Where the text this claim rests on actually moved, `external-citation-span-drift` is the finding that gates.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -292,7 +292,7 @@
       "id": "external-citation-unpinned",
       "title": "Citation into a dependency that carries no pin",
       "severity": "info",
-      "rationale": "A path dependency is read where it sits and is not fetched, not hashed and not locked, because hashing a working tree that changes under you records nothing. It is also the only dependency form that supports a development loop, so refusing to cite one would exclude the case people actually work in. Reported rather than refused, and reported every time: a citation whose pin is silently absent is indistinguishable from one whose pin is current.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -300,7 +300,7 @@
       "id": "local-citation-unresolved",
       "title": "A local citation names a node this corpus does not hold",
       "severity": "error",
-      "rationale": "A `cites:` entry with no `package:` rests on a node in this corpus. Renaming or deleting that node breaks the claim, and nothing else notices: `graph-check` reads `links:` and a citation is deliberately not a link, because a citation is not a relationship and must never enter a traversal. Error, under the baseline ratchet like every other citation defect a person here can fix. The population is empty in a corpus that writes no local citations, so this cannot fail a repository that predates it.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -308,7 +308,7 @@
       "id": "local-citation-span-drift",
       "title": "A local citation's span is no longer in the node it names",
       "severity": "error",
-      "rationale": "`agent-conduct.md`: *cite a span, not a node*. A node reference alone rots invisibly, because the node keeps its name while its content is rewritten — and inside one corpus that rewrite is a normal commit, not a dependency bump somebody had to choose. Whitespace is normalized on both sides and nothing else is, so a folded scalar and a re-wrapped quote compare equal while a reworded one does not. The repair is to read the node and decide whether the claim survives; re-quoting the new text to clear the finding is the one response that destroys what the check is for.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -316,7 +316,7 @@
       "id": "local-citation-tag-drift",
       "title": "A local citation declares a standing its own corpus does not hold",
       "severity": "error",
-      "rationale": "A foreign `tag:` is the producer's and `agent-conduct.md` says it does not transfer and cannot be checked — which is why the external family has no equivalent of this and reports a moved pin at Warn instead. A local one has no such excuse: the producer is this corpus, the claim is in the same tree, and a citation resting on `[verified]` over a paragraph this corpus tags `[inference]` asserts something its own corpus denies. The standing is read from the claims that overlap the span, weakest first, which is the direction a derived assertion's tier is computed in. A span no tagged claim covers is reported too: there, nothing licenses the standing that was declared.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -324,7 +324,7 @@
       "id": "local-citation-untagged",
       "title": "A local citation records a span and not what it was worth",
       "severity": "info",
-      "rationale": "The span is there and the claim is anchored, which is most of the value. What is missing is the standing it was read at, and without that a demotion on the far side of the citation moves nothing: the node it rests on can fall from `[verified]` to `[open]` and this citation reads exactly as it did. Info, never gates, never baselined — the remedy is a judgement about the citing node rather than a defect in the corpus, and the same verdict `external-citation-unpinned` reaches about a citation that records what was read and not which state it was read from. The count is the thing to watch.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -332,7 +332,7 @@
       "id": "ask-unresolved",
       "title": "Ask addressed to a corpus this repository does not depend on",
       "severity": "error",
-      "rationale": "An ask's directory is the corpus it is addressed to, and the pin it was read against means something only against a dependency this repository declares. An ask to an undeclared corpus can never come due, so it would sit in the outbox unread — the failure the directory exists to end.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -340,7 +340,7 @@
       "id": "ask-malformed",
       "title": "Ask whose header cannot say what state it is in",
       "severity": "error",
-      "rationale": "An ask records the far-side commit it was read against and where it stands. Without a pin nothing can tell when the far side has moved past it, and with a status outside the four, or an answer with no commit, a reader is back to maintaining its state in prose — which is how drafts went stale before this directory existed.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -348,7 +348,7 @@
       "id": "quotation-unresolved",
       "title": "A quotation names no artifact the catalog records",
       "severity": "error",
-      "rationale": "A property declared `type: quotation` states that its words are in a document this corpus catalogued, and a quotation whose `of:` names no entry, or an entry that records no artifact, names no bytes those words could be in. An entry holding several artifacts is several revisions, and a quotation that does not pin one with `sha256:` would be satisfied by whichever revision happens to hold the words — the retyping from the wrong revision that motivated the type. Error: the population is empty in a corpus that declares no quotation, so no repository that predates it is put in debt.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -356,7 +356,7 @@
       "id": "quotation-span-drift",
       "title": "A quotation's span is not in the artifact it names",
       "severity": "error",
-      "rationale": "The artifact's bytes are in this machine's vault cache, they hash to the digest the catalog records, and the span is not in them. Whitespace is normalized on both sides and nothing else is, so a re-wrapped quotation compares equal and a retyped one does not. A span read from a rendered page is compared with the bytes as stored, markup included. A PDF is compared with the text reading its record names, where a word broken by a line-end hyphen also matches written whole. The repair is to read the document again and copy the words from it; editing the span until the finding clears is the one response that destroys what the check is for.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -364,7 +364,7 @@
       "id": "quotation-unchecked",
       "title": "A quotation whose artifact cannot be read here",
       "severity": "info",
-      "rationale": "A vault stores bytes and git stores the record of them, so a lint run can compare only the bytes this machine has fetched, and only when they are text. On a CI runner every quotation lands here. Reported rather than passed, because a quotation nobody compared and one that held are different facts; Info, because an empty cache is not a defect in the corpus. `yidam vault pull` fetches the bytes, and `yidam catalog-extract` takes the text reading a PDF is compared with.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -372,7 +372,7 @@
       "id": "refusal-span-drift",
       "title": "A declared refusal or non-refusal quotes text its own node no longer holds",
       "severity": "error",
-      "rationale": "`agent-conduct.md`: an outbound claim does not route around a refusal in the block it cites. `derive check` can only hold an argument to that when the refusal is declared, and it finds the paragraph a refusal governs by the `refuses:` span — so a span the prose no longer contains governs nothing, and every argument resting on that paragraph is released from it with no finding anywhere. A `not_refusals:` span is held the same way, because a ruling that quotes nothing silences nothing and the paragraph is proposed again. A ruling is per paragraph, so a span across a blank line, a span found in more than one paragraph, or one paragraph ruled both ways, is reported too (RFC-0057). Error, under the baseline ratchet: the repair is in this corpus and is one edit. Whitespace is normalized and nothing else is, which is `local-citation-span-drift`'s comparison. The population is empty in a corpus that declares neither list, so this cannot fail a repository that predates it.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -380,7 +380,7 @@
       "id": "refusal-undeclared",
       "title": "A paragraph reads like a refusal and no span rules on it",
       "severity": "info",
-      "rationale": "`agent-conduct.md`: a refusal is declared where it is written, or `derive check` cannot hold an argument to it. `derive check` proposes refusals only over paragraphs an artifact cites, so a corpus with no artifacts is never asked. This runs the same proposer, `proposes_refusal`, over every paragraph. Info and never more: the proposer's precision is 0.593 against 62 human rulings, and deciding which paragraphs refuse is a person's ruling. Opt-in through `universal.yml`'s `refusals: propose: true`, because the default cannot be otherwise — across 20 corpora it flags 8,780 of 135,200 paragraphs, and that is a gate arriving in a corpus that never agreed to it (RFC-0057).",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -388,7 +388,7 @@
       "id": "verified-unsourced",
       "title": "A claim asserted at `[verified]` that rests on nothing",
       "severity": "warn",
-      "rationale": "`[verified]` means supported by a committed primary source. A node asserting one while linking to no catalog entry has claimed a standing it cannot demonstrate. This is the one direction the claim vocabulary exists to prevent: over-counting evidence is the flattering error, and a mature corpus measured eight miscounts of which all eight promoted. The catalog checks beside this one verify the catalog's own bookkeeping; this is the only one that asks whether a claim rests on anything. The fix is a citation or a demotion, and which of the two is the author's call — nothing here proposes a promotion, ever.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -406,7 +406,7 @@
       "id": "catalog-expired",
       "title": "A source record older than the corpus said it may be",
       "severity": "warn",
-      "rationale": "A catalog entry records where something came from; until it could also record how long that record may stand, a source fetched a year ago read exactly like one fetched today. Declare `ttl_days:` on the entry — a gauge record and a statute do not age at the same rate — or a corpus-wide default under `[catalog]` in `.yidam/config.toml`. Absent both, nothing expires. This reports rather than gates because an aged record is a thing to look at, and refreshing it is a knowledge event a person owns. It does not claim the source changed: nothing here reads upstream, and `doctor` does no network. It claims nobody has looked. The finding names the nodes resting on the record, because the reader who has to act is the one who wrote them — and naming them here is what keeps the question in one file instead of copied into every node that cites it.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -414,7 +414,7 @@
       "id": "catalog-unobtained-but-cited",
       "title": "Source nobody has fetched, cited anyway",
       "severity": "error",
-      "rationale": "This is the price of the `obtained: false` exemption, which is otherwise the cheapest way to silence `catalog-uncited`. A node drawing on a source the catalog says was never retrieved is one of two things and both are defects: the flag is stale and was not cleared when the source arrived, or the citation rests on something nobody has read.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -422,7 +422,7 @@
       "id": "name-not-a-slug",
       "title": "Name that cannot be put in a URI",
       "severity": "error",
-      "rationale": "A node's id is `<class>/<name>`, and that id is rendered as an MCP resource URI, an LSP `file://` document URI, a web route and an RDF subject. The three that build the string do it three different ways: the MCP surface interpolates raw and matches back with `strip_prefix`, so a space produces a URI no client can round-trip; the LSP escapes a space and nothing else; only the web editor encodes per segment. So a name outside the slug set does not fail loudly, it fails as a resource that cannot be fetched.\n\nMeasured across sixteen corpora and 2,764 instance nodes: fourteen have no finding, and the only non-alphabetic characters those fourteen use are `-` and the digits. Two do have findings — 6 and 16 — and both are the youngest corpora measured, both because their class names came from their domain's vocabulary in its own case: a manufacturing corpus writes `NonConformance`, a water-quality one writes `DischargePoint`. So this is a convention corpora converge on with maturity rather than one they start with.\n\nError anyway, because the finding is true: a name outside this set names a resource no client can fetch, and reporting that quietly would not make it fetchable. What makes it survivable is the baseline — `yidam lint --bless` records the names a corpus already has, and the check still stops the next one. Renaming is what costs, because an edge into a node is written by its name.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -430,7 +430,7 @@
       "id": "reference-not-in-the-grammar",
       "title": "A `references:` entry that is not a reference",
       "severity": "warn",
-      "rationale": "`references:` is where a node names something that is not a node — an issue, a crate, a catalog entry, a decision — and every entry is a reference in RFC-0032's grammar, written as a string. `yidam_core::uri` is the one parser, so an entry it cannot resolve is an entry no surface can: not the MCP resource namespace, not the RDF export, not a rendered citation.\n\nThe finding names which rule the entry missed, because \"not a reference\" is not actionable and the three causes have three different fixes: a segment count that does not match the kind, a segment that cannot survive being put in a URI, or a fragment that does not name what its kind's fragment names.\n\nWarn rather than Error because the field is new and nothing writes it yet: 496 references across five corpora are still inside evidence-tag brackets, which is the population `yidam migrate references` moves. A finding here is a typo in a file somebody is already editing, and the baseline is what keeps it from going quiet.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -438,7 +438,7 @@
       "id": "missing-label",
       "title": "Instance with no human-readable label",
       "severity": "warn",
-      "rationale": "The label is what every index, export, and graph rendering shows. Without it a reader gets a filename, which is an identifier chosen for stability rather than for saying what the thing is.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -446,7 +446,7 @@
       "id": "missing-description",
       "title": "Instance with no description",
       "severity": "warn",
-      "rationale": "The prose is the node's content. An instance with properties and links but nothing said about it records that something exists without recording what is known about it. What counts as prose is what the ontology declares — a node carrying a `summary` and no `description` has said something, and reporting it here would report the corpus using a vocabulary it declared.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -454,7 +454,7 @@
       "id": "claim-tag-malformed",
       "title": "Evidence tag that counts as nothing",
       "severity": "warn",
-      "rationale": "The three tokens are matched exactly, which is what keeps `[open questions](…)` from reading as an open claim. The cost is that a tag with its citation folded inside the brackets matches nothing and is silently counted as untagged — a node that looks tagged to a reader and reads as bare assertion to every counter. This reports the near miss rather than guessing at it. Brackets are matched by depth over the block rather than to the first `]` on the line, because a citation that is itself a link both nests a `]` and wraps: measured on one derived corpus, the line scan found 234 of 445 such tags and none of the 179 that wrapped. The block is the bound, so an unbalanced `[` in quoted source costs one bracket rather than every tag below it.\n\nScope: every instance file and every class file, read as bytes — so a tag in a class's `description`, in a `properties[]` or `edges[]` entry, or in its `analytic_note` is reported the same way one in a node is. Measured over 17 corpora, all four carry tags. Reading a class's parsed fields instead would miss two of the four outright, because the property and edge structs declare no `description` at all. `universal.yml` is not read: it is a property list, not an argument.\n\nOne check, two pieces of advice. A detail naming a source is told to put the citation beside the tag. A detail that *narrows* the claim is not, because moving `as proposed` out of the brackets leaves a bare `[verified]` asserting more than the sentence does — the advice would make the corpus less accurate and the counter more confident. Measured over thirteen derived corpora, ~89% of details name a source, so the citation advice is the default and a detail diverts only on an unambiguous narrowing tell: a second standing, or a narrowing head as its first word. That tell also admits a space-introduced detail the separator list cannot see, which is where 59 of the 105 narrowing details in the population were sitting.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -462,7 +462,7 @@
       "id": "catalog-used-by-declared",
       "title": "Catalog entry storing what cites it",
       "severity": "warn",
-      "rationale": "The citations are the record of what draws on an entry, and `yidam catalog-audit` reports them as `cited_by`. A `used-by:` list stored beside them can only drift from them, and keeping it current cost a commit per entry per new citation. An entry does not list what cites it.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -470,7 +470,7 @@
       "id": "catalog-location-malformed",
       "title": "Catalog location missing or mistyped",
       "severity": "warn",
-      "rationale": "A `location` is a list of typed places. The type decides whether a reader is offered a link, so a value whose shape contradicts its type renders wrongly; and where an entry has several locations, the description is the only thing distinguishing them. An `identifier` names a source by what it is rather than where it is, as `scheme:local-id` — `doi:10.1167/tvst.8.5.14` — and one kind serves every scheme so that the set of kinds stays closed. Once the repository enables a source pack, the scheme must be one an enabled pack declares and the local id must match its pattern, since that pack is what resolves it; a repository that enables none is held to the shape alone. A file inside a fetched zip is named under `members:` beside the value, never in it, and each must be a path that stays inside the archive. A `url` carrying a `#` fragment is reported: the fragment is never sent, so the fetch takes the whole file while the entry reads as holding the part.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -478,7 +478,7 @@
       "id": "catalog-pin-unresolved",
       "title": "Pinned read names a commit, repository or path that is not there",
       "severity": "error",
-      "rationale": "A `file` location with a `commit` is a read of that file at that commit, in the repository `repo` names, or in this repository when `repo` is absent. A commit the repository does not have, a `repo` that `.yidam/tonpa.toml` does not declare, or a path that does not exist at the commit is a read of nothing, and every claim resting on it rests on nothing. The pin's fields belong to a `file` location only, `repo` and `symbol` need a `commit`, and the path is read from the repository's top level, so it cannot be absolute or climb out with `..`.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -486,7 +486,7 @@
       "id": "catalog-pin-ambiguous",
       "title": "Pinned commit is an abbreviation that matches more than one commit",
       "severity": "error",
-      "rationale": "An abbreviated commit names a read only while its prefix is unique. Once two commits share it, the pin names neither, and which one a reader lands on depends on the clone. Write the commit in full.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -494,7 +494,7 @@
       "id": "catalog-pin-abbreviated",
       "title": "Pinned commit is abbreviated",
       "severity": "info",
-      "rationale": "A prefix unique today can stop being unique as history grows, and the pin then names nothing. An abbreviation of at least 7 digits still resolves; the finding gives the full 40-digit commit to write in its place.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -502,7 +502,7 @@
       "id": "catalog-pin-symbol-missing",
       "title": "Pinned symbol does not occur in the file at the commit",
       "severity": "warn",
-      "rationale": "`symbol` says which part of the file was read. Its last segment, split on `::` and `.`, should occur as a whole word in the file at `commit`; when it does not, the symbol was renamed before the read, misspelled, or belongs to another file. The check is a presence check and needs no parser.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -510,7 +510,7 @@
       "id": "catalog-pin-unchecked",
       "title": "Pinned read cannot be checked in this clone",
       "severity": "info",
-      "rationale": "A shallow clone that cannot see a commit has not shown that the commit is missing, and a `url` or `github` dependency has no checkout here to look in. These pins are reported apart from the error, so a CI checkout with shallow history does not fail on reads that a full clone would resolve.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -518,7 +518,7 @@
       "id": "table-declaration-invalid",
       "title": "A dataset entry's `columns:` declares a table it can be held to",
       "severity": "error",
-      "rationale": "An entry that carries `columns:` either declares a table or is reported. A declaration with a refused column type, a duplicate column, a key naming no column, or a file that is not one tracked `.tsv` or `.csv` cannot be checked against, so it is reported here and its file is not read against it (RFC-0059 §2.2).",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -526,7 +526,7 @@
       "id": "table-shape",
       "title": "A declared table holds the rows its declaration describes",
       "severity": "error",
-      "rationale": "A table its declaration does not describe is read by a calculator as if it did. The header, each row's width, each required cell, each cell's type, each closed value and each key are held to the declaration, by the reader `yidam run` and the `#row=` citation share. One file reports twenty findings, then a count (RFC-0059 §2.2).",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -534,7 +534,7 @@
       "id": "table-ref-unresolved",
       "title": "A table's `ref` cell names a node the corpus holds",
       "severity": "warn",
-      "rationale": "A `ref` cell names a node in RFC-0032's reference grammar. A warning and not an error, because an extract may run ahead of the corpus and the cell is still a fact about the source (RFC-0059 §2.2).",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -542,7 +542,7 @@
       "id": "prose-commit-unpinned",
       "title": "Prose names a commit that is not in this repository",
       "severity": "warn",
-      "rationale": "\"At <commit>\" in a node or catalog entry dates a read, and a reader can follow it only in the repository that has the commit. A commit in this repository is unambiguous and left alone. One that is not, usually a sibling's, reads as a dead reference here; the finding names the `path` dependency it resolves in, so the read can move into a catalog location pinned with `commit` and `repo`. Only `.yidam/` is read: `docs/` is the project's own prose.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -550,7 +550,7 @@
       "id": "catalog-type-unknown",
       "title": "Catalog type outside the closed set",
       "severity": "warn",
-      "rationale": "A catalog `type` says what form a source takes, and the set is closed so that a reader and the schema agree on what each word means. A word outside it is reported rather than mapped: `primary` says what standing a source has, and a primary source can be a statute, a dataset or a report, so only someone who read it can choose.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -558,7 +558,7 @@
       "id": "catalog-artifact-malformed",
       "title": "Obtained-artifact record is missing or mistyped",
       "severity": "error",
-      "rationale": "An artifact record is what makes `obtained: true` demonstrable rather than asserted — the digest names the bytes the entry claims to have. A record without a well-formed digest names nothing, so it is a claim of retrieval with no more standing than the flag it was added to support. Error, because the failure is in the record itself and is settled entirely by files in this repository.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -566,7 +566,7 @@
       "id": "catalog-artifact-unroutable",
       "title": "Artifact routed to a vault nothing declares",
       "severity": "error",
-      "rationale": "A record naming a vault that `.yidam/config.toml` does not declare is a route to nowhere: nothing will ever store or fetch those bytes, and the entry reads as though something will. Both sides are committed, so this check answers identically in every clone — it reports a defect in the corpus, never a fact about your credentials. `vault: none` is a route and means the local cache and nowhere else.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -574,7 +574,7 @@
       "id": "malformed-table",
       "title": "Markdown table whose rows disagree on width",
       "severity": "warn",
-      "rationale": "A ragged table does not render as a table. Every reader of that file sees a paragraph of pipes instead of the thing the author was trying to show, and the author usually never looks at the rendered output again.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -582,7 +582,7 @@
       "id": "malformed-regen-block",
       "title": "REGEN block whose extent is not what it looks like",
       "severity": "warn",
-      "rationale": "A REGEN block is three markers: the open tag, the `-->` that ends it, and `<!-- /REGEN -->`. `yidam regen` finds all three or writes nothing at all, without saying so — the section goes stale and looks like a generator that stopped running. Where the missing tag is a close tag, the block also swallows whatever is below it, so the *next* section stops updating for the same invisible reason.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -590,7 +590,7 @@
       "id": "orphan-in",
       "title": "Node nothing points to",
       "severity": "info",
-      "rationale": "Instances of a class the ontology declares no inbound edge for — from either end of the edge — are exempt: nothing is meant to point at them, so an orphan there is the model working. What remains is a class whose *other* instances are cited and this one is not, which is the asymmetry worth reading. Still reported rather than gated: a node authored this morning legitimately has no inbound edges yet.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": true,
       "violations": [
         {
@@ -610,7 +610,7 @@
       "id": "only-instance-of",
       "title": "Node linked only to its class",
       "severity": "warn",
-      "rationale": "A node whose only link is to its own class records that something exists without relating it to anything — a stub, or what a bulk import left behind. Instances of a class the ontology names only as a target are exempt: a leaf there is the model working. What remains is a class that declares relationships its instances author, and a node carrying none of them.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -618,7 +618,7 @@
       "id": "catalog-uncited",
       "title": "Registered source nothing draws from",
       "severity": "info",
-      "rationale": "A catalog entry describes a source, not knowledge, so an uncited one is not an error. It is either a source registered ahead of the extraction that will use it, or a claim resting on evidence that never became a node. The two look identical from here and are worth telling apart — which is what `obtained: false` declares. Entries that have said they are the former are not reported.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -626,7 +626,7 @@
       "id": "decision-uncited",
       "title": "Decision record nothing refers to",
       "severity": "info",
-      "rationale": "A decision record says why the corpus is shaped as it is. One that no file, edge or later record refers to cannot be reached by a reader of the corpus: it is found only by listing the directory. It may be a record of the tooling rather than of the knowledge, which is fine, or a decision whose consequence was never written where it applies. Name it, as `decisions/<stem>`, from the node, page or code it shaped. A REGEN block a generator wrote does not count.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -634,7 +634,7 @@
       "id": "source-unregistered",
       "title": "URL in prose no catalog entry registers",
       "severity": "info",
-      "rationale": "The catalog is where a corpus says what it read. A URL cited in a node or a catalog entry's body that no `location:` covers is a source the catalog does not know about: nothing records when it was retrieved, and `catalog-expired` cannot age it. A location covers a URL on the same host at its own path or beneath it; scheme, `www.`, query and fragment are ignored. Info, because some URLs are a subject of study rather than a source, and only a person can tell which. A corpus that declares no URL location is not read.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -642,7 +642,7 @@
       "id": "class-asserts-purpose",
       "title": "Class definition asserts a purpose rather than describing a kind",
       "severity": "warn",
-      "rationale": "A claim tag attaches to a claim somebody makes on a node. A class definition is read differently — it is the meaning every instance takes on by being filed under the class, asserted identically and untagged for each. So a class whose description states a reason ('deployed to obtain an outcome the ordinary path would not yield') states it where no tag attributes it, and the checks that run on tags read past it. The case this was written from survived five resolutions and three arguments about its instances. Rewrite the description to say what an instance IS — the observable shape, the admission conditions — and move any characterization of why to a field that attributes it, or to `analytic_note`, which this check does not read.\n\nThat last clause is a rule about what THIS check reads, not a claim about what corpora contain. Class prose does carry evidence tags — measured over 17 corpora, 3 classes in 3 of them do — and #603 was filed because that fact was inferable only by porting the matcher downstream. Two other checks read what this one does not: `claim-tag-malformed` scans every field of the class file, `analytic_note` included, and `class-claim-uncounted` reports the tags there at `Info`. Neither contradicts the escape hatch above. The first reports a tag that is MALFORMED, so a well-formed tag in `analytic_note` stays exactly as fine as this sentence offers; the second reports a count and gates on nothing.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -650,7 +650,7 @@
       "id": "class-claim-uncounted",
       "title": "Evidence tag asserted in class prose, which no counter reads",
       "severity": "info",
-      "rationale": "A claim is \"a statement in a node\" — CONSTITUTION.md, Article V — and the counters hold to that. A class file may still write one, because a class is where a corpus argues for its own shape and that argument is evidenced like any other. This reports the gap rather than closing it, and the reason it is not closed is measured: taking the counter's own rule to class files finds 6 tags across 2 of the 4 corpora this repository ships, and every one of the six is a class explaining its own vocabulary — \"`[verified]` means somebody confirmed the change shipped and held\". They survive the narration rule because it is past-tense-only and the word after every one of them is \"means\". Telling those six from a real assertion is a judgement about wording, which is the same reason Article V gives for refusing to delegate claim identity to a checker at all. So the count is shown and not spent, and only what is asserted outside backticks is shown at all. If a corpus finds real claims here, the fix is to move them into a node — where they are counted, cited, and reachable by every other check.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -658,7 +658,7 @@
       "id": "claim-property-undeclared",
       "title": "Property spelling a standing that its class did not declare `type: claim`",
       "severity": "info",
-      "rationale": "A claim in a node's field is counted when the class declares that field `type: claim`, and is read by nothing when it does not — not by `status`, not by `open-questions`, not by the `due` questions clock, not by the MCP `claims` resource. The corpus wrote the standing; the declaration is what makes it reachable. This reports bare spellings only: a bracketed `[open]` is already counted wherever it sits, because the prose scan reads the file's bytes, and every bracketed value measured in an undeclared field is a placeholder for a value the corpus does not have yet rather than a claim. It is Info because the right repair is not always the declaration: a `status` holding `open`, `narrowing` and `answered` is a lifecycle and not an evidence standing, and declaring that one `type: claim` would make the corpus assert something it did not. The finding names both fixes and imposes neither.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -666,7 +666,7 @@
       "id": "foundational-field-misspelled",
       "title": "Class declares foundational alignment in a field nothing reads",
       "severity": "error",
-      "rationale": "Foundational alignment is `foundational_type:`, carrying `ontology: bfo|ufo`, a `type:`, and optionally the `iri:` that type has in that ontology. `bfo_type:` and `ufo_type:` were never read by anything — they are what bootstrap's prose asked for while its own template asked for `foundational_type:`. `bfo_anchor:` was read by `export-rdf` and written by nothing, and was BFO-only besides, so a UFO-aligned corpus could not use it. A class carrying one of these has stated an alignment that no gate, query, or export can see, which is worse than stating none: the corpus believes it is aligned. RFC-0013 is the record.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -674,7 +674,7 @@
       "id": "foundational-type-malformed",
       "title": "Class declares a foundational alignment that cannot be resolved",
       "severity": "error",
-      "rationale": "`foundational_type:` carries `ontology: bfo` or `ontology: ufo`, a non-empty `type:`, and optionally an `iri:` beginning `http://` or `https://`. An alignment outside that shape reaches RDF as a literal no consumer can follow, which leaves the corpus asserting an alignment nothing can check — the state #613 found across four field names. The `type:` itself is not checked against BFO or UFO: their term sets are theirs to revise, and a copy of them in this binary would start refusing terms a corpus is right to use.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -682,7 +682,7 @@
       "id": "resolution-annotation-malformed",
       "title": "Resolution annotation is malformed or in the wrong section",
       "severity": "error",
-      "rationale": "Both halves are structural rather than a judgement about wording, which is why this gates where its sibling does not. An annotation with no date cannot be read against the record it extends — the whole point is that the record speaks for its own date and the annotation for a later one. An annotation under `What was resolved` or `What changed` edits history instead of extending it, and those sections are the ones a reader trusts to describe a settled past.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -690,7 +690,7 @@
       "id": "resolution-annotation-decides",
       "title": "Resolution annotation announces an outcome",
       "severity": "warn",
-      "rationale": "An annotation may say a question was proposed, retrieved, measured or superseded in fact; it may not say it was settled. Closing an open item is synthesis, and Article V puts synthesis in resolution events — so an annotation that decides something is a resolution performed by one elector, in one commit, in a file the protocol never routes through a resolution. Warn rather than Error because this is a heuristic over wording: it cannot see an outcome announced in words that are not on the list, and gating on it would make every false positive a blocked commit and the check would be switched off within a week.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -698,7 +698,7 @@
       "id": "resolution-elector-unregistered",
       "title": "Resolution names a ma/* branch no elector row registers",
       "severity": "error",
-      "rationale": "A resolution's authority rests on the seats it names, so a name the registry does not carry is the one part of the record that cannot be read charitably — either the seat was never registered, or it was removed and the records resting on it were left behind. This gates where its sibling warns because it is set membership between two committed files rather than a judgement about a missing field: there is no state of the world in which the answer is arguable.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -716,7 +716,7 @@
       "id": "resolution-executor-unrecorded",
       "title": "Resolution record does not name the seat that executed it",
       "severity": "warn",
-      "rationale": "Article II governs weight and Article III governs record, and they answer different questions. Naming the executor grants it nothing — no standing, no tiebreak, no priority in any later resolution — which is why recording it costs the article nothing. What it buys is that the most consequential actor in the event stops being the one actor the provenance omits. The record already names the tips that were read; the reader was the gap.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -731,7 +731,7 @@
       "id": "resolution-deliberation-unrecorded",
       "title": "Resolution record does not name its rounds or the positions it read",
       "severity": "warn",
-      "rationale": "Article III asks for ancestry, and ancestry is not only which commits were read: it is which claims were contested and by whom. `positions:` names them and `rounds:` says whether the electors read each other before the synthesis. A record carrying both can be audited by someone who was not there; one without them can only be believed. `rounds: 1` is a complete loop, so the fields cost nothing to write. A record older than the fields warns, because nobody can recover a round count mechanically. A record added after the repository's own PROTOCOL.md asked for them gates, because there the omission was a choice.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -746,7 +746,7 @@
       "id": "resolution-independence-mismatch",
       "title": "Resolution's stated independence is not the one its seats derive",
       "severity": "info",
-      "rationale": "`independence:` states what `electors.md` distinguishes among the seats a resolution read, and it is derivable rather than judged: the record names its tips, each tip names a seat, and the registry carries `Kind`, `Model`, `Version` and `Config`. That makes a stated value that disagrees with the registry the one part of the record which is checkable and was, until this check, invisible. It reports rather than gates because every record written before the field existed carries no value at all, so a gate would be red on the whole corpus the day it armed — and it carries the derived answer rather than only the complaint, so the finding is also the repair. The registry is read at each seat's own tip, never at HEAD: a seat's row is mutable and a model upgrade is material, so reading HEAD would turn somebody else's upgrade into a finding against a record that was correct when it was written.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -764,7 +764,7 @@
       "id": "elector-receipt-disagrees",
       "title": "Elector receipt disagrees with the seat's registry row",
       "severity": "warn",
-      "rationale": "`yidam dispatch` records the model, version and configuration digest an elector ran under in a receipt beside the position, and `electors.md` records the same three about the seat. The registry is what a resolution's `independence:` is derived from; the receipt only corroborates it. A receipt that disagrees with the row at the same tip — or records a value the row leaves blank — means the derivation is describing an occupant that is not the one that answered, and nothing else would say so. Both files are read at the same tip, so a model bump between two revisions is never reported as a disagreement. Warn rather than a gate: the repair is a registry update or a new dispatch, and either is a person's call.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -772,7 +772,7 @@
       "id": "elector-signature-unverified",
       "title": "Elector branch tip does not verify against the key its row binds",
       "severity": "error",
-      "rationale": "RFC-0012, amended: a signature buys integrity and third-party verification, and it is worth having for those and claimed for nothing more — under one operator it does not distinguish seats from one another, and `electors.md` says so. This gates rather than warns because the repository decided it: the check is vacuous until a row binds a key, and binding one is a declaration that this seat's commits verify against it. The allowed-signers file is generated from the registry at verification time and never committed, so the trust anchor cannot drift from the record, and a key the registry does not carry verifies nothing.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -780,7 +780,7 @@
       "id": "domain-article-violated",
       "title": "The corpus breaks a domain article this repository was born with",
       "severity": "error",
-      "rationale": "A domain article is part of this repository's constitution, committed at genesis and permanent. Its rule is evaluated as the genesis commit holds it, so each finding here is a refusal the article made before any of today's work existed. The repair is to the corpus, never to the rule.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -788,7 +788,7 @@
       "id": "domain-article-edited",
       "title": "A file under .yidam/constitution/ differs from the genesis commit",
       "severity": "error",
-      "rationale": "A domain article binds permanently, so an edit to it is detected rather than obeyed: lint keeps evaluating the genesis text. Leaving the edit in place makes the file on disk say something the repository does not enforce. Restoring the genesis text is always possible, so this gates.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -796,7 +796,7 @@
       "id": "domain-article-unproven",
       "title": "A domain article's rule has no passing test beside it",
       "severity": "warn",
-      "rationale": "A rule with no case beside it may refuse nothing its article says, and nothing would show it. This warns rather than gates: the rule and its test are sealed at genesis, so no commit this repository can make would repair them.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -804,7 +804,7 @@
       "id": "domain-article-unverifiable",
       "title": "Domain articles are present and the genesis commit cannot be read",
       "severity": "warn",
-      "rationale": "The genesis commit is what seals a domain article. Without it, evaluating the working tree's rule would obey whatever it says now, so nothing is evaluated and this says so. Fetch the full history to check them.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -812,7 +812,7 @@
       "id": "resolution-scope-unheld",
       "title": "Resolution seats a node or edge no elector held",
       "severity": "error",
-      "rationale": "Article V confines a resolution to what the electors brought to it: it may not introduce nodes, edges or claims that were not held by at least one of them. A node and an edge carry an identity — a node id, and a subject, verb and object — so this is set membership across the tips the record itself names, and there is no state of the world in which the answer is arguable. That is why it gates where the claim clause cannot: a claim has no identity to compare, and the constitution leaves that judgement with the synthesizer rather than delegating it to a checker. The rule this most often catches is the one the commentary states: a class is not its instances, so a resolution that seats the first instances of a class alongside the class it adopts is introducing nodes no elector held.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -820,7 +820,7 @@
       "id": "resolution-scope-unverifiable",
       "title": "Resolution's scope fidelity could not be decided here",
       "severity": "warn",
-      "rationale": "Whether Article V's node and edge clauses can be decided depends on what the clone holds. A `ma/*` tip need not be an ancestor of the baseline — transport copies a file and `adopt` merges the rigpa into the elector's branch, not the reverse — so 15 of the 70 tips measured are reachable only through the `ma/*` branches themselves, which a single-branch checkout does not fetch; and a depth-1 checkout cannot see what a resolution's own commit changed. That makes this a Warn: the record may be sound and the clone merely thin. What it must not do is pass silently. A gate that judges nothing while reporting nothing is indistinguishable from a gate that found nothing wrong, and this check is the difference.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -841,7 +841,7 @@
       "id": "elector-baseline-unmet",
       "title": "Elector branch declares a baseline it does not stand on",
       "severity": "error",
-      "rationale": "A declared baseline is a claim — *this position is measured against that evolution* — and a claim about the branch's own history is one the branch either satisfies or does not. There is no state of the world in which an elector is measured against a settlement their branch has never seen, so this gates. What it deliberately does not gate on is a baseline that is merely *old*: divergence from the baseline is what an elector's branch is for, and Article VI says so in as many words, so a position several resolutions behind is a position doing its job.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -849,7 +849,7 @@
       "id": "elector-baseline-undeclared",
       "title": "Elector branch does not say which evolution it is measured against",
       "severity": "info",
-      "rationale": "Info, and it carries the answer rather than only the complaint: every branch is undeclared until somebody starts writing the trailer, so a finding that merely said *missing* would be one line of noise per elector forever. What the branch holds through is derivable from the settlements, so this reports it — which is both the useful half today and, exactly, the thing to write down. It is deliberately not the same fact: holding a settlement is what a `merge main` brings you, and being measured against one is a choice. An elector who has absorbed a resolution they abstained from holds it and may well not mean to stand on it.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -864,7 +864,7 @@
       "id": "elector-holds-unadopted",
       "title": "Elector branch holds a resolution it took no part in and has not adopted",
       "severity": "info",
-      "rationale": "A resolution binds the electors whose tips it read. Everyone else may read it, cite it,          adopt it or build on it, and until they declare it as their baseline it is not what          their position is measured against — Article VI, which says the sangha exercises the          minimum authority needed and that divergence is not a violation. Merging `main` cannot          be what binds: it is how the corpus stays shared, and the protocol requires it mid-loop.          So this reports the gap between what a branch has absorbed and what it says it stands          on, at Info, because the gap is a legitimate state rather than a defect. What it is not          is invisible, which is what it was: nine of nine abstainers were bound in practice with          nothing recording it.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -872,7 +872,7 @@
       "id": "elector-commitments-absent",
       "title": "Elector branch carries no commitments file",
       "severity": "info",
-      "rationale": "A seat that has argued something is standing on it, and between two acts of the same seat nothing in this repository said what. Info rather than Error because adopting the file is a decision a sangha makes once and an unadopted convention is not a defect — a corpus mid-adoption would otherwise be told its every seat is in violation. It fires only for a seat that has actually filed a position: a branch opened this morning has nothing to index yet, and reporting it would train people to ignore the check before it ever had a subject.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": [
         {
@@ -887,7 +887,7 @@
       "id": "elector-commitments-malformed",
       "title": "Commitments file does not carry both required sections",
       "severity": "error",
-      "rationale": "This gates because otherwise the file disarms the rest. A commitments file with no headings parses to two empty sections, empty sections lose nothing, and every vanished ground would read as clean — a seat could turn `elector-commitment-vanished` off by writing a worse file. The two headings are the whole of the required shape, and nothing below them is prescribed: order, grouping, and how much of the argument is restated are the elector's, because an index of positions is structural where a position is argument.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -895,7 +895,7 @@
       "id": "elector-position-unindexed",
       "title": "A seat's own position appears in neither section of its commitments",
       "severity": "info",
-      "rationale": "The earliest visible symptom of a seat losing its thread, and the cheapest to answer: either the position argued a ground the seat still holds, or it argued one the seat has since retired, and saying which is one line. Info because a third answer is legitimate and common — the position argued something about procedure, or about another seat, and is no ground of this seat's at all. A check that cannot tell those apart must not gate, and this one cannot: which of a seat's positions carry commitments is exactly the judgement Article V's commentary leaves with the elector.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -903,7 +903,7 @@
       "id": "elector-commitment-vanished",
       "title": "A ground left a seat's commitments without being withdrawn",
       "severity": "error",
-      "rationale": "Article III forbids a resolution silently discarding a tension it could not resolve. This is the same rule read across one elector instead of across several: a ground may be held, and it may be withdrawn — which is the interesting case and the one the loop was built to produce — and it may not stop existing. Reversing a commitment is not the violation and is never reported; leaving no trace of the reversal is. Deleting the file is reported here rather than as the file going absent, because a deletion that takes held grounds with it is precisely the silent discard, and routing it to the Info check would make removing the file the cheapest way past the Error one.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -911,7 +911,7 @@
       "id": "broken-prose-link",
       "title": "A markdown link in prose does not resolve",
       "severity": "error",
-      "rationale": "A link resolves against the directory of the file it sits in — that is what a reader's client does — so a path spelled from the repository root is broken in every file that is not at the root. Error severity, which puts it under the baseline ratchet: a link listed there and since repaired fails the build exactly as a new break does, because a list permitted to be wrong drifts and one that over-lists silently re-permits whatever it over-lists. Fenced and inline code are not read, so an example path in a shell command is not a finding.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -919,7 +919,7 @@
       "id": "broken-object-link",
       "title": "A link from the artifact into the corpus does not resolve",
       "severity": "warn",
-      "rationale": "The artifact that `[object] paths` declares cites its corpus the way the corpus cites it: with a relative markdown link. Links from the corpus into the artifact are in prose `broken-prose-link` already walks. The other direction was read by nothing: deleting a node that a crate's README linked to produced twenty findings in a derived corpus, and none of them named the README. Read over the tracked `.md`, `.rs` and `.ts` files the object globs claim, which is where those links sit across the derived corpora. Bare paths in code are not read, because a path string in code is as often a file the code writes as one it cites. Warn and not Error: the finding lands on a file the corpus gate has never judged, and the first run over a repository should report what it finds, not refuse it. A `#L` range on one of these links is held by the line-citation checks. Not read for a corpus whose kuten declares it `projected`, because that corpus is regenerated from the artifact.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -927,7 +927,7 @@
       "id": "dead-line-citation",
       "title": "A citation names lines that are not there",
       "severity": "error",
-      "rationale": "A `#L` fragment names a line range in a file this repository owns, and unlike a heading anchor it is decidable: the range either exists and holds text or it does not. The founding instance cited a blank line — the passage had moved and the number kept pointing at where it used to be. Error severity, under the baseline ratchet like every other citation defect a person here can fix.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -935,7 +935,7 @@
       "id": "slid-line-citation",
       "title": "The quoted passage is not in the cited lines",
       "severity": "error",
-      "rationale": "An edit above a cited range moves the range off its passage without breaking anything a file-level check can see: the citation still resolves, the lines still hold text, and the text is now something else. Twelve citations rotted that way at once, silently, and two came to point at words written long after the arguments that cite them. Where the document quotes the passage it cites — the house style — the quote decides. That includes the two forms where the passage is introduced and then *shown*: a fenced block whose tag names the cited file's language, and a blockquote. The paragraph ends at the blank line before either, so for as long as this read only inline quotes, the most explicit ways of writing a quote down were the forms nothing checked — three citations rotted inside the fence (#758) and two inside the blockquote, one of them by 255 lines (#899). A `text` fence is a rendering rather than a transcription and is still not read — a format string's `{}` has become a value, and holding the file to the words it printed would report a drift no repair can clear. A blockquote has no tag to say so, and needs none: the house sets a rendering in a fence, and an aside is separated from the citation above it by a full stop rather than the introducing colon this requires. Matched on words, in order, elisions honoured, so wrapping, emphasis and comment markers cannot manufacture a drift. Where the passage is still in the file and in exactly one place, the finding names the range it moved to: the same matching that found the drift decides it, and re-deriving that by hand was the whole recurring cost. That range is where the quoted words are and nothing wider, so a citation that deliberately spanned more than it quoted is widened back out by hand.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -943,7 +943,7 @@
       "id": "citation-label-not-cited",
       "title": "A citation's label names something its lines do not say",
       "severity": "error",
-      "rationale": "The strong anchor is a quote, and 176 of this repository's 229 line citations carry none. Each of those was checked for existence and nothing else, which leaves the whole of the interesting failure uncovered: a range that slides onto lines that are neither blank nor quoted is invisible to `dead-line-citation` and `slid-line-citation` at once. Seven citations had already rotted through that gap when a person found them by hand while looking at something else (#627), and six of the seven were labelled with the very check they cited. The label is the anchor they were carrying all along: the house writes a citation of code with its symbol in the label and its coordinate in the fragment, so the label is a claim about the target's content that a check can decide. Read only where nothing quotes the passage — a quote is better evidence and decides alone — and only where the label names a symbol rather than restating the line number, which is the other house form and 109 of the 176. Matched on words exactly as a quote is, so wrapping, emphasis and an argument list cannot manufacture a drift, and any one `::` segment is enough. Error, under the baseline ratchet like every other citation defect a person here can fix: this is a latch on a population that is already correct, not a backlog.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -951,7 +951,7 @@
       "id": "unverified-line-citation",
       "title": "A line citation with nothing to hold it to",
       "severity": "info",
-      "rationale": "A citation with neither anchor can only be checked for existence, and a range that slid onto the wrong lines still exists. Info is not the whole answer to that and was never meant to be — seven citations rotted through this exact gap and nothing found them (#632). What closes the part of it that the document can close is `citation-label-not-cited`, which reads the symbol a code citation labels as the anchor a quote would have been. What is left here is the residue: a citation whose label restates the line number and whose prose says nothing about the passage. There, the document holds no claim about the target at all, and only a recorded digest of the cited lines could tell a slide from an edit — an artifact with a staleness question of its own, weighed against this and declined (#632). So the severity stays Info, because the remedy — quote the passage, label the symbol, widen to a stable range, or drop the fragment — is a judgement about the document and not a defect in the corpus. Never gates, never baselined. The count is the thing to watch: it is how much of the citation surface is taken on trust — and this repository does watch it, holding the population to a committed list a person has to edit down, because a population nobody counts is one that grows (#899).",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -959,7 +959,7 @@
       "id": "citation-range-stated-twice",
       "title": "A citation's label and its link name different lines",
       "severity": "error",
-      "rationale": "The house style states the cited range twice — `[`file.rs:12-19`](../file.rs#L12-L19)` — and 158 of the 229 line citations in this repository write both copies. Until #622 nothing read the left-hand one, so the two could disagree indefinitely: the scan sees the fragment, and the label is what a reader's eye lands on. The failure this forecloses is half a repair. A citation that slid is fixed by editing a number, and editing the one number that resolves leaves the other one lying. No citation disagreed on the day this landed, which is the point — it is a latch on a population that is already correct, not a backlog. A label that names no range is the other house form and not a finding: most citations of code label a symbol.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -967,7 +967,7 @@
       "id": "unauthored-prose-link",
       "title": "A broken prose link in material this repository did not author",
       "severity": "info",
-      "rationale": "Error severity is the right verdict for a link somebody here can go and fix. It is the wrong one for generated output, whose defect belongs to the generator and whose file is rewritten by the next build, and for an unmodified import, where editing the file to satisfy a linter falsifies the record it exists to keep. A consumer that met 43 broken links under `docs/` could act on 28: fifteen were inside a directory whose own README says it is a frozen copy of an upstream project at a fork point. It baselined them, which records `we accept this violation` when the truth is `this file is not ours` — and a baselined entry that is later repaired fails the build, so the gate came to depend on nobody ever re-syncing the import. Declared in `.yidam/authorship.yml`. Reported rather than silenced, with the reason and whoever can act on it, because these are real defects addressed to somebody else. Info severity: never gates, never baselined.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -975,7 +975,7 @@
       "id": "authorship-region-stale",
       "title": "A declared authorship region matches nothing on disk",
       "severity": "warn",
-      "rationale": "A manifest permitted to be wrong drifts, exactly as a lint baseline does, and the entry that outlives the directory it describes is the one that quietly excuses a path somebody later creates under the same name. `generated` regions are exempt: they are written by a build and are frequently git-ignored, so absence on a fresh clone carries no information. Warn rather than Error, unlike the baseline's own staleness rule, and for the reason this check exists — an imported region is re-synced by somebody upstream on their schedule, and gating on it would make the build's colour depend on that.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -983,7 +983,7 @@
       "id": "policy-override",
       "title": "A disclosure decision is this repository's own rule",
       "severity": "info",
-      "rationale": "A policy in `.yidam/policy/` supersedes the default `yidam` carries, and may permit what the default refused — that is the authoritative model RFC-0024 settled on, and a repository is entitled to use it. This check does not object to that. It exists so that the choice cannot be made quietly: a guard loosened in a file nobody reads is the shape `.yidam/private-paths` was built to end, where access control looked enforced and was not. Record why in `.yidam/decisions/`, and use `yidam policy test` to see exactly which inherited expectations your rule changed.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -991,7 +991,7 @@
       "id": "skill-status-unstated",
       "title": "A domain skill that does not say whether it is built",
       "severity": "info",
-      "rationale": "A skill's frontmatter says `status: built` when an agent can follow it and `status: stub` when it only names a procedure nobody has written. `yidam skills-index` counts the three answers so the registry does not read as more capability than it holds, and it counts a skill that says neither as `unstated` — never as built, because reading silence as capability is the flattering direction. Info, not a gate: an unstated skill is not wrong, only unreported, and every skill written before the field existed is one. A value that is neither word is reported here too, since the index can only print it back.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     },
@@ -999,7 +999,7 @@
       "id": "calculator-script",
       "title": "a declared calculator reads, and invokes no macro",
       "severity": "error",
-      "rationale": "RFC-0042's arm is pure because its prelude is closed, and a macro is how a script reopens it: `import!` reaches any module on disk and `io.println` is one call away. Both halves of this check are decidable from the text, so the binary `install.sh` downloads refuses exactly what a binary built with the engine refuses — a gate whose verdict depended on which build the reader was holding would be the divergence the RFC warns about, arriving through the gate instead of through the vocabulary.",
+      "rationale": "<RATIONALE>",
       "escalation_eligible": false,
       "violations": []
     }

@@ -1753,8 +1753,8 @@ decision := {"allow": true, "deny": []}
     }
 
     /// **Every rationale is prose, and the prose ships.** `--explain` prints it, `--format
-    /// json` emits it as `checks[].rationale`, and the report golden the SDKs test against
-    /// carries it verbatim — so a slip in a string literal here is a slip in a contract that
+    /// json` emits it as `checks[].rationale`, and `reports/checks.json` beside the report
+    /// schema pins it verbatim — so a slip in a string literal here is a slip in a contract that
     /// is versioned separately from this binary. `unimplemented-class` shipped two lines of a
     /// `Class` struct literal spliced into the middle of its opening sentence (#709) and
     /// nothing complained: the literal is not raw, so an unindented newline and a
@@ -3193,6 +3193,65 @@ decision := {"allow": true, "deny": []}
     /// serialization and the restore-on-the-way-out are gone with it.
     fn lint_at(root: &Path, opts: Options) -> Result<()> {
         lint(Some(root), opts)
+    }
+
+    /// **Every rationale the roster carries, pinned once** (#1634).
+    ///
+    /// `--format json` emits each check's rationale as `checks[].rationale`, and that text is a
+    /// contract consumers read. It used to be pinned by the `reports/basic` lint golden, which
+    /// carried all of it verbatim, so a sentence edited here, or a check added, rewrote that
+    /// golden although nothing it says about its fixture moved. That golden now carries a
+    /// placeholder, and this is where the text is held: read off every entry, asked or not, so
+    /// the typechecker-only checks the report golden redacts are held too. That the emitted
+    /// rationale is the spec's is [`every_entry_produces_the_check_its_spec_declares`].
+    ///
+    /// Run with `UPDATE_GOLDENS=1` to rewrite `checks.json` after an intended change.
+    #[test]
+    fn every_rationale_matches_the_registry_golden() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../sdks/parity/fixtures/reports/checks.json");
+        let entries: Vec<serde_json::Value> = ROSTER
+            .iter()
+            .map(|e| serde_json::json!({ "id": e.spec.id, "rationale": e.spec.rationale }))
+            .collect();
+        let actual = serde_json::to_string_pretty(&entries).unwrap() + "\n";
+        if std::env::var_os("UPDATE_GOLDENS").is_some() {
+            fs::write(&path, &actual).unwrap();
+            return;
+        }
+        let expected = fs::read_to_string(&path).unwrap_or_else(|_| {
+            panic!(
+                "missing golden {}. Run with UPDATE_GOLDENS=1 to create it.",
+                path.display()
+            )
+        });
+        let golden: Vec<serde_json::Value> =
+            serde_json::from_str(&expected).expect("checks.json is a JSON array");
+        let rationale_of = |rows: &[serde_json::Value], id: &str| -> Option<String> {
+            rows.iter()
+                .find(|r| r["id"] == id)
+                .map(|r| r["rationale"].to_string())
+        };
+        let ids = |rows: &[serde_json::Value]| -> Vec<String> {
+            rows.iter().map(|r| r["id"].to_string()).collect()
+        };
+        let mut drifted: Vec<String> = ids(&entries)
+            .into_iter()
+            .chain(ids(&golden))
+            .map(|id| id.trim_matches('"').to_string())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .filter(|id| rationale_of(&entries, id) != rationale_of(&golden, id))
+            .collect();
+        if drifted.is_empty() && expected != actual {
+            drifted.push("(no rationale differs: the order or the formatting does)".into());
+        }
+        assert!(
+            drifted.is_empty(),
+            "the rationale of {drifted:?} drifted from {}. If the change is intended, re-run \
+             with UPDATE_GOLDENS=1 and review the diff.",
+            path.display()
+        );
     }
 
     use crate::git::fixture::commit as commit_all;
