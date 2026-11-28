@@ -902,7 +902,11 @@ fn settings_mapping(root: &Path, existing_only: bool) -> (Value, Vec<String>) {
     let generic = all()
         .into_iter()
         .map(|(f, g, _)| (f.to_string(), g.to_string()));
-    let classes = class_schemas(root).into_iter().map(|(f, g, _)| (f, g));
+    let (compiled, unreadable) = compiled_classes(root);
+    // An unreadable class maps nothing, but its file is still one yidam knows: a schema
+    // left from an earlier run is not reported as a stranger's.
+    known.extend(unreadable.into_iter().map(|u| u.file));
+    let classes = compiled.into_iter().map(|(f, g, _)| (f, g));
     for (file, glob) in generic.chain(classes) {
         known.insert(file.clone());
         // The catalog schema describes frontmatter inside markdown, which
@@ -966,6 +970,24 @@ fn present_schemas(dir: &Path) -> Vec<String> {
 /// produces cannot come apart. That is the whole point of compiling the ontology rather
 /// than describing it.
 pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
+    compiled_classes(root).0
+}
+
+/// A class file [`compiled_classes`] could not read, so compiled no schema for.
+struct Unreadable {
+    /// The class file, relative to the repository root.
+    rel: String,
+    /// The schema file it would have compiled to, `class/<name>.json`.
+    file: String,
+    reason: String,
+}
+
+/// The compiled class schemas, and the class files that did not parse.
+///
+/// **An unreadable class compiles to no schema (#1636).** It once compiled to an open one —
+/// a `const` and nothing else — which an editor reads as a class that is silent on purpose.
+/// `lint` reports the same file as `malformed-yaml`, from the same verdict.
+fn compiled_classes(root: &Path) -> (Vec<(String, String, Value)>, Vec<Unreadable>) {
     let corpus = crate::paths::yidam_corpus_dir(root);
     // Folded into every compiled class, because the emitted schema must be **no stricter
     // than the checks**. `undeclared-property` stopped reporting a universal property; a
@@ -973,64 +995,69 @@ pub fn class_schemas(root: &Path) -> Vec<(String, String, Value)> {
     // the gate accepts — which is precisely the drift compiling the ontology exists to
     // prevent, arriving from the one direction nobody watches.
     let universal = crate::universal::Universal::load(root);
-    crate::walk::walk_ont_files(&corpus)
-        .iter()
-        .map(|path| {
-            let stem = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|n| n.strip_suffix(".ont.yml"))
-                .unwrap_or_default();
-            let text = std::fs::read_to_string(path).unwrap_or_default();
-            let mut class = yidam_core::ontology::parse_class(stem, &text);
-            // **The filename governs, not the `class:` field.** `parse_class` prefers the
-            // field and falls back to the stem, which is right for the SDK; the *gate* does
-            // the opposite — `load_classes` keys by filename always, and `unknown-class`
-            // compares an instance's `class:` against the set of stems.
-            //
-            // Where the two disagree this compiler followed the field, and emitted
-            // `class/station.json` mapped to `.yidam/corpus/station/*.yml` for a class
-            // whose instances live in `gage/` — a schema the editor applies to nothing,
-            // asserting a `const` no instance carries. Keyed by the stem it agrees with the
-            // gate, which is the only agreement that matters.
-            class.name = stem.to_string();
-            // Named universals join the class's own declarations before compiling, so the
-            // SDK still receives one class and knows nothing about a corpus-level file —
-            // the parity surface is unchanged. A class declaring the same name keeps its
-            // own, matching `property-type`, where the more specific statement wins.
-            for (name, property_type) in universal.named() {
-                if class.properties.iter().any(|p| p.name == name) {
-                    continue;
-                }
-                class
-                    .properties
-                    .push(yidam_core::ontology::OntologyProperty {
-                        name: name.to_string(),
-                        property_type: property_type.to_string(),
-                        description: "Declared for every class in .yidam/corpus/universal.yml"
-                            .to_string(),
-                        unit: String::new(),
-                        values: vec![],
-                        // `items:` and `fields:` are read from class files only (RFC-0050):
-                        // `universal.yml` maps a name to a bare type.
-                        items: String::new(),
-                        fields: vec![],
-                        // A universal is never required. `universal.yml` has no `required`
-                        // field to say so with, and a property declared for EVERY class
-                        // that every instance must also carry would gate the whole corpus
-                        // on one line of a file most readers never open.
-                        required: false,
-                    });
+    let mut compiled = vec![];
+    let mut unreadable = vec![];
+    for path in crate::walk::walk_ont_files(&corpus) {
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .to_string();
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        // **The filename governs, not the `class:` field** (#1636). `corpus::Class` names a
+        // class by its stem, the name `unknown-class` compares an instance's `class:`
+        // against, and hands that stem to the SDK's reader. A compiler that followed the
+        // field once emitted `class/station.json` for a class whose instances live in
+        // `gage/`: a schema the editor applied to nothing.
+        let read = crate::corpus::Class::parse(rel.clone(), text);
+        let mut class = match read.contract() {
+            Ok(class) => class,
+            Err(reason) => {
+                unreadable.push(Unreadable {
+                    rel,
+                    file: format!("class/{}.json", read.name),
+                    reason,
+                });
+                continue;
             }
-            let mut schema = yidam_core::ontology::compile_class_schema(&class);
-            with_pattern_properties(&mut schema, &universal);
-            (
-                format!("class/{}.json", class.name),
-                format!(".yidam/corpus/{}/*.yml", class.name),
-                schema,
-            )
-        })
-        .collect()
+        };
+        // Named universals join the class's own declarations before compiling, so the
+        // SDK still receives one class and knows nothing about a corpus-level file —
+        // the parity surface is unchanged. A class declaring the same name keeps its
+        // own, matching `property-type`, where the more specific statement wins.
+        for (name, property_type) in universal.named() {
+            if class.properties.iter().any(|p| p.name == name) {
+                continue;
+            }
+            class
+                .properties
+                .push(yidam_core::ontology::OntologyProperty {
+                    name: name.to_string(),
+                    property_type: property_type.to_string(),
+                    description: "Declared for every class in .yidam/corpus/universal.yml"
+                        .to_string(),
+                    unit: String::new(),
+                    values: vec![],
+                    // `items:` and `fields:` are read from class files only (RFC-0050):
+                    // `universal.yml` maps a name to a bare type.
+                    items: String::new(),
+                    fields: vec![],
+                    // A universal is never required. `universal.yml` has no `required`
+                    // field to say so with, and a property declared for EVERY class
+                    // that every instance must also carry would gate the whole corpus
+                    // on one line of a file most readers never open.
+                    required: false,
+                });
+        }
+        let mut schema = yidam_core::ontology::compile_class_schema(&class);
+        with_pattern_properties(&mut schema, &universal);
+        compiled.push((
+            format!("class/{}.json", class.name),
+            format!(".yidam/corpus/{}/*.yml", class.name),
+            schema,
+        ));
+    }
+    (compiled, unreadable)
 }
 
 /// Carry the corpus's universal *patterns* into a compiled class schema.
@@ -1221,10 +1248,11 @@ pub fn schema(root: Option<&std::path::Path>, print_settings: bool, force: bool)
     }
 
     let dir = schemas_dir(&root);
+    let (compiled, unreadable) = compiled_classes(&root);
     let targets: Vec<(String, String, Value)> = all()
         .into_iter()
         .map(|(f, g, b)| (f.to_string(), g.to_string(), b))
-        .chain(class_schemas(&root))
+        .chain(compiled)
         .collect();
 
     // Before the first write, over every target at once. A refusal that arrived at the
@@ -1257,7 +1285,17 @@ pub fn schema(root: Option<&std::path::Path>, print_settings: bool, force: bool)
         println!("wrote .yidam/schemas/{file}  ({glob})");
     }
 
-    if !wrote_a_class {
+    // On stderr and after the writes, so every readable class is still compiled. A schema
+    // an earlier run wrote for the class is left as it was, and `lint` fails on the file.
+    for u in &unreadable {
+        eprintln!(
+            "not compiled — {} does not parse ({}); `yidam lint` reports it as malformed-yaml. \
+             .yidam/schemas/{} was not written.",
+            u.rel, u.reason, u.file
+        );
+    }
+
+    if !wrote_a_class && unreadable.is_empty() {
         println!();
         println!("no .ont.yml files found — no per-class schemas to compile");
     }
@@ -1580,5 +1618,41 @@ mod tests {
                 "{key} is mapped but not emitted"
             );
         }
+    }
+
+    /// The stem names the compiled schema over a `class:` field, and a class file that does
+    /// not parse compiles to nothing rather than to an open schema (#1636).
+    #[test]
+    fn a_class_compiles_under_its_stem_and_an_unreadable_one_does_not_compile() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let corpus = crate::paths::yidam_corpus_dir(tmp.path());
+        std::fs::create_dir_all(&corpus).unwrap();
+        std::fs::write(corpus.join("gage.ont.yml"), "class: station\nlabel: Gage\n").unwrap();
+        std::fs::write(
+            corpus.join("reach.ont.yml"),
+            "label: \"unclosed\nedges: []\n",
+        )
+        .unwrap();
+
+        let (compiled, unreadable) = compiled_classes(tmp.path());
+        let files: Vec<&str> = compiled.iter().map(|(f, _, _)| f.as_str()).collect();
+        assert_eq!(files, ["class/gage.json"]);
+        assert_eq!(compiled[0].1, ".yidam/corpus/gage/*.yml");
+        assert_eq!(compiled[0].2["properties"]["class"]["const"], "gage");
+
+        assert_eq!(unreadable.len(), 1);
+        assert_eq!(unreadable[0].file, "class/reach.json");
+        assert!(
+            unreadable[0].rel.ends_with("reach.ont.yml"),
+            "{}",
+            unreadable[0].rel
+        );
+        assert!(!unreadable[0].reason.is_empty());
+
+        // The editor mapping knows the unreadable file and maps nothing to it.
+        let (settings, _) = settings_mapping(tmp.path(), false);
+        let mapped = settings["yaml.schemas"].as_object().unwrap();
+        assert!(mapped.contains_key("./.yidam/schemas/class/gage.json"));
+        assert!(!mapped.contains_key("./.yidam/schemas/class/reach.json"));
     }
 }

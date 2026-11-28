@@ -1475,6 +1475,15 @@ fn licensed_edges(state: &ServerState, args: &Value) -> Result<Value, String> {
                 .join(", ")
         ));
     };
+    // A class file that does not parse has declared nothing anyone could read, which is not
+    // the same as declaring no edges: answering "has said nothing" would read a broken gate
+    // as a silent class (#1636).
+    let class = class.as_ref().map_err(|reason| {
+        format!(
+            "`{name}.ont.yml` does not parse ({reason}), so what `{name}` may link to cannot be \
+             read. `yidam lint` reports it as malformed-yaml."
+        )
+    })?;
 
     // Every declared edge, both directions. An edge is documented from both ends and the
     // licensing check ignores direction, so filtering to `out` would answer a question the
@@ -1962,6 +1971,26 @@ mod tests {
             result["absence"].is_null(),
             "a rejection is not an absence; carrying both answers two questions with one key"
         );
+    }
+
+    /// A class file that does not parse is an error naming the file, and a class that
+    /// declares no edges is still the "has said nothing" answer. Before #1636 both gave the
+    /// second, so a broken ontology read as a silent one.
+    #[test]
+    fn licensed_edges_refuses_an_unparseable_class_and_answers_a_silent_one() {
+        let mut state = test_state();
+        let broken = call(&mut state, "licensed_edges", &json!({"class": "broken"}));
+        assert_eq!(broken["isError"], true, "{broken}");
+        let text = broken["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("`broken.ont.yml` does not parse") && text.contains("malformed-yaml"),
+            "{text}"
+        );
+
+        let silent = call_ok(&mut state, "licensed_edges", json!({"class": "silent"}));
+        assert_eq!(silent["declares_edges"], false);
+        let concept = call_ok(&mut state, "licensed_edges", json!({"class": "concept"}));
+        assert_eq!(concept["edges"][0]["relationship"], "enables");
     }
 
     /// A declared class nobody has written into is a statement about the corpus.

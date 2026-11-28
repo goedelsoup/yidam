@@ -152,7 +152,9 @@ fn the_schema_matches_the_ontology(name: &str) {
             .expect("compiled schemas are named class/<name>.json");
         let ont = dir.path().join(format!(".yidam/corpus/{class}.ont.yml"));
         let text = std::fs::read_to_string(&ont).unwrap_or_default();
-        let parsed = yidam_core::ontology::parse_class(class, &text);
+        // A class compiled to a schema is one that parsed (#1636).
+        let parsed = yidam_core::ontology::parse_class(class, &text)
+            .unwrap_or_else(|e| panic!("{class}.ont.yml compiled but does not parse: {e}"));
         let declared: Vec<&str> = parsed
             .properties
             .iter()
@@ -269,7 +271,7 @@ fn the_structural_links_every_instance_carries_are_not_rejected() {
 /// A class declaring nothing constrains nothing — the rule that must live in one place.
 #[test]
 fn a_class_that_declares_nothing_accepts_anything() {
-    let class = yidam_core::ontology::parse_class("reach", "class: reach\nlabel: Reach\n");
+    let class = yidam_core::ontology::parse_class("reach", "class: reach\nlabel: Reach\n").unwrap();
     let schema = yidam_core::ontology::compile_class_schema(&class);
     let validator = jsonschema::validator_for(&schema).unwrap();
 

@@ -1,0 +1,12 @@
+function = "compile_class_schema"
+description = "A class definition that is not valid YAML is refused, not read as a class declaring nothing: an open schema for it would look exactly like a class that was silent on purpose (#1636)"
+
+[input]
+name = "reach"
+content = """
+label: "Reach
+edges: []
+"""
+
+[expected]
+refused = true

@@ -1,0 +1,22 @@
+function = "compile_class_schema"
+description = "A class definition of only comments parses: it is a class that declares nothing, and it is not refused (#1636)"
+
+[input]
+name = "reach"
+content = """
+# Nothing declared yet.
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — reach",
+  "type": "object",
+  "properties": {
+    "class": { "const": "reach" }
+  },
+  "required": ["class"],
+  "additionalProperties": true
+}
+"""
