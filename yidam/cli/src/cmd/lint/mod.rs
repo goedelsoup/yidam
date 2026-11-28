@@ -46,6 +46,7 @@ pub use line_citations::{
     label_symbols, relocate, slid_line_citation, unverified_line_citation, LineCitation,
     LineFragment, Relocation,
 };
+use model::CheckSpec;
 pub use model::{Check, Severity, Violation, LINT_SEVERITIES};
 
 /// Every line-anchored citation in `root`'s prose surfaces (`docs/`, `.yidam/`), read
@@ -151,7 +152,7 @@ pub fn run_checks_with(root: &Path, opts: &Options, overlay: &Overlay) -> Vec<Ch
     let mut all: Vec<Check> = ROSTER
         .iter()
         .filter(|e| e.asked.of(opts))
-        .map(|e| e.run(&input))
+        .map(|e| (e.run)(&input))
         .collect();
 
     // The corpus's threshold, handed to every check rather than to the one that dates.
@@ -201,7 +202,7 @@ fn attribute_projected(all: &mut [Check], root: &Path) {
 pub(crate) fn unasked(reported: &[Check]) -> Vec<&'static str> {
     ROSTER
         .iter()
-        .map(|e| e.id)
+        .map(|e| e.spec.id)
         .filter(|id| !reported.iter().any(|c| c.id == *id))
         .collect()
 }
@@ -262,35 +263,17 @@ impl Asked {
     }
 }
 
-/// One check: the id it reports under, when it runs, and what produces it.
+/// One check: what it is, when it runs, and what produces it.
 struct Entry {
-    /// The id the producer stamps on its own findings. Declared here too, and held to the
-    /// producer by [`tests::the_roster_declares_the_id_each_entry_produces`] — a second
-    /// spelling of a string is a drift risk, and this is the one that pays for itself: it is
-    /// what makes the report's contents readable without running it, and what binds each of
-    /// the twenty group-indexed entries to the right element of its array.
-    id: &'static str,
+    /// The spec the producer builds its check from — the same constant, not a second spelling
+    /// of its id (#1630). It is what makes the report's contents readable without running it:
+    /// [`unasked`] reads the ids off it. A group producer's entry takes the field of its
+    /// `Checks` named for this spec, and
+    /// [`tests::every_entry_produces_the_check_its_spec_declares`] runs every entry, asked or
+    /// not, to hold the two together.
+    spec: &'static CheckSpec,
     asked: Asked,
     run: fn(&input::Input) -> Check,
-}
-
-impl Entry {
-    /// Produce this check, and hold the producer to the id declared beside it.
-    ///
-    /// `debug_assert` rather than `assert`: a mismatch is a compile-time fact about two string
-    /// constants, so it is found by the first test run and by every developer build, and there
-    /// is nothing a released binary could usefully do about it that mislabelling one check in
-    /// a report does not do less destructively than aborting the gate.
-    fn run(&self, i: &input::Input) -> Check {
-        let check = (self.run)(i);
-        debug_assert_eq!(
-            self.id, check.id,
-            "the roster declares `{}` and its producer reports `{}` — a group-indexed entry \
-             reaching the wrong element of its array looks exactly like this",
-            self.id, check.id
-        );
-        check
-    }
 }
 
 /// Every check `lint` runs, in the order the report carries them.
@@ -317,7 +300,7 @@ const ROSTER: &[Entry] = &[
     // First, because it is the finding that says whether the rest of the report is about the
     // corpus or about what serde made of a file it could not read.
     Entry {
-        id: checks::MALFORMED_YAML,
+        spec: &checks::MALFORMED_YAML,
         asked: Asked::Always,
         run: |i| {
             checks::malformed_yaml(
@@ -332,112 +315,112 @@ const ROSTER: &[Entry] = &[
     // Second, and beside it for the same reason: the block it reports is YAML the file parses,
     // so `malformed-yaml` cannot see it and the two together are "what did not read".
     Entry {
-        id: checks::FINDINGS_MALFORMED,
+        spec: &checks::FINDINGS_MALFORMED,
         asked: Asked::Always,
         run: |i| checks::findings_malformed(i.nodes(), i.sources()),
     },
     Entry {
-        id: "missing-class",
+        spec: &checks::MISSING_CLASS,
         asked: Asked::Always,
         run: |i| checks::missing_class(i.nodes()),
     },
     Entry {
-        id: "unknown-class",
+        spec: &checks::UNKNOWN_CLASS,
         asked: Asked::Always,
         run: |i| checks::unknown_class(i.nodes(), i.defined()),
     },
     Entry {
-        id: "orphan-out",
+        spec: &checks::ORPHAN_OUT,
         asked: Asked::Always,
         run: |i| checks::orphan_out(i.nodes(), i.classes()),
     },
     Entry {
-        id: "dangling-edge",
+        spec: &checks::DANGLING_EDGE,
         asked: Asked::Always,
         run: |i| checks::dangling_edge(i.nodes(), i.edges()),
     },
     Entry {
-        id: "undeclared-property",
+        spec: &checks::UNDECLARED_PROPERTY,
         asked: Asked::Always,
         run: |i| checks::undeclared_property(i.nodes(), i.classes(), i.universal()),
     },
     Entry {
-        id: "missing-property",
+        spec: &checks::MISSING_PROPERTY,
         asked: Asked::Always,
         run: |i| checks::missing_property(i.nodes(), i.classes()),
     },
     Entry {
-        id: "node-too-long",
+        spec: &checks::NODE_TOO_LONG,
         asked: Asked::Always,
         run: |i| checks::node_too_long(i.nodes(), i.classes(), i.prose_fields()),
     },
     Entry {
-        id: "node-too-many-passages",
+        spec: &checks::NODE_TOO_MANY_PASSAGES,
         asked: Asked::Always,
         run: |i| checks::node_too_many_passages(i.nodes(), i.prose_fields(), i.retrievable()),
     },
     Entry {
-        id: "property-type",
+        spec: &checks::PROPERTY_TYPE,
         asked: Asked::Always,
         run: |i| checks::property_type(i.nodes(), i.classes(), i.universal()),
     },
     Entry {
-        id: "list-declaration-invalid",
+        spec: &checks::LIST_DECLARATION_INVALID,
         asked: Asked::Always,
         run: |i| checks::list_declaration_invalid(i.classes()),
     },
     Entry {
-        id: "property-type-unknown",
+        spec: &checks::PROPERTY_TYPE_UNKNOWN,
         asked: Asked::Always,
         run: |i| checks::property_type_unknown(i.classes()),
     },
     Entry {
-        id: "unimplemented-class",
+        spec: &checks::UNIMPLEMENTED_CLASS,
         asked: Asked::Always,
         run: |i| checks::unimplemented_class(i.classes(), i.types()),
     },
     Entry {
-        id: "unlicensed-edge",
+        spec: &checks::UNLICENSED_EDGE,
         asked: Asked::Always,
         run: |i| checks::unlicensed_edge(i.nodes(), i.edges(), i.classes()),
     },
     Entry {
-        id: "edge-target-class",
+        spec: &checks::EDGE_TARGET_CLASS,
         asked: Asked::Always,
         run: |i| checks::edge_target_class(i.nodes(), i.edges(), i.classes()),
     },
     Entry {
-        id: "interval-overlap",
+        spec: &checks::INTERVAL_OVERLAP,
         asked: Asked::Always,
         run: |i| checks::interval_overlap(i.nodes(), i.edges(), i.classes()),
     },
     Entry {
-        id: "interval-gap",
+        spec: &checks::INTERVAL_GAP,
         asked: Asked::Always,
         run: |i| checks::interval_gap(i.nodes(), i.edges(), i.classes()),
     },
     Entry {
-        id: edge_claims::UNTAGGED,
+        spec: &edge_claims::UNTAGGED,
         asked: Asked::Always,
-        run: |i| i.edge_claim_checks()[0].clone(),
+        run: |i| i.edge_claim_checks().untagged.clone(),
     },
     Entry {
-        id: edge_claims::VERIFIED_UNSOURCED,
+        spec: &edge_claims::VERIFIED_UNSOURCED,
         asked: Asked::Always,
-        run: |i| i.edge_claim_checks()[1].clone(),
+        run: |i| i.edge_claim_checks().verified_unsourced.clone(),
     },
     Entry {
-        id: edge_claims::STANDING_UNHELD,
+        spec: &edge_claims::STANDING_UNHELD,
         asked: Asked::Always,
-        run: |i| i.edge_claim_checks()[2].clone(),
+        run: |i| i.edge_claim_checks().standing_unheld.clone(),
     },
     Entry {
-        id: edge_claims::SOURCE_UNRESOLVED,
+        spec: &edge_claims::SOURCE_UNRESOLVED,
         asked: Asked::Always,
-        run: |i| i.edge_claim_checks()[3].clone(),
+        run: |i| i.edge_claim_checks().source_unresolved.clone(),
     },
     Entry {
-        id: edge_claims::ENTRY_SOURCE_UNRESOLVED,
+        spec: &edge_claims::ENTRY_SOURCE_UNRESOLVED,
         asked: Asked::Always,
         run: |i| {
             edge_claims::entry_source_unresolved(
@@ -450,82 +433,82 @@ const ROSTER: &[Entry] = &[
         },
     },
     Entry {
-        id: citations::UNRESOLVED,
+        spec: &citations::UNRESOLVED,
         asked: Asked::Always,
-        run: |i| i.citation_checks()[0].clone(),
+        run: |i| i.citation_checks().unresolved.clone(),
     },
     Entry {
-        id: citations::SPAN_DRIFT,
+        spec: &citations::SPAN_DRIFT,
         asked: Asked::Always,
-        run: |i| i.citation_checks()[1].clone(),
+        run: |i| i.citation_checks().span_drift.clone(),
     },
     Entry {
-        id: citations::PIN_MOVED,
+        spec: &citations::PIN_MOVED,
         asked: Asked::Always,
-        run: |i| i.citation_checks()[2].clone(),
+        run: |i| i.citation_checks().pin_moved.clone(),
     },
     Entry {
-        id: citations::UNPINNED,
+        spec: &citations::UNPINNED,
         asked: Asked::Always,
-        run: |i| i.citation_checks()[3].clone(),
+        run: |i| i.citation_checks().unpinned.clone(),
     },
     Entry {
-        id: local_citations::UNRESOLVED,
+        spec: &local_citations::UNRESOLVED,
         asked: Asked::Always,
-        run: |i| i.local_citation_checks()[0].clone(),
+        run: |i| i.local_citation_checks().unresolved.clone(),
     },
     Entry {
-        id: local_citations::SPAN_DRIFT,
+        spec: &local_citations::SPAN_DRIFT,
         asked: Asked::Always,
-        run: |i| i.local_citation_checks()[1].clone(),
+        run: |i| i.local_citation_checks().span_drift.clone(),
     },
     Entry {
-        id: local_citations::TAG_DRIFT,
+        spec: &local_citations::TAG_DRIFT,
         asked: Asked::Always,
-        run: |i| i.local_citation_checks()[2].clone(),
+        run: |i| i.local_citation_checks().tag_drift.clone(),
     },
     Entry {
-        id: local_citations::UNTAGGED,
+        spec: &local_citations::UNTAGGED,
         asked: Asked::Always,
-        run: |i| i.local_citation_checks()[3].clone(),
+        run: |i| i.local_citation_checks().untagged.clone(),
     },
     Entry {
-        id: asks::UNRESOLVED,
+        spec: &asks::UNRESOLVED,
         asked: Asked::Always,
-        run: |i| i.ask_checks()[0].clone(),
+        run: |i| i.ask_checks().unresolved.clone(),
     },
     Entry {
-        id: asks::MALFORMED,
+        spec: &asks::MALFORMED,
         asked: Asked::Always,
-        run: |i| i.ask_checks()[1].clone(),
+        run: |i| i.ask_checks().malformed.clone(),
     },
     Entry {
-        id: quotations::UNRESOLVED,
+        spec: &quotations::UNRESOLVED,
         asked: Asked::Always,
-        run: |i| i.quotation_checks()[0].clone(),
+        run: |i| i.quotation_checks().unresolved.clone(),
     },
     Entry {
-        id: quotations::SPAN_DRIFT,
+        spec: &quotations::SPAN_DRIFT,
         asked: Asked::Always,
-        run: |i| i.quotation_checks()[1].clone(),
+        run: |i| i.quotation_checks().span_drift.clone(),
     },
     Entry {
-        id: quotations::UNCHECKED,
+        spec: &quotations::UNCHECKED,
         asked: Asked::Always,
-        run: |i| i.quotation_checks()[2].clone(),
+        run: |i| i.quotation_checks().unchecked.clone(),
     },
     Entry {
-        id: refusals::SPAN_DRIFT,
+        spec: &refusals::SPAN_DRIFT,
         asked: Asked::Always,
         run: |i| refusals::refusal_span_drift(i.nodes()),
     },
     Entry {
-        id: refusals::UNDECLARED,
+        spec: &refusals::UNDECLARED,
         asked: Asked::Always,
         run: |i| refusals::refusal_undeclared(i.nodes(), i.universal()),
     },
     Entry {
-        id: "verified-unsourced",
+        spec: &checks::VERIFIED_UNSOURCED,
         asked: Asked::Always,
         run: |i| {
             checks::verified_unsourced(
@@ -538,196 +521,196 @@ const ROSTER: &[Entry] = &[
         },
     },
     Entry {
-        id: "catalog-expired",
+        spec: &checks::CATALOG_EXPIRED,
         asked: Asked::Always,
         run: |i| checks::catalog_expired(i.catalog_ages(), i.sources(), i.cites()),
     },
     Entry {
-        id: "catalog-unobtained-but-cited",
+        spec: &checks::CATALOG_UNOBTAINED_BUT_CITED,
         asked: Asked::Always,
         run: |i| checks::catalog_unobtained_but_cited(i.sources(), i.cites()),
     },
     Entry {
-        id: "name-not-a-slug",
+        spec: &checks::NAME_NOT_A_SLUG,
         asked: Asked::Always,
         run: |i| checks::name_not_a_slug(i.nodes(), i.classes()),
     },
     Entry {
-        id: "reference-not-in-the-grammar",
+        spec: &checks::REFERENCE_NOT_IN_THE_GRAMMAR,
         asked: Asked::Always,
         run: |i| checks::reference_not_in_the_grammar(i.nodes()),
     },
     Entry {
-        id: "missing-label",
+        spec: &checks::MISSING_LABEL,
         asked: Asked::Always,
         run: |i| checks::missing_label(i.nodes()),
     },
     Entry {
-        id: "missing-description",
+        spec: &checks::MISSING_DESCRIPTION,
         asked: Asked::Always,
         run: |i| checks::missing_description(i.nodes(), i.prose_fields()),
     },
     Entry {
-        id: "claim-tag-malformed",
+        spec: &checks::CLAIM_TAG_MALFORMED,
         asked: Asked::Always,
         run: |i| checks::claim_tag_malformed(i.tag_prose()),
     },
     Entry {
-        id: "catalog-used-by-declared",
+        spec: &checks::CATALOG_USED_BY_DECLARED,
         asked: Asked::Always,
         run: |i| checks::catalog_used_by_declared(i.sources()),
     },
     Entry {
-        id: "catalog-location-malformed",
+        spec: &checks::CATALOG_LOCATION_MALFORMED,
         asked: Asked::Always,
         run: |i| checks::catalog_location_malformed(i.sources(), i.packs()),
     },
     Entry {
-        id: pins::UNRESOLVED,
+        spec: &pins::UNRESOLVED,
         asked: Asked::Always,
-        run: |i| i.pin_checks()[0].clone(),
+        run: |i| i.pin_checks().unresolved.clone(),
     },
     Entry {
-        id: pins::AMBIGUOUS,
+        spec: &pins::AMBIGUOUS,
         asked: Asked::Always,
-        run: |i| i.pin_checks()[1].clone(),
+        run: |i| i.pin_checks().ambiguous.clone(),
     },
     Entry {
-        id: pins::ABBREVIATED,
+        spec: &pins::ABBREVIATED,
         asked: Asked::Always,
-        run: |i| i.pin_checks()[2].clone(),
+        run: |i| i.pin_checks().abbreviated.clone(),
     },
     Entry {
-        id: pins::SYMBOL_MISSING,
+        spec: &pins::SYMBOL_MISSING,
         asked: Asked::Always,
-        run: |i| i.pin_checks()[3].clone(),
+        run: |i| i.pin_checks().symbol_missing.clone(),
     },
     Entry {
-        id: pins::UNCHECKED,
+        spec: &pins::UNCHECKED,
         asked: Asked::Always,
-        run: |i| i.pin_checks()[4].clone(),
+        run: |i| i.pin_checks().unchecked.clone(),
     },
     Entry {
-        id: tables::DECLARATION_INVALID,
+        spec: &tables::DECLARATION_INVALID,
         asked: Asked::Always,
-        run: |i| i.table_checks()[0].clone(),
+        run: |i| i.table_checks().declaration_invalid.clone(),
     },
     Entry {
-        id: tables::SHAPE,
+        spec: &tables::SHAPE,
         asked: Asked::Always,
-        run: |i| i.table_checks()[1].clone(),
+        run: |i| i.table_checks().shape.clone(),
     },
     Entry {
-        id: tables::REF_UNRESOLVED,
+        spec: &tables::REF_UNRESOLVED,
         asked: Asked::Always,
-        run: |i| i.table_checks()[2].clone(),
+        run: |i| i.table_checks().ref_unresolved.clone(),
     },
     Entry {
-        id: prose_commits::ID,
+        spec: &prose_commits::ID,
         asked: Asked::Always,
         run: |i| prose_commits::check(i.root(), i.nodes(), i.sources()),
     },
     Entry {
-        id: "catalog-type-unknown",
+        spec: &checks::CATALOG_TYPE_UNKNOWN,
         asked: Asked::Always,
         run: |i| checks::catalog_type_unknown(i.sources()),
     },
     Entry {
-        id: "catalog-artifact-malformed",
+        spec: &checks::CATALOG_ARTIFACT_MALFORMED,
         asked: Asked::Always,
         run: |i| checks::catalog_artifact_malformed(i.sources()),
     },
     Entry {
-        id: "catalog-artifact-unroutable",
+        spec: &checks::CATALOG_ARTIFACT_UNROUTABLE,
         asked: Asked::Always,
         run: |i| checks::catalog_artifact_unroutable(i.sources(), &i.declared_vaults()),
     },
     Entry {
-        id: "malformed-table",
+        spec: &checks::MALFORMED_TABLE,
         asked: Asked::Always,
         run: |i| checks::malformed_table(i.tables()),
     },
     Entry {
-        id: "malformed-regen-block",
+        spec: &checks::MALFORMED_REGEN_BLOCK,
         asked: Asked::Always,
         run: |i| checks::malformed_regen_block(i.regen_files()),
     },
     Entry {
-        id: "orphan-in",
+        spec: &checks::ORPHAN_IN,
         asked: Asked::Always,
         run: orphan_in_dated,
     },
     Entry {
-        id: "only-instance-of",
+        spec: &checks::ONLY_INSTANCE_OF,
         asked: Asked::Always,
         run: |i| checks::only_instance_of(i.nodes(), i.edges(), i.classes()),
     },
     Entry {
-        id: "catalog-uncited",
+        spec: &checks::CATALOG_UNCITED,
         asked: Asked::Always,
         run: |i| checks::catalog_uncited(i.sources(), i.cites()),
     },
     Entry {
-        id: "decision-uncited",
+        spec: &uncited::DECISION_UNCITED,
         asked: Asked::Always,
         run: |i| {
             uncited::decision_uncited(i.decisions(), i.nodes(), i.prose_links(), i.authored_text())
         },
     },
     Entry {
-        id: "source-unregistered",
+        spec: &uncited::SOURCE_UNREGISTERED,
         asked: Asked::Always,
         run: |i| uncited::source_unregistered(i.sources(), i.nodes()),
     },
     Entry {
-        id: "class-asserts-purpose",
+        spec: &checks::CLASS_ASSERTS_PURPOSE,
         asked: Asked::Always,
         run: |i| checks::class_asserts_purpose(i.classes()),
     },
     Entry {
-        id: "class-claim-uncounted",
+        spec: &checks::CLASS_CLAIM_UNCOUNTED,
         asked: Asked::Always,
         run: |i| checks::class_claim_uncounted(i.classes()),
     },
     Entry {
-        id: "claim-property-undeclared",
+        spec: &checks::CLAIM_PROPERTY_UNDECLARED,
         asked: Asked::Always,
         run: |i| checks::claim_property_undeclared(i.nodes(), i.classes()),
     },
     Entry {
-        id: "foundational-field-misspelled",
+        spec: &checks::FOUNDATIONAL_FIELD_MISSPELLED,
         asked: Asked::Always,
         run: |i| checks::foundational_field_misspelled(i.classes()),
     },
     Entry {
-        id: "foundational-type-malformed",
+        spec: &checks::FOUNDATIONAL_TYPE_MALFORMED,
         asked: Asked::Always,
         run: |i| checks::foundational_type_malformed(i.classes()),
     },
     Entry {
-        id: "resolution-annotation-malformed",
+        spec: &checks::RESOLUTION_ANNOTATION_MALFORMED,
         asked: Asked::Always,
         run: |i| checks::resolution_annotation_malformed(i.annotations()),
     },
     Entry {
-        id: "resolution-annotation-decides",
+        spec: &checks::RESOLUTION_ANNOTATION_DECIDES,
         asked: Asked::Always,
         run: |i| checks::resolution_annotation_decides(i.annotations()),
     },
     Entry {
-        id: "resolution-elector-unregistered",
+        spec: &checks::RESOLUTION_ELECTOR_UNREGISTERED,
         asked: Asked::Always,
         run: |i| checks::resolution_elector_unregistered(&i.sangha().resolutions, i.registered()),
     },
     Entry {
-        id: "resolution-executor-unrecorded",
+        spec: &checks::RESOLUTION_EXECUTOR_UNRECORDED,
         asked: Asked::Always,
         run: |i| {
             checks::resolution_executor_unrecorded(&i.sangha().resolutions, i.keys_bind_seats())
         },
     },
     Entry {
-        id: "resolution-deliberation-unrecorded",
+        spec: &checks::RESOLUTION_DELIBERATION_UNRECORDED,
         asked: Asked::Always,
         run: |i| {
             checks::resolution_deliberation_unrecorded(
@@ -737,139 +720,139 @@ const ROSTER: &[Entry] = &[
         },
     },
     Entry {
-        id: "resolution-independence-mismatch",
+        spec: &independence::RESOLUTION_INDEPENDENCE_MISMATCH,
         asked: Asked::Always,
         run: |i| independence::independence_mismatch(i.independence_audits()),
     },
     Entry {
-        id: "elector-receipt-disagrees",
+        spec: &elector_receipt::ELECTOR_RECEIPT_DISAGREES,
         asked: Asked::Always,
         run: |i| elector_receipt::elector_receipt_disagrees(i.receipt_audits()),
     },
     Entry {
-        id: "elector-signature-unverified",
+        spec: &attest::ELECTOR_SIGNATURE_UNVERIFIED,
         asked: Asked::Always,
         run: |i| attest::elector_signature_unverified(i.attestations()),
     },
     Entry {
-        id: "domain-article-violated",
+        spec: &articles::DOMAIN_ARTICLE_VIOLATED,
         asked: Asked::Always,
-        run: |i| i.article_checks()[0].clone(),
+        run: |i| i.article_checks().domain_article_violated.clone(),
     },
     Entry {
-        id: "domain-article-edited",
+        spec: &articles::DOMAIN_ARTICLE_EDITED,
         asked: Asked::Always,
-        run: |i| i.article_checks()[1].clone(),
+        run: |i| i.article_checks().domain_article_edited.clone(),
     },
     Entry {
-        id: "domain-article-unproven",
+        spec: &articles::DOMAIN_ARTICLE_UNPROVEN,
         asked: Asked::Always,
-        run: |i| i.article_checks()[2].clone(),
+        run: |i| i.article_checks().domain_article_unproven.clone(),
     },
     Entry {
-        id: "domain-article-unverifiable",
+        spec: &articles::DOMAIN_ARTICLE_UNVERIFIABLE,
         asked: Asked::Always,
-        run: |i| i.article_checks()[3].clone(),
+        run: |i| i.article_checks().domain_article_unverifiable.clone(),
     },
     Entry {
-        id: "resolution-scope-unheld",
+        spec: &scope::RESOLUTION_SCOPE_UNHELD,
         asked: Asked::Always,
-        run: |i| i.scope_checks()[0].clone(),
+        run: |i| i.scope_checks().resolution_scope_unheld.clone(),
     },
     Entry {
-        id: "resolution-scope-unverifiable",
+        spec: &scope::RESOLUTION_SCOPE_UNVERIFIABLE,
         asked: Asked::Always,
-        run: |i| i.scope_checks()[1].clone(),
+        run: |i| i.scope_checks().resolution_scope_unverifiable.clone(),
     },
     Entry {
-        id: "elector-baseline-unmet",
+        spec: &lineage::ELECTOR_BASELINE_UNMET,
         asked: Asked::Always,
-        run: |i| i.lineage_checks()[0].clone(),
+        run: |i| i.lineage_checks().elector_baseline_unmet.clone(),
     },
     Entry {
-        id: "elector-baseline-undeclared",
+        spec: &lineage::ELECTOR_BASELINE_UNDECLARED,
         asked: Asked::Always,
-        run: |i| i.lineage_checks()[1].clone(),
+        run: |i| i.lineage_checks().elector_baseline_undeclared.clone(),
     },
     Entry {
-        id: "elector-holds-unadopted",
+        spec: &lineage::ELECTOR_HOLDS_UNADOPTED,
         asked: Asked::Always,
-        run: |i| i.lineage_checks()[2].clone(),
+        run: |i| i.lineage_checks().elector_holds_unadopted.clone(),
     },
     Entry {
-        id: "elector-commitments-absent",
+        spec: &commitments::ELECTOR_COMMITMENTS_ABSENT,
         asked: Asked::Always,
-        run: |i| i.commitment_checks()[0].clone(),
+        run: |i| i.commitment_checks().elector_commitments_absent.clone(),
     },
     Entry {
-        id: "elector-commitments-malformed",
+        spec: &commitments::ELECTOR_COMMITMENTS_MALFORMED,
         asked: Asked::Always,
-        run: |i| i.commitment_checks()[1].clone(),
+        run: |i| i.commitment_checks().elector_commitments_malformed.clone(),
     },
     Entry {
-        id: "elector-position-unindexed",
+        spec: &commitments::ELECTOR_POSITION_UNINDEXED,
         asked: Asked::Always,
-        run: |i| i.commitment_checks()[2].clone(),
+        run: |i| i.commitment_checks().elector_position_unindexed.clone(),
     },
     Entry {
-        id: "elector-commitment-vanished",
+        spec: &commitments::ELECTOR_COMMITMENT_VANISHED,
         asked: Asked::Always,
-        run: |i| i.commitment_checks()[3].clone(),
+        run: |i| i.commitment_checks().elector_commitment_vanished.clone(),
     },
     Entry {
-        id: "broken-prose-link",
+        spec: &checks::BROKEN_PROSE_LINK,
         asked: Asked::Always,
         run: |i| {
             checks::broken_prose_link_with_rows(i.prose_links(), i.root(), i.declared_tables())
         },
     },
     Entry {
-        id: "broken-object-link",
+        spec: &checks::BROKEN_OBJECT_LINK,
         asked: Asked::Always,
         run: |i| checks::broken_object_link(i.object_links()),
     },
     Entry {
-        id: "dead-line-citation",
+        spec: &line_citations::DEAD_LINE_CITATION,
         asked: Asked::Always,
         run: |i| line_citations::dead_line_citation(i.line_citations()),
     },
     Entry {
-        id: "slid-line-citation",
+        spec: &line_citations::SLID_LINE_CITATION,
         asked: Asked::Always,
         run: |i| line_citations::slid_line_citation(i.line_citations()),
     },
     Entry {
-        id: "citation-label-not-cited",
+        spec: &line_citations::CITATION_LABEL_NOT_CITED,
         asked: Asked::Always,
         run: |i| line_citations::citation_label_not_cited(i.line_citations()),
     },
     Entry {
-        id: "unverified-line-citation",
+        spec: &line_citations::UNVERIFIED_LINE_CITATION,
         asked: Asked::Always,
         run: |i| line_citations::unverified_line_citation(i.line_citations()),
     },
     Entry {
-        id: "citation-range-stated-twice",
+        spec: &line_citations::CITATION_RANGE_STATED_TWICE,
         asked: Asked::Always,
         run: |i| line_citations::citation_range_stated_twice(i.line_citations()),
     },
     Entry {
-        id: "unauthored-prose-link",
+        spec: &checks::UNAUTHORED_PROSE_LINK,
         asked: Asked::Always,
         run: |i| checks::unauthored_prose_link(i.unauthored()),
     },
     Entry {
-        id: "authorship-region-stale",
+        spec: &checks::AUTHORSHIP_REGION_STALE,
         asked: Asked::Always,
         run: |i| checks::authorship_region_stale(i.stale_regions()),
     },
     Entry {
-        id: "policy-override",
+        spec: &checks::POLICY_OVERRIDE,
         asked: Asked::Always,
         run: |i| checks::policy_override(i.policy_overrides()),
     },
     Entry {
-        id: skills::SKILL_STATUS_UNSTATED,
+        spec: &skills::SKILL_STATUS_UNSTATED,
         asked: Asked::Always,
         run: |i| skills::skill_status_unstated(i.skills()),
     },
@@ -877,22 +860,22 @@ const ROSTER: &[Entry] = &[
     // of the three are in the report only where the build has a typechecker; see
     // `Asked::WithTypechecker`.
     Entry {
-        id: "calculator-script",
+        spec: &calculators::CALCULATOR_SCRIPT,
         asked: Asked::Always,
-        run: |i| i.calculator_checks()[0].clone(),
+        run: |i| i.calculator_checks().calculator_script.clone(),
     },
     Entry {
-        id: "calculator-scope",
+        spec: &calculators::CALCULATOR_SCOPE,
         asked: Asked::WithTypechecker,
-        run: |i| i.calculator_checks()[1].clone(),
+        run: |i| i.calculator_checks().calculator_scope.clone(),
     },
     Entry {
-        id: "calculator-type",
+        spec: &calculators::CALCULATOR_TYPE,
         asked: Asked::WithTypechecker,
-        run: |i| i.calculator_checks()[2].clone(),
+        run: |i| i.calculator_checks().calculator_type.clone(),
     },
     Entry {
-        id: "unrecognized-verb",
+        spec: &commits::UNRECOGNIZED_VERB,
         asked: Asked::WithCommits,
         run: |i| {
             let subjects = commits::read_subjects(i.root(), i.opts().range.as_deref());
@@ -989,7 +972,7 @@ fn suppress_unparsed(
     if unparsed.is_empty() {
         return;
     }
-    for check in all.iter_mut().filter(|c| c.id != checks::MALFORMED_YAML) {
+    for check in all.iter_mut().filter(|c| c.id != checks::MALFORMED_YAML.id) {
         check
             .violations
             .retain(|v| !unparsed.contains(file_of(&v.node)));
@@ -1573,14 +1556,13 @@ decision := {"allow": true, "deny": []}
 
     // ── #928: the roster ────────────────────────────────────────────────────────
 
-    /// **Every entry reports under the id it declares.**
+    /// **The report is the roster, in its order.**
     ///
-    /// The roster names each check's id beside its producer, and the producer stamps the id
-    /// on its own findings — two spellings of one string, which is exactly the drift this
-    /// repository keeps finding. This is what makes the duplication safe, and it is not
-    /// ceremony: twenty of the sixty-eight entries reach into an array a producer returns, and
-    /// `i.lineage_checks()[1]` picking the wrong element is a silent mislabelling that
-    /// renames a baseline entry's check and resolves the one it used to own.
+    /// What an invocation reports is read off the roster without running it — [`unasked`]
+    /// and `--explain` both do — so the checks a run produces have to be the entries it asks
+    /// for, one each and in roster order. Which check an entry produces is held by
+    /// [`every_entry_produces_the_check_its_spec_declares`], over every entry rather than the
+    /// asked ones.
     ///
     /// Run with `commits: true` so every entry an invocation can ask for is asked for; a roster
     /// entry nothing exercises is a roster entry nothing holds to anything. The entries this
@@ -1604,6 +1586,45 @@ decision := {"allow": true, "deny": []}
         assert_eq!(declared, reported);
     }
 
+    /// **Every entry produces the check its spec declares** (#1630).
+    ///
+    /// An entry names the [`CheckSpec`] it reports under and a producer that builds its check
+    /// from one. They are the same constant only if the entry reaches the right producer: a
+    /// group producer answers several checks from one walk, and an entry that takes the
+    /// neighbouring field of its `Checks` — as one indexing the wrong element of the array
+    /// these used to return would have — is a silent mislabelling that renames a baseline
+    /// entry's check and resolves the one it used to own. Its findings are someone else's
+    /// and nothing about the report looks wrong.
+    ///
+    /// Every entry is run, asked or not: an entry this build's options or features would not
+    /// ask for is still one a different invocation reports, and holding only the asked ones
+    /// would leave a typechecker-only entry unheld in the default build. The producer's check
+    /// is compared before [`run_checks`] escalates anything, so the severity compared is the
+    /// producer's own.
+    #[test]
+    fn every_entry_produces_the_check_its_spec_declares() {
+        let tmp = clean_repo();
+        let opts = Options {
+            commits: true,
+            ..Options::default()
+        };
+        let overlay = Overlay::default();
+        let corpus = crate::corpus::Corpus::open_with(tmp.path(), overlay.clone());
+        let authorship = crate::authorship::Authorship::load_or_default(tmp.path());
+        let input = input::Input::new(tmp.path(), &opts, &overlay, &corpus, &authorship);
+        let wrong: Vec<String> = ROSTER
+            .iter()
+            .filter_map(|e| {
+                let c = (e.run)(&input);
+                let s = e.spec;
+                let same = (c.id, c.title, c.severity, c.rationale)
+                    == (s.id, s.title, s.severity, s.rationale);
+                (!same).then(|| format!("the entry for `{}` produced `{}`", s.id, c.id))
+            })
+            .collect();
+        assert!(wrong.is_empty(), "{wrong:#?}");
+    }
+
     /// The ids the roster would report under `opts`, in order.
     ///
     /// Derived from the roster's own [`Asked`] rather than written down, because two of the
@@ -1614,7 +1635,7 @@ decision := {"allow": true, "deny": []}
         ROSTER
             .iter()
             .filter(|e| e.asked.of(opts))
-            .map(|e| e.id)
+            .map(|e| e.spec.id)
             .collect()
     }
 
@@ -1625,7 +1646,7 @@ decision := {"allow": true, "deny": []}
         let mut seen: HashSet<&str> = HashSet::new();
         let dupes: Vec<&str> = ROSTER
             .iter()
-            .map(|e| e.id)
+            .map(|e| e.spec.id)
             .filter(|id| !seen.insert(id))
             .collect();
         assert!(dupes.is_empty(), "{dupes:?}");
@@ -1910,7 +1931,7 @@ decision := {"allow": true, "deny": []}
         // slipping past the suppression is exactly what it would then fail to see.
         let elsewhere: Vec<(&str, &str)> = all
             .iter()
-            .filter(|c| c.id != checks::MALFORMED_YAML)
+            .filter(|c| c.id != checks::MALFORMED_YAML.id)
             .flat_map(|c| c.violations.iter().map(move |v| (c.id, v.node.as_str())))
             .filter(|(_, node)| node.starts_with(rel))
             .collect();
@@ -1990,7 +2011,7 @@ decision := {"allow": true, "deny": []}
 
         let elsewhere: Vec<(&str, &str)> = all
             .iter()
-            .filter(|c| c.id != checks::MALFORMED_YAML)
+            .filter(|c| c.id != checks::MALFORMED_YAML.id)
             .flat_map(|c| c.violations.iter().map(move |v| (c.id, v.node.as_str())))
             .filter(|(_, node)| node.starts_with(rel))
             .collect();

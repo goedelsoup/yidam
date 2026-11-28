@@ -45,6 +45,7 @@ use std::path::Path;
 use crate::corpus::Overlay;
 use crate::gluon_arm::entry::{self, Refused};
 
+use super::model::CheckSpec;
 use super::{Check, Severity, Violation};
 
 /// One declared calculator, and what could be decided about it.
@@ -123,11 +124,35 @@ fn admit(_step: &str, _text: &str) -> Option<Admission> {
     None
 }
 
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) calculator_script: Check,
+    pub(crate) calculator_scope: Check,
+    pub(crate) calculator_type: Check,
+}
+
 /// All three, so the one admission per script is performed once however many of its readings
 /// the roster asks for.
-pub(crate) fn checks(scripts: &[Script]) -> [Check; 3] {
-    [script(scripts), scope(scripts), shape(scripts)]
+pub(crate) fn checks(scripts: &[Script]) -> Checks {
+    Checks {
+        calculator_script: script(scripts),
+        calculator_scope: scope(scripts),
+        calculator_type: shape(scripts),
+    }
 }
+
+pub const CALCULATOR_SCRIPT: CheckSpec = CheckSpec {
+    id: "calculator-script",
+    title: "a declared calculator reads, and invokes no macro",
+    severity: Severity::Error,
+    rationale: "RFC-0042's arm is pure because its prelude is closed, and a macro is how a script \
+         reopens it: `import!` reaches any module on disk and `io.println` is one call away. \
+         Both halves of this check are decidable from the text, so the binary `install.sh` \
+         downloads refuses exactly what a binary built with the engine refuses — a gate whose \
+         verdict depended on which build the reader was holding would be the divergence the \
+         RFC warns about, arriving through the gate instead of through the vocabulary.",
+};
 
 /// The refusal every build can reach: the declaration names a file that reads, and what it
 /// names is not reaching for a macro.
@@ -151,35 +176,38 @@ fn script(scripts: &[Script]) -> Check {
             }
         }
     }
-    Check::new(
-        "calculator-script",
-        "a declared calculator reads, and invokes no macro",
-        Severity::Error,
-        "RFC-0042's arm is pure because its prelude is closed, and a macro is how a script \
-         reopens it: `import!` reaches any module on disk and `io.println` is one call away. \
-         Both halves of this check are decidable from the text, so the binary `install.sh` \
-         downloads refuses exactly what a binary built with the engine refuses — a gate whose \
-         verdict depended on which build the reader was holding would be the divergence the \
-         RFC warns about, arriving through the gate instead of through the vocabulary.",
-        violations,
-    )
+    Check::new(&CALCULATOR_SCRIPT, violations)
 }
 
-/// A name the prelude does not bind. The typechecker reports it, and it is not a type failure.
-fn scope(scripts: &[Script]) -> Check {
-    Check::new(
-        "calculator-scope",
-        "a calculator names only what the prelude binds",
-        Severity::Error,
+pub const CALCULATOR_SCOPE: CheckSpec = CheckSpec {
+    id: "calculator-scope",
+    title: "a calculator names only what the prelude binds",
+    severity: Severity::Error,
+    rationale:
         "The commonest way to write a calculator that cannot run is to reach for a module the \
          prelude does not inject — the arm has no `import!`, so the names a script has are \
          exactly the ones it was given. The typechecker is what notices, which is why this is \
          reported as scope and not as type: the script did not get its shape wrong, it named \
          something that is not there, and the fix is a different arm rather than a different \
          signature.",
-        refused(scripts, Refused::Scope),
-    )
+};
+
+/// A name the prelude does not bind. The typechecker reports it, and it is not a type failure.
+fn scope(scripts: &[Script]) -> Check {
+    Check::new(&CALCULATOR_SCOPE, refused(scripts, Refused::Scope))
 }
+
+pub const CALCULATOR_TYPE: CheckSpec = CheckSpec {
+    id: "calculator-type",
+    title: "a declared calculator is `Corpus -> Computed`",
+    severity: Severity::Error,
+    rationale:
+        "A typed calculator is a function from the corpus to the signals it computes, and a \
+         script of any other type is not one — including the near miss the type system is there \
+         to catch, a script that performs an effect and so has type `IO _` in a position where \
+         only a value belongs. Refused here rather than at the step, because a corpus should not \
+         have to invoke a calculator to find out it never could have.",
+};
 
 /// The shape. A calculator is `Corpus -> Computed` and nothing else is one.
 fn shape(scripts: &[Script]) -> Check {
@@ -202,17 +230,7 @@ fn shape(scripts: &[Script]) -> Check {
             );
         }
     }
-    Check::new(
-        "calculator-type",
-        "a declared calculator is `Corpus -> Computed`",
-        Severity::Error,
-        "A typed calculator is a function from the corpus to the signals it computes, and a \
-         script of any other type is not one — including the near miss the type system is there \
-         to catch, a script that performs an effect and so has type `IO _` in a position where \
-         only a value belongs. Refused here rather than at the step, because a corpus should not \
-         have to invoke a calculator to find out it never could have.",
-        violations,
-    )
+    Check::new(&CALCULATOR_TYPE, violations)
 }
 
 /// The findings of one kind, filed against the script rather than the manifest.
@@ -277,7 +295,12 @@ mod tests {
     #[test]
     fn a_calculator_that_admits_is_not_a_finding() {
         let scripts = [script("calc/x.glu", Some("\\c -> c"), Some(Admission::Ok))];
-        for c in checks(&scripts) {
+        let Checks {
+            calculator_script,
+            calculator_scope,
+            calculator_type,
+        } = checks(&scripts);
+        for c in [calculator_script, calculator_scope, calculator_type] {
             assert!(c.passed(), "{c:?}");
         }
     }
@@ -304,7 +327,11 @@ mod tests {
                 ))),
             ),
         ];
-        let [_, scope, shape] = checks(&scripts);
+        let Checks {
+            calculator_scope: scope,
+            calculator_type: shape,
+            ..
+        } = checks(&scripts);
         assert_eq!(scope.violations.len(), 1, "{scope:?}");
         assert_eq!(scope.violations[0].node, "calc/a.glu");
         assert_eq!(shape.violations.len(), 1, "{shape:?}");
@@ -319,7 +346,11 @@ mod tests {
             Some("\\c -> c"),
             Some(Admission::Ice("panicked at ice.rs".to_string())),
         )];
-        let [_, scope, shape] = checks(&scripts);
+        let Checks {
+            calculator_scope: scope,
+            calculator_type: shape,
+            ..
+        } = checks(&scripts);
         assert!(scope.passed(), "{scope:?}");
         assert_eq!(shape.violations.len(), 1, "{shape:?}");
         assert_eq!(
@@ -332,7 +363,12 @@ mod tests {
     /// Nothing declared, nothing read, nothing reported — the state of every corpus today.
     #[test]
     fn a_corpus_declaring_no_calculator_reports_nothing() {
-        for c in checks(&[]) {
+        let Checks {
+            calculator_script,
+            calculator_scope,
+            calculator_type,
+        } = checks(&[]);
+        for c in [calculator_script, calculator_scope, calculator_type] {
             assert!(c.passed(), "{c:?}");
         }
     }

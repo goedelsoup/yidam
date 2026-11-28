@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use crate::parse::{CATALOG_LOCATION_KINDS, CATALOG_LOCATION_KINDS_RETIRED, CATALOG_TYPES};
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use super::quotations::Declared;
 use crate::corpus::{
     authored_relationships, edge_views, normalize, sink_classes, source_classes, Class,
@@ -82,6 +82,20 @@ const PURPOSE_PHRASES: &[&str] = &[
     "with the intent",
 ];
 
+pub const POLICY_OVERRIDE: CheckSpec = CheckSpec {
+    id: "policy-override",
+    title: "A disclosure decision is this repository's own rule",
+    severity: Severity::Info,
+    rationale:
+        "A policy in `.yidam/policy/` supersedes the default `yidam` carries, and may permit \
+         what the default refused — that is the authoritative model RFC-0024 settled on, and a \
+         repository is entitled to use it. This check does not object to that. It exists so \
+         that the choice cannot be made quietly: a guard loosened in a file nobody reads is the \
+         shape `.yidam/private-paths` was built to end, where access control looked enforced \
+         and was not. Record why in `.yidam/decisions/`, and use `yidam policy test` to see \
+         exactly which inherited expectations your rule changed.",
+};
+
 /// Class definitions whose `description` asserts a purpose.
 ///
 /// **Why this check exists where no instance-level check could.** Every other rule in a
@@ -148,36 +162,14 @@ pub fn policy_override(overrides: &[(String, String)]) -> Check {
             .at(Severity::Info)
         })
         .collect();
-    Check::new(
-        "policy-override",
-        "A disclosure decision is this repository's own rule",
-        Severity::Info,
-        "A policy in `.yidam/policy/` supersedes the default `yidam` carries, and may permit \
-         what the default refused — that is the authoritative model RFC-0024 settled on, and a \
-         repository is entitled to use it. This check does not object to that. It exists so \
-         that the choice cannot be made quietly: a guard loosened in a file nobody reads is the \
-         shape `.yidam/private-paths` was built to end, where access control looked enforced \
-         and was not. Record why in `.yidam/decisions/`, and use `yidam policy test` to see \
-         exactly which inherited expectations your rule changed.",
-        violations,
-    )
+    Check::new(&POLICY_OVERRIDE, violations)
 }
 
-pub fn class_asserts_purpose(classes: &[Class]) -> Check {
-    let violations = classes
-        .iter()
-        .filter_map(|c| {
-            let (hit, sentence) = first_purpose_phrase(&c.description)?;
-            Some(Violation::new(
-                &c.rel,
-                format!("`description` says \"{hit}\" — a purpose, not a kind: \"{sentence}\""),
-            ))
-        })
-        .collect();
-    Check::new(
-        "class-asserts-purpose",
-        "Class definition asserts a purpose rather than describing a kind",
-        Severity::Warn,
+pub const CLASS_ASSERTS_PURPOSE: CheckSpec = CheckSpec {
+    id: "class-asserts-purpose",
+    title: "Class definition asserts a purpose rather than describing a kind",
+    severity: Severity::Warn,
+    rationale:
         "A claim tag attaches to a claim somebody makes on a node. A class definition is read \
          differently — it is the meaning every instance takes on by being filed under the \
          class, asserted identically and untagged for each. So a class whose description \
@@ -196,8 +188,20 @@ pub fn class_asserts_purpose(classes: &[Class]) -> Check {
          escape hatch above. The first reports a tag that is MALFORMED, so a well-formed tag \
          in `analytic_note` stays exactly as fine as this sentence offers; the second reports \
          a count and gates on nothing.",
-        violations,
-    )
+};
+
+pub fn class_asserts_purpose(classes: &[Class]) -> Check {
+    let violations = classes
+        .iter()
+        .filter_map(|c| {
+            let (hit, sentence) = first_purpose_phrase(&c.description)?;
+            Some(Violation::new(
+                &c.rel,
+                format!("`description` says \"{hit}\" — a purpose, not a kind: \"{sentence}\""),
+            ))
+        })
+        .collect();
+    Check::new(&CLASS_ASSERTS_PURPOSE, violations)
 }
 
 /// The longest a quoted sentence gets before the middle is elided.
@@ -276,6 +280,20 @@ fn elide(sentence: &str, hit: &str) -> String {
 
 // ── corpus structure ──────────────────────────────────────────────────────────
 
+pub const FOUNDATIONAL_FIELD_MISSPELLED: CheckSpec = CheckSpec {
+    id: "foundational-field-misspelled",
+    title: "Class declares foundational alignment in a field nothing reads",
+    severity: Severity::Error,
+    rationale: "Foundational alignment is `foundational_type:`, carrying `ontology: bfo|ufo`, a \
+         `type:`, and optionally the `iri:` that type has in that ontology. `bfo_type:` and \
+         `ufo_type:` were never read by anything — they are what bootstrap's prose asked for \
+         while its own template asked for `foundational_type:`. `bfo_anchor:` was read by \
+         `export-rdf` and written by nothing, and was BFO-only besides, so a UFO-aligned \
+         corpus could not use it. A class carrying one of these has stated an alignment that \
+         no gate, query, or export can see, which is worse than stating none: the corpus \
+         believes it is aligned. RFC-0013 is the record.",
+};
+
 /// A class file naming foundational alignment in a spelling nothing reads.
 ///
 /// `foundational_type:` is the field: `yidam schema` validates it, the bootstrap template
@@ -305,21 +323,21 @@ pub fn foundational_field_misspelled(classes: &[Class]) -> Check {
             })
         })
         .collect();
-    Check::new(
-        "foundational-field-misspelled",
-        "Class declares foundational alignment in a field nothing reads",
-        Severity::Error,
-        "Foundational alignment is `foundational_type:`, carrying `ontology: bfo|ufo`, a \
-         `type:`, and optionally the `iri:` that type has in that ontology. `bfo_type:` and \
-         `ufo_type:` were never read by anything — they are what bootstrap's prose asked for \
-         while its own template asked for `foundational_type:`. `bfo_anchor:` was read by \
-         `export-rdf` and written by nothing, and was BFO-only besides, so a UFO-aligned \
-         corpus could not use it. A class carrying one of these has stated an alignment that \
-         no gate, query, or export can see, which is worse than stating none: the corpus \
-         believes it is aligned. RFC-0013 is the record.",
-        violations,
-    )
+    Check::new(&FOUNDATIONAL_FIELD_MISSPELLED, violations)
 }
+
+pub const FOUNDATIONAL_TYPE_MALFORMED: CheckSpec = CheckSpec {
+    id: "foundational-type-malformed",
+    title: "Class declares a foundational alignment that cannot be resolved",
+    severity: Severity::Error,
+    rationale: "`foundational_type:` carries `ontology: bfo` or `ontology: ufo`, a non-empty \
+         `type:`, and optionally an `iri:` beginning `http://` or `https://`. An alignment \
+         outside that shape reaches RDF as a literal no consumer can follow, which leaves \
+         the corpus asserting an alignment nothing can check — the state #613 found across \
+         four field names. The `type:` itself is not checked against BFO or UFO: their term \
+         sets are theirs to revise, and a copy of them in this binary would start refusing \
+         terms a corpus is right to use.",
+};
 
 /// A class that declared an alignment the vocabulary does not have.
 ///
@@ -360,20 +378,20 @@ pub fn foundational_type_malformed(classes: &[Class]) -> Check {
             Some(Violation::new(&c.rel, problem))
         })
         .collect();
-    Check::new(
-        "foundational-type-malformed",
-        "Class declares a foundational alignment that cannot be resolved",
-        Severity::Error,
-        "`foundational_type:` carries `ontology: bfo` or `ontology: ufo`, a non-empty \
-         `type:`, and optionally an `iri:` beginning `http://` or `https://`. An alignment \
-         outside that shape reaches RDF as a literal no consumer can follow, which leaves \
-         the corpus asserting an alignment nothing can check — the state #613 found across \
-         four field names. The `type:` itself is not checked against BFO or UFO: their term \
-         sets are theirs to revise, and a copy of them in this binary would start refusing \
-         terms a corpus is right to use.",
-        violations,
-    )
+    Check::new(&FOUNDATIONAL_TYPE_MALFORMED, violations)
 }
+
+pub const LIST_DECLARATION_INVALID: CheckSpec = CheckSpec {
+    id: "list-declaration-invalid",
+    title: "Class declares a list whose items cannot be read",
+    severity: Severity::Error,
+    rationale: "A `list` declares its items with `items:`, naming one scalar type, or with \
+         `fields:`, declaring a record — or with neither, and then holds any non-empty list. \
+         Both at once, an `items:` naming a list, a quotation or a coined type, or a record \
+         field typed `list` or `quotation` is a declaration nothing can hold an instance to, \
+         and the gate falls back to checking only that the value is a list. Reported here so \
+         the fallback is not silent.",
+};
 
 /// A `list` declaration that cannot be read as either form (RFC-0050).
 ///
@@ -392,19 +410,21 @@ pub fn list_declaration_invalid(classes: &[Class]) -> Check {
             })
         })
         .collect();
-    Check::new(
-        "list-declaration-invalid",
-        "Class declares a list whose items cannot be read",
-        Severity::Error,
-        "A `list` declares its items with `items:`, naming one scalar type, or with \
-         `fields:`, declaring a record — or with neither, and then holds any non-empty list. \
-         Both at once, an `items:` naming a list, a quotation or a coined type, or a record \
-         field typed `list` or `quotation` is a declaration nothing can hold an instance to, \
-         and the gate falls back to checking only that the value is a list. Reported here so \
-         the fallback is not silent.",
-        violations,
-    )
+    Check::new(&LIST_DECLARATION_INVALID, violations)
 }
+
+pub const PROPERTY_TYPE_UNKNOWN: CheckSpec = CheckSpec {
+    id: "property-type-unknown",
+    title: "Class declares a property type nothing reads",
+    severity: Severity::Warn,
+    rationale:
+        "A `type:` the tooling does not define is read by nothing: `property-type` leaves its \
+         values alone, the compiled schema admits anything, and a standing or a `source` \
+         inside it is neither graded nor resolved. A corpus that coins `type: effect` for a \
+         list of evidenced entries gets no finding, and its entries no checks. Reported so \
+         the choice is made knowingly: a known type, or a `list` with `fields:` for a value \
+         that holds records. Not a gate, because a coined type is unread, not wrong.",
+};
 
 /// A declared `type:` that no reader grades (#1391).
 ///
@@ -445,23 +465,32 @@ pub fn property_type_unknown(classes: &[Class]) -> Check {
             )
         })
         .collect();
-    Check::new(
-        "property-type-unknown",
-        "Class declares a property type nothing reads",
-        Severity::Warn,
-        "A `type:` the tooling does not define is read by nothing: `property-type` leaves its \
-         values alone, the compiled schema admits anything, and a standing or a `source` \
-         inside it is neither graded nor resolved. A corpus that coins `type: effect` for a \
-         list of evidenced entries gets no finding, and its entries no checks. Reported so \
-         the choice is made knowingly: a known type, or a `list` with `fields:` for a value \
-         that holds records. Not a gate, because a coined type is unread, not wrong.",
-        violations,
-    )
+    Check::new(&PROPERTY_TYPE_UNKNOWN, violations)
 }
 
 /// The id of [`malformed_yaml`], named once so the suppression it licenses cannot come to
 /// mean a check that no longer exists.
-pub const MALFORMED_YAML: &str = "malformed-yaml";
+pub const MALFORMED_YAML: CheckSpec = CheckSpec {
+    id: "malformed-yaml",
+    title: "File that is not the YAML it is read as",
+    severity: Severity::Error,
+    rationale: "A file the parser rejects reaches every other check as an empty record, and an \
+         empty record is not the same claim as an empty file. On an instance that reads as a \
+         node declaring nothing, so the report contradicts the file it names. On a \
+         `<class>.ont.yml` it reads as a class declaring no properties and licensing no \
+         edges, which is indistinguishable from an ontology nobody has filled in — and five \
+         checks that gate on those declarations find nothing to check and pass. That is a \
+         false negative in a gate, produced by a typo, and nothing else in the report can \
+         say it happened. On a catalog entry it reads as an entry with no TTL, no `used-by` \
+         and no artifacts that never declared `obtained: false` — so it is read as obtained, \
+         governed by nothing, and cited by nothing. On a decision record it reads as a record \
+         with no `id:` and no `summary:`, which the log renders under its file stem with an em \
+         dash, indistinguishable from a record nobody filled in. On \
+         `.yidam/corpus/universal.yml` it reads as a corpus that declared nothing universal, \
+         so every property that file permits is reported against the instances carrying it, \
+         and the edge-tagging gate it turns on is off. Every other finding about the file is \
+         suppressed: fix the parse error and they come back, correct this time.",
+};
 
 /// A corpus file whose bytes are not the document the model reads them as.
 ///
@@ -568,33 +597,27 @@ pub fn malformed_yaml(
             ))
         })
         .collect();
-    Check::new(
-        MALFORMED_YAML,
-        "File that is not the YAML it is read as",
-        Severity::Error,
-        "A file the parser rejects reaches every other check as an empty record, and an \
-         empty record is not the same claim as an empty file. On an instance that reads as a \
-         node declaring nothing, so the report contradicts the file it names. On a \
-         `<class>.ont.yml` it reads as a class declaring no properties and licensing no \
-         edges, which is indistinguishable from an ontology nobody has filled in — and five \
-         checks that gate on those declarations find nothing to check and pass. That is a \
-         false negative in a gate, produced by a typo, and nothing else in the report can \
-         say it happened. On a catalog entry it reads as an entry with no TTL, no `used-by` \
-         and no artifacts that never declared `obtained: false` — so it is read as obtained, \
-         governed by nothing, and cited by nothing. On a decision record it reads as a record \
-         with no `id:` and no `summary:`, which the log renders under its file stem with an em \
-         dash, indistinguishable from a record nobody filled in. On \
-         `.yidam/corpus/universal.yml` it reads as a corpus that declared nothing universal, \
-         so every property that file permits is reported against the instances carrying it, \
-         and the edge-tagging gate it turns on is off. Every other finding about the file is \
-         suppressed: fix the parse error and they come back, correct this time.",
-        violations,
-    )
+    Check::new(&MALFORMED_YAML, violations)
 }
 
 /// The id of [`findings_malformed`], named once beside the check it licenses nothing for — it
 /// is spelled here for the reason [`MALFORMED_YAML`] is, so the two read as the pair they are.
-pub const FINDINGS_MALFORMED: &str = "findings-malformed";
+pub const FINDINGS_MALFORMED: CheckSpec = CheckSpec {
+    id: "findings-malformed",
+    title: "Document whose findings block is not the record it is read as",
+    severity: Severity::Error,
+    rationale:
+        "The `yidam:` block is where `yidam propose` records the questions it has opened, and a \
+         block the parser rejects was read as no findings at all — so one entry missing its \
+         `check:` lost every finding on the document and nothing said so. What follows is not a \
+         gap in a report: a document with no readable block looks like a document with nothing \
+         outstanding, so `propose` opens every finding on it again with a fresh `opened_at`, and \
+         the ids an author has already closed come back. The file itself parses — unknown \
+         top-level keys are carried, so neither the instance nor the catalog entry reports a \
+         parse failure — which is why this is reported apart from `malformed-yaml`. Nothing but \
+         `propose` writes under this key, so a block of the wrong shape is never something a \
+         corpus chose.",
+};
 
 /// A document whose `yidam:` block is not the record this tool writes there.
 ///
@@ -640,23 +663,17 @@ pub fn findings_malformed(nodes: &[Node], sources: &[Source]) -> Check {
             ))
         })
         .collect();
-    Check::new(
-        FINDINGS_MALFORMED,
-        "Document whose findings block is not the record it is read as",
-        Severity::Error,
-        "The `yidam:` block is where `yidam propose` records the questions it has opened, and a \
-         block the parser rejects was read as no findings at all — so one entry missing its \
-         `check:` lost every finding on the document and nothing said so. What follows is not a \
-         gap in a report: a document with no readable block looks like a document with nothing \
-         outstanding, so `propose` opens every finding on it again with a fresh `opened_at`, and \
-         the ids an author has already closed come back. The file itself parses — unknown \
-         top-level keys are carried, so neither the instance nor the catalog entry reports a \
-         parse failure — which is why this is reported apart from `malformed-yaml`. Nothing but \
-         `propose` writes under this key, so a block of the wrong shape is never something a \
-         corpus chose.",
-        violations,
-    )
+    Check::new(&FINDINGS_MALFORMED, violations)
 }
+
+pub const MISSING_CLASS: CheckSpec = CheckSpec {
+    id: "missing-class",
+    title: "Instance declaring no class",
+    severity: Severity::Error,
+    rationale: "An instance's class is what binds it to a schema. Without one there is nothing to \
+         validate the node against and nothing to render it as — it is a YAML file in a \
+         corpus directory, not a node.",
+};
 
 pub fn missing_class(nodes: &[Node]) -> Check {
     let violations = nodes
@@ -664,16 +681,17 @@ pub fn missing_class(nodes: &[Node]) -> Check {
         .filter(|n| n.inst.class.is_none())
         .map(|n| Violation::new(&n.rel, "no `class:` field"))
         .collect();
-    Check::new(
-        "missing-class",
-        "Instance declaring no class",
-        Severity::Error,
-        "An instance's class is what binds it to a schema. Without one there is nothing to \
-         validate the node against and nothing to render it as — it is a YAML file in a \
-         corpus directory, not a node.",
-        violations,
-    )
+    Check::new(&MISSING_CLASS, violations)
 }
+
+pub const UNKNOWN_CLASS: CheckSpec = CheckSpec {
+    id: "unknown-class",
+    title: "Instance of a class that has no schema",
+    severity: Severity::Error,
+    rationale: "Either the class file was never written or the instance misspells it. Both leave \
+         the node unvalidatable, and a misspelling additionally splits one class into two \
+         that no query will join.",
+};
 
 pub fn unknown_class(nodes: &[Node], defined: &HashSet<String>) -> Check {
     // With no .ont.yml files at all, every class is "unknown" and the check would report
@@ -692,16 +710,17 @@ pub fn unknown_class(nodes: &[Node], defined: &HashSet<String>) -> Check {
             })
             .collect()
     };
-    Check::new(
-        "unknown-class",
-        "Instance of a class that has no schema",
-        Severity::Error,
-        "Either the class file was never written or the instance misspells it. Both leave \
-         the node unvalidatable, and a misspelling additionally splits one class into two \
-         that no query will join.",
-        violations,
-    )
+    Check::new(&UNKNOWN_CLASS, violations)
 }
+
+pub const MISSING_LABEL: CheckSpec = CheckSpec {
+    id: "missing-label",
+    title: "Instance with no human-readable label",
+    severity: Severity::Warn,
+    rationale: "The label is what every index, export, and graph rendering shows. Without it a \
+         reader gets a filename, which is an identifier chosen for stability rather than \
+         for saying what the thing is.",
+};
 
 pub fn missing_label(nodes: &[Node]) -> Check {
     let violations = nodes
@@ -709,16 +728,19 @@ pub fn missing_label(nodes: &[Node]) -> Check {
         .filter(|n| n.inst.label.is_none())
         .map(|n| Violation::new(&n.rel, "no `label:` field"))
         .collect();
-    Check::new(
-        "missing-label",
-        "Instance with no human-readable label",
-        Severity::Warn,
-        "The label is what every index, export, and graph rendering shows. Without it a \
-         reader gets a filename, which is an identifier chosen for stability rather than \
-         for saying what the thing is.",
-        violations,
-    )
+    Check::new(&MISSING_LABEL, violations)
 }
+
+pub const MISSING_DESCRIPTION: CheckSpec = CheckSpec {
+    id: "missing-description",
+    title: "Instance with no description",
+    severity: Severity::Warn,
+    rationale: "The prose is the node's content. An instance with properties and links but \
+         nothing said about it records that something exists without recording what is \
+         known about it. What counts as prose is what the ontology declares — a node \
+         carrying a `summary` and no `description` has said something, and reporting it \
+         here would report the corpus using a vocabulary it declared.",
+};
 
 pub fn missing_description(nodes: &[Node], prose: &crate::prose::ProseFields) -> Check {
     let violations = nodes
@@ -736,18 +758,18 @@ pub fn missing_description(nodes: &[Node], prose: &crate::prose::ProseFields) ->
             )
         })
         .collect();
-    Check::new(
-        "missing-description",
-        "Instance with no description",
-        Severity::Warn,
-        "The prose is the node's content. An instance with properties and links but \
-         nothing said about it records that something exists without recording what is \
-         known about it. What counts as prose is what the ontology declares — a node \
-         carrying a `summary` and no `description` has said something, and reporting it \
-         here would report the corpus using a vocabulary it declared.",
-        violations,
-    )
+    Check::new(&MISSING_DESCRIPTION, violations)
 }
+
+pub const ORPHAN_OUT: CheckSpec = CheckSpec {
+    id: "orphan-out",
+    title: "Node connected to nothing",
+    severity: Severity::Error,
+    rationale: "Every node must carry at least one outgoing edge. A node with none is unreachable \
+         by traversal from anywhere, which in a graph whose value is its connectivity means \
+         it is not in the graph at all. A class whose instances legitimately end a path — a \
+         root, a glossary entry, a terminal source — says so with `outgoing: optional`.",
+};
 
 /// A node with no outgoing link, unless its class declares `outgoing: optional` (RFC-0064 §6).
 pub fn orphan_out(nodes: &[Node], classes: &[Class]) -> Check {
@@ -762,17 +784,18 @@ pub fn orphan_out(nodes: &[Node], classes: &[Class]) -> Check {
         .filter(|n| !exempt.contains(class_of(n).as_str()))
         .map(|n| Violation::new(&n.rel, "no outgoing links"))
         .collect();
-    Check::new(
-        "orphan-out",
-        "Node connected to nothing",
-        Severity::Error,
-        "Every node must carry at least one outgoing edge. A node with none is unreachable \
-         by traversal from anywhere, which in a graph whose value is its connectivity means \
-         it is not in the graph at all. A class whose instances legitimately end a path — a \
-         root, a glossary entry, a terminal source — says so with `outgoing: optional`.",
-        violations,
-    )
+    Check::new(&ORPHAN_OUT, violations)
 }
+
+pub const DANGLING_EDGE: CheckSpec = CheckSpec {
+    id: "dangling-edge",
+    title: "Edge pointing at nothing",
+    severity: Severity::Error,
+    rationale: "A broken edge is worse than a missing one: it asserts a relationship to something \
+         that is not there, so a reader following it learns nothing and a traversal counting \
+         it overstates the graph's connectivity. Renaming a node severs every edge into it, \
+         which is why node filenames are meant to be stable.",
+};
 
 /// An edge whose target is not there.
 ///
@@ -808,17 +831,7 @@ pub fn dangling_edge(nodes: &[Node], edges: &Edges) -> Check {
             }
         }
     }
-    Check::new(
-        "dangling-edge",
-        "Edge pointing at nothing",
-        Severity::Error,
-        "A broken edge is worse than a missing one: it asserts a relationship to something \
-         that is not there, so a reader following it learns nothing and a traversal counting \
-         it overstates the graph's connectivity. Renaming a node severs every edge into it, \
-         which is why node filenames are meant to be stable.",
-        violations,
-    )
-    .spanning_links()
+    Check::new(&DANGLING_EDGE, violations).spanning_links()
 }
 
 /// The class an instance belongs to, from its path: `.yidam/corpus/person/x.yml` → `person`.
@@ -866,6 +879,31 @@ fn stem_of(rel: &str) -> &str {
         .or_else(|| last.strip_suffix(".yml"))
         .unwrap_or(last)
 }
+
+pub const NAME_NOT_A_SLUG: CheckSpec = CheckSpec {
+    id: "name-not-a-slug",
+    title: "Name that cannot be put in a URI",
+    severity: Severity::Error,
+    rationale:
+        "A node's id is `<class>/<name>`, and that id is rendered as an MCP resource URI, an \
+         LSP `file://` document URI, a web route and an RDF subject. The three that build the \
+         string do it three different ways: the MCP surface interpolates raw and matches back \
+         with `strip_prefix`, so a space produces a URI no client can round-trip; the LSP \
+         escapes a space and nothing else; only the web editor encodes per segment. So a name \
+         outside the slug set does not fail loudly, it fails as a resource that cannot be \
+         fetched.\n\n\
+         Measured across sixteen corpora and 2,764 instance nodes: fourteen have no finding, \
+         and the only non-alphabetic characters those fourteen use are `-` and the digits. Two \
+         do have findings — 6 and 16 — and both are the youngest corpora measured, both because \
+         their class names came from their domain's vocabulary in its own case: a manufacturing \
+         corpus writes `NonConformance`, a water-quality one writes `DischargePoint`. So this is \
+         a convention corpora converge on with maturity rather than one they start with.\n\n\
+         Error anyway, because the finding is true: a name outside this set names a resource no \
+         client can fetch, and reporting that quietly would not make it fetchable. What makes it \
+         survivable is the baseline — `yidam lint --bless` records the names a corpus already \
+         has, and the check still stops the next one. Renaming is what costs, because an edge \
+         into a node is written by its name.",
+};
 
 /// A node or class whose name cannot survive being put in a URI.
 ///
@@ -919,31 +957,28 @@ pub fn name_not_a_slug(nodes: &[Node], classes: &[Class]) -> Check {
             ));
         }
     }
-    Check::new(
-        "name-not-a-slug",
-        "Name that cannot be put in a URI",
-        Severity::Error,
-        "A node's id is `<class>/<name>`, and that id is rendered as an MCP resource URI, an \
-         LSP `file://` document URI, a web route and an RDF subject. The three that build the \
-         string do it three different ways: the MCP surface interpolates raw and matches back \
-         with `strip_prefix`, so a space produces a URI no client can round-trip; the LSP \
-         escapes a space and nothing else; only the web editor encodes per segment. So a name \
-         outside the slug set does not fail loudly, it fails as a resource that cannot be \
-         fetched.\n\n\
-         Measured across sixteen corpora and 2,764 instance nodes: fourteen have no finding, \
-         and the only non-alphabetic characters those fourteen use are `-` and the digits. Two \
-         do have findings — 6 and 16 — and both are the youngest corpora measured, both because \
-         their class names came from their domain's vocabulary in its own case: a manufacturing \
-         corpus writes `NonConformance`, a water-quality one writes `DischargePoint`. So this is \
-         a convention corpora converge on with maturity rather than one they start with.\n\n\
-         Error anyway, because the finding is true: a name outside this set names a resource no \
-         client can fetch, and reporting that quietly would not make it fetchable. What makes it \
-         survivable is the baseline — `yidam lint --bless` records the names a corpus already \
-         has, and the check still stops the next one. Renaming is what costs, because an edge \
-         into a node is written by its name.",
-        violations,
-    )
+    Check::new(&NAME_NOT_A_SLUG, violations)
 }
+
+pub const REFERENCE_NOT_IN_THE_GRAMMAR: CheckSpec = CheckSpec {
+    id: "reference-not-in-the-grammar",
+    title: "A `references:` entry that is not a reference",
+    severity: Severity::Warn,
+    rationale:
+        "`references:` is where a node names something that is not a node — an issue, a crate, a \
+         catalog entry, a decision — and every entry is a reference in RFC-0032's grammar, written \
+         as a string. `yidam_core::uri` is the one parser, so an entry it cannot resolve is an \
+         entry no surface can: not the MCP resource namespace, not the RDF export, not a rendered \
+         citation.\n\n\
+         The finding names which rule the entry missed, because \"not a reference\" is not \
+         actionable and the three causes have three different fixes: a segment count that does not \
+         match the kind, a segment that cannot survive being put in a URI, or a fragment that does \
+         not name what its kind's fragment names.\n\n\
+         Warn rather than Error because the field is new and nothing writes it yet: 496 references \
+         across five corpora are still inside evidence-tag brackets, which is the population \
+         `yidam migrate references` moves. A finding here is a typo in a file somebody is already \
+         editing, and the baseline is what keeps it from going quiet.",
+};
 
 /// A `references:` entry that is not a reference in the grammar.
 ///
@@ -975,25 +1010,7 @@ pub fn reference_not_in_the_grammar(nodes: &[Node]) -> Check {
             }
         }
     }
-    Check::new(
-        "reference-not-in-the-grammar",
-        "A `references:` entry that is not a reference",
-        Severity::Warn,
-        "`references:` is where a node names something that is not a node — an issue, a crate, a \
-         catalog entry, a decision — and every entry is a reference in RFC-0032's grammar, written \
-         as a string. `yidam_core::uri` is the one parser, so an entry it cannot resolve is an \
-         entry no surface can: not the MCP resource namespace, not the RDF export, not a rendered \
-         citation.\n\n\
-         The finding names which rule the entry missed, because \"not a reference\" is not \
-         actionable and the three causes have three different fixes: a segment count that does not \
-         match the kind, a segment that cannot survive being put in a URI, or a fragment that does \
-         not name what its kind's fragment names.\n\n\
-         Warn rather than Error because the field is new and nothing writes it yet: 496 references \
-         across five corpora are still inside evidence-tag brackets, which is the population \
-         `yidam migrate references` moves. A finding here is a typo in a file somebody is already \
-         editing, and the baseline is what keeps it from going quiet.",
-        violations,
-    )
+    Check::new(&REFERENCE_NOT_IN_THE_GRAMMAR, violations)
 }
 
 /// Why an entry is not a reference, or `None` when it is one.
@@ -1050,6 +1067,18 @@ fn why_not_a_reference(entry: &str) -> Option<String> {
     Some("is not a reference the grammar can resolve".to_string())
 }
 
+pub const ORPHAN_IN: CheckSpec = CheckSpec {
+    id: "orphan-in",
+    title: "Node nothing points to",
+    severity: Severity::Info,
+    rationale: "Instances of a class the ontology declares no inbound edge for — from either end \
+         of the edge — are exempt: nothing is meant to point at them, so an orphan there is \
+         the model working. \
+         What remains is a class whose *other* instances are cited and this one is not, \
+         which is the asymmetry worth reading. Still reported rather than gated: a node \
+         authored this morning legitimately has no inbound edges yet.",
+};
+
 pub fn orphan_in(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
     // Classes the ontology says nothing points at. Their instances are exempt: an orphan
     // there is the model holding, not the corpus failing.
@@ -1063,19 +1092,19 @@ pub fn orphan_in(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
         .filter(|n| !exempt.contains(&class_of(n)))
         .map(|n| Violation::new(&n.rel, "nothing links to this node"))
         .collect();
-    Check::new(
-        "orphan-in",
-        "Node nothing points to",
-        Severity::Info,
-        "Instances of a class the ontology declares no inbound edge for — from either end \
-         of the edge — are exempt: nothing is meant to point at them, so an orphan there is \
-         the model working. \
-         What remains is a class whose *other* instances are cited and this one is not, \
-         which is the asymmetry worth reading. Still reported rather than gated: a node \
-         authored this morning legitimately has no inbound edges yet.",
-        violations,
-    )
+    Check::new(&ORPHAN_IN, violations)
 }
+
+pub const ONLY_INSTANCE_OF: CheckSpec = CheckSpec {
+    id: "only-instance-of",
+    title: "Node linked only to its class",
+    severity: Severity::Warn,
+    rationale: "A node whose only link is to its own class records that something exists without \
+         relating it to anything — a stub, or what a bulk import left behind. Instances of a \
+         class the ontology names only as a target are exempt: a leaf there is the model \
+         working. What remains is a class that declares relationships its instances author, \
+         and a node carrying none of them.",
+};
 
 /// A node whose every link is its own class membership (#1072).
 ///
@@ -1140,17 +1169,7 @@ pub fn only_instance_of(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Che
             Some(Violation::new(&n.rel, detail))
         })
         .collect();
-    Check::new(
-        "only-instance-of",
-        "Node linked only to its class",
-        Severity::Warn,
-        "A node whose only link is to its own class records that something exists without \
-         relating it to anything — a stub, or what a bulk import left behind. Instances of a \
-         class the ontology names only as a target are exempt: a leaf there is the model \
-         working. What remains is a class that declares relationships its instances author, \
-         and a node carrying none of them.",
-        violations,
-    )
+    Check::new(&ONLY_INSTANCE_OF, violations)
 }
 
 // ── the class contract ────────────────────────────────────────────────────────
@@ -1191,6 +1210,18 @@ fn instance_properties(n: &Node) -> Vec<(String, &serde_yaml::Value)> {
         .collect()
 }
 
+pub const UNDECLARED_PROPERTY: CheckSpec = CheckSpec {
+    id: "undeclared-property",
+    title: "Instance property the class never declared",
+    severity: Severity::Error,
+    rationale: "A property absent from the class is invisible to everything that reads the corpus \
+         through the ontology — schemas, exports, queries. It reads as data to a human and \
+         as nothing to a machine, which is the failure mode worth gating on. A class that \
+         declares no `properties:` has said nothing and is not checked, and a property \
+         `.yidam/corpus/universal.yml` declares — by name or by pattern — may be carried by \
+         any class without being declared on each.",
+};
+
 /// Instance properties the class never declared.
 ///
 /// The commonest cause is a field renamed on one instance and not on the class — which
@@ -1224,19 +1255,23 @@ pub fn undeclared_property(
             ));
         }
     }
-    Check::new(
-        "undeclared-property",
-        "Instance property the class never declared",
-        Severity::Error,
-        "A property absent from the class is invisible to everything that reads the corpus \
-         through the ontology — schemas, exports, queries. It reads as data to a human and \
-         as nothing to a machine, which is the failure mode worth gating on. A class that \
-         declares no `properties:` has said nothing and is not checked, and a property \
-         `.yidam/corpus/universal.yml` declares — by name or by pattern — may be carried by \
-         any class without being declared on each.",
-        violations,
-    )
+    Check::new(&UNDECLARED_PROPERTY, violations)
 }
+
+pub const NODE_TOO_LONG: CheckSpec = CheckSpec {
+    id: "node-too-long",
+    title: "Instance longer than its class allows",
+    severity: Severity::Warn,
+    rationale:
+        "A long node is usually two nodes, or a node carrying quoted source that belongs in \
+         the catalog entry it cites. The ceiling is the class's own — a class that declares \
+         no `max_lines:` is not checked, because the length an instance should be is a \
+         question about that class and not about corpora in general. What is counted is the \
+         `description` block and not the file: the argument is about prose, and a node that \
+         records where each of its edges comes from should not pay for that provenance out \
+         of a budget written to stop descriptions sprawling. A corpus that raised \
+         `max_lines:` to absorb structural lines can lower it again.",
+};
 
 /// Declared properties an instance does not carry.
 ///
@@ -1342,25 +1377,25 @@ pub fn node_too_long(
             ),
         ));
     }
-    Check::new(
-        "node-too-long",
-        "Instance longer than its class allows",
-        Severity::Warn,
-        "A long node is usually two nodes, or a node carrying quoted source that belongs in \
-         the catalog entry it cites. The ceiling is the class's own — a class that declares \
-         no `max_lines:` is not checked, because the length an instance should be is a \
-         question about that class and not about corpora in general. What is counted is the \
-         `description` block and not the file: the argument is about prose, and a node that \
-         records where each of its edges comes from should not pay for that provenance out \
-         of a budget written to stop descriptions sprawling. A corpus that raised \
-         `max_lines:` to absorb structural lines can lower it again.",
-        violations,
-    )
+    Check::new(&NODE_TOO_LONG, violations)
 }
 
 /// The most passages a node's composed text may split into before `node-too-many-passages`
 /// reports it (RFC-0060 §2.6). About 38,000 characters, the order of the remote row ceiling.
 pub(crate) const MAX_PASSAGES: usize = 32;
+
+pub const NODE_TOO_MANY_PASSAGES: CheckSpec = CheckSpec {
+    id: "node-too-many-passages",
+    title: "Node too long to embed as one",
+    severity: Severity::Warn,
+    rationale:
+        "A long node is indexed as many passages, so it stays findable, but past a point its \
+         length says it is several things. Usually one is an artifact about the entity — a \
+         plan, a brief, a decision log — which belongs in a node of its own linking to it, \
+         or an account that grew to argue several claims, each of which is a claim node. \
+         The measure is the text `yidam embed` composes, not the file, and it applies to \
+         every class, whether or not the class declares `max_lines:`.",
+};
 
 /// A node whose embedding text splits into more than [`MAX_PASSAGES`] passages.
 ///
@@ -1399,19 +1434,23 @@ pub fn node_too_many_passages(
             ),
         ));
     }
-    Check::new(
-        "node-too-many-passages",
-        "Node too long to embed as one",
-        Severity::Warn,
-        "A long node is indexed as many passages, so it stays findable, but past a point its \
-         length says it is several things. Usually one is an artifact about the entity — a \
-         plan, a brief, a decision log — which belongs in a node of its own linking to it, \
-         or an account that grew to argue several claims, each of which is a claim node. \
-         The measure is the text `yidam embed` composes, not the file, and it applies to \
-         every class, whether or not the class declares `max_lines:`.",
-        violations,
-    )
+    Check::new(&NODE_TOO_MANY_PASSAGES, violations)
 }
+
+pub const MISSING_PROPERTY: CheckSpec = CheckSpec {
+    id: "missing-property",
+    title: "Declared property the instance omits",
+    severity: Severity::Warn,
+    rationale: "The commonest cause is a class that grew a field its instances never did — \
+         invisible to every reader and obvious in a list. A property declared \
+         `required: true` GATES: the class wrote that contract, and an instance omitting it \
+         contradicts the ontology, which is what this check's four siblings gate on. \
+         `required: false` is not reported: the class said an instance may omit it, and \
+         an omission the class licensed is not a finding. A property that says neither is \
+         reported and does not gate, because a class that said nothing about a property \
+         cannot be read as demanding it — a node that makes no tagged claim is a real \
+         state, not a defect, and gating on omission would assert a contract nobody wrote.",
+};
 
 pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
     let by_name = classes_by_name(classes);
@@ -1462,21 +1501,7 @@ pub fn missing_property(nodes: &[Node], classes: &[Class]) -> Check {
             });
         }
     }
-    Check::new(
-        "missing-property",
-        "Declared property the instance omits",
-        Severity::Warn,
-        "The commonest cause is a class that grew a field its instances never did — \
-         invisible to every reader and obvious in a list. A property declared \
-         `required: true` GATES: the class wrote that contract, and an instance omitting it \
-         contradicts the ontology, which is what this check's four siblings gate on. \
-         `required: false` is not reported: the class said an instance may omit it, and \
-         an omission the class licensed is not a finding. A property that says neither is \
-         reported and does not gate, because a class that said nothing about a property \
-         cannot be read as demanding it — a node that makes no tagged claim is a real \
-         state, not a defect, and gating on omission would assert a contract nobody wrote.",
-        violations,
-    )
+    Check::new(&MISSING_PROPERTY, violations)
 }
 
 /// One `struct` or `enum` the tree defines, and where.
@@ -1508,6 +1533,22 @@ impl TypeIndex {
         self.0.get(name).map(String::as_str)
     }
 }
+
+pub const UNIMPLEMENTED_CLASS: CheckSpec = CheckSpec {
+    id: "unimplemented-class",
+    title: "Class naming an implementation the code does not define",
+    severity: Severity::Error,
+    rationale: "A class declaring `implemented_by:` has stated a fact about `crates/`, and a tree \
+         with no type of that name contradicts it — which is what this check's siblings \
+         gate on, and an omission is not. A class that declares nothing is not checked, and \
+         that silence is measured rather than timid: across twelve derived corpora 129 of \
+         157 declared classes have no type bearing their name, and matching every language \
+         in the tree raises it to 88%. Their ontologies model a domain and their code models \
+         the pipeline that gathers evidence about it, so a class without a type is the \
+         normal case and reporting it would call four fifths of every ontology debt. A \
+         rename is invisible: the tree is scanned rather than a diff, so a class implemented \
+         under a new name is simply found.",
+};
 
 /// A class naming an implementation the tree does not define.
 ///
@@ -1546,22 +1587,7 @@ pub fn unimplemented_class(classes: &[Class], types: &TypeIndex) -> Check {
             ),
         ));
     }
-    Check::new(
-        "unimplemented-class",
-        "Class naming an implementation the code does not define",
-        Severity::Error,
-        "A class declaring `implemented_by:` has stated a fact about `crates/`, and a tree \
-         with no type of that name contradicts it — which is what this check's siblings \
-         gate on, and an omission is not. A class that declares nothing is not checked, and \
-         that silence is measured rather than timid: across twelve derived corpora 129 of \
-         157 declared classes have no type bearing their name, and matching every language \
-         in the tree raises it to 88%. Their ontologies model a domain and their code models \
-         the pipeline that gathers evidence about it, so a class without a type is the \
-         normal case and reporting it would call four fifths of every ontology debt. A \
-         rename is invisible: the tree is scanned rather than a diff, so a class implemented \
-         under a new name is simply found.",
-        violations,
-    )
+    Check::new(&UNIMPLEMENTED_CLASS, violations)
 }
 
 /// The declared types this check knows how to test.
@@ -1927,6 +1953,24 @@ pub fn compare_dates(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     Some(left[..shared].cmp(&right[..shared]))
 }
 
+pub const PROPERTY_TYPE: CheckSpec = CheckSpec {
+    id: "property-type",
+    title: "Property value that contradicts its declared type",
+    severity: Severity::Error,
+    rationale: "A typed field the ontology declares is read by type, not by eye. A `claim` field \
+         holding prose is counted as no claim at all; a `string` holding an unquoted number \
+         has lost its leading zeros before anything reads it; a `number` holding a quoted \
+         one is text the compiled schema refuses and an ordering cannot compare. A `string` \
+         whose class declares `values:` is held to that set: a value outside it is either a \
+         widening the class never recorded or prose in a token field, and both are reported \
+         so the set the class publishes stays true. A `list` is a non-empty list, and \
+         each item is held to the `items:` type or the `fields:` record its class declares: \
+         a record is closed as the class is, so a misspelled `claim_tg` is reported rather \
+         than read as an entry with no standing. Types the corpus coins for itself are left \
+         alone — this reports only the ones it can test, and `property-type-unknown` names \
+         the rest.",
+};
+
 /// Property values that do not satisfy the type the class declares.
 ///
 /// `claim` is the type that pays for this check on its own. `claims.rs` matches the three
@@ -1976,25 +2020,27 @@ pub fn property_type(
             }
         }
     }
-    Check::new(
-        "property-type",
-        "Property value that contradicts its declared type",
-        Severity::Error,
-        "A typed field the ontology declares is read by type, not by eye. A `claim` field \
-         holding prose is counted as no claim at all; a `string` holding an unquoted number \
-         has lost its leading zeros before anything reads it; a `number` holding a quoted \
-         one is text the compiled schema refuses and an ordering cannot compare. A `string` \
-         whose class declares `values:` is held to that set: a value outside it is either a \
-         widening the class never recorded or prose in a token field, and both are reported \
-         so the set the class publishes stays true. A `list` is a non-empty list, and \
-         each item is held to the `items:` type or the `fields:` record its class declares: \
-         a record is closed as the class is, so a misspelled `claim_tg` is reported rather \
-         than read as an entry with no standing. Types the corpus coins for itself are left \
-         alone — this reports only the ones it can test, and `property-type-unknown` names \
-         the rest.",
-        violations,
-    )
+    Check::new(&PROPERTY_TYPE, violations)
 }
+
+pub const UNLICENSED_EDGE: CheckSpec = CheckSpec {
+    id: "unlicensed-edge",
+    title: "Relationship the class does not declare",
+    // Warn is the level for a class that has not declared a policy, which is every
+    // class written before the field existed. `exhaustive` raises its own findings to
+    // Error per violation, so one corpus can hold both kinds at once.
+    severity: Severity::Warn,
+    rationale: "An edge is licensed by the class that authors it, and `edge_policy:` says whether \
+         that list bounds the vocabulary or describes it. `exhaustive` closes it and makes \
+         anything outside an error; `characteristic` says an undeclared relationship is a \
+         deliberate coinage, and none are reported. A class that has said neither is warned \
+         about but not gated — a relationship in no declaration is worth seeing, because a \
+         traversal that walks by relationship will not find it, but a non-empty `edges:` on \
+         its own never claimed to be complete. Only links landing on another instance are \
+         read: a link to the class file or into the catalog is a citation, not a \
+         relationship. A class that declares no `edges:` has said nothing and is not \
+         checked.",
+};
 
 /// Edges between instances that the authoring class does not license.
 ///
@@ -2053,27 +2099,18 @@ pub fn unlicensed_edge(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Chec
             });
         }
     }
-    Check::new(
-        "unlicensed-edge",
-        "Relationship the class does not declare",
-        // Warn is the level for a class that has not declared a policy, which is every
-        // class written before the field existed. `exhaustive` raises its own findings to
-        // Error per violation, so one corpus can hold both kinds at once.
-        Severity::Warn,
-        "An edge is licensed by the class that authors it, and `edge_policy:` says whether \
-         that list bounds the vocabulary or describes it. `exhaustive` closes it and makes \
-         anything outside an error; `characteristic` says an undeclared relationship is a \
-         deliberate coinage, and none are reported. A class that has said neither is warned \
-         about but not gated — a relationship in no declaration is worth seeing, because a \
-         traversal that walks by relationship will not find it, but a non-empty `edges:` on \
-         its own never claimed to be complete. Only links landing on another instance are \
-         read: a link to the class file or into the catalog is a citation, not a \
-         relationship. A class that declares no `edges:` has said nothing and is not \
-         checked.",
-        violations,
-    )
-    .spanning_links()
+    Check::new(&UNLICENSED_EDGE, violations).spanning_links()
 }
+
+pub const EDGE_TARGET_CLASS: CheckSpec = CheckSpec {
+    id: "edge-target-class",
+    title: "Edge that resolves to a node of the wrong class",
+    severity: Severity::Error,
+    rationale: "`dangling-edge` catches an edge to nothing. This catches an edge to the wrong \
+         thing — which resolves, traverses, and exports, and is simply false. The class \
+         names the target class for each relationship it declares; a declaration that \
+         names none licenses any target.",
+};
 
 /// Licensed edges that land on a node of the wrong class.
 ///
@@ -2120,17 +2157,7 @@ pub fn edge_target_class(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Ch
             ));
         }
     }
-    Check::new(
-        "edge-target-class",
-        "Edge that resolves to a node of the wrong class",
-        Severity::Error,
-        "`dangling-edge` catches an edge to nothing. This catches an edge to the wrong \
-         thing — which resolves, traverses, and exports, and is simply false. The class \
-         names the target class for each relationship it declares; a declaration that \
-         names none licenses any target.",
-        violations,
-    )
-    .spanning_links()
+    Check::new(&EDGE_TARGET_CLASS, violations).spanning_links()
 }
 
 /// One instance's place in time under its class's [`crate::corpus::Interval`]: the start it wrote, and the
@@ -2210,6 +2237,22 @@ fn capacity_of(target: &Node, capacity: Option<&str>) -> Option<usize> {
     };
     n.filter(|&n| n >= 1).map(|n| n as usize)
 }
+
+pub const INTERVAL_OVERLAP: CheckSpec = CheckSpec {
+    id: "interval-overlap",
+    title:
+        "More holders of one target at once than it seats, or an interval ending before it starts",
+    severity: Severity::Error,
+    rationale:
+        "A class that declares `interval:` has said which of its properties are an instance's \
+         start and end, and one that also declares `exclusive_over:` has said no two instances \
+         may hold the same target by that relationship at once — one sheriff at a time. Two \
+         that overlap give *who held it then* two answers. A `capacity:` names the target's \
+         own count, so three commissioners at once is not a finding. Intervals are half-open and \
+         compared as `query` orders dates: at the precision both sides share, so `1893` and \
+         `1893-06-01` are adjacent rather than overlapping, and an absent end is still open. \
+         A class that declares no `interval:` is not checked.",
+};
 
 /// More instances of an interval class holding one target at once than it holds, and
 /// intervals that end before they start (#1201).
@@ -2326,20 +2369,7 @@ pub fn interval_overlap(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Che
             }
         }
     }
-    Check::new(
-        "interval-overlap",
-        "More holders of one target at once than it seats, or an interval ending before it starts",
-        Severity::Error,
-        "A class that declares `interval:` has said which of its properties are an instance's \
-         start and end, and one that also declares `exclusive_over:` has said no two instances \
-         may hold the same target by that relationship at once — one sheriff at a time. Two \
-         that overlap give *who held it then* two answers. A `capacity:` names the target's \
-         own count, so three commissioners at once is not a finding. Intervals are half-open and \
-         compared as `query` orders dates: at the precision both sides share, so `1893` and \
-         `1893-06-01` are adjacent rather than overlapping, and an absent end is still open. \
-         A class that declares no `interval:` is not checked.",
-        violations,
-    )
+    Check::new(&INTERVAL_OVERLAP, violations)
 }
 
 /// Each class's instances, by index into `nodes`.
@@ -2535,6 +2565,21 @@ fn ended_by(h: &Placed, at: &str) -> bool {
     }
 }
 
+pub const INTERVAL_GAP: CheckSpec = CheckSpec {
+    id: "interval-gap",
+    title: "A span inside a finished line of holders that fewer hold than the target seats",
+    severity: Severity::Warn,
+    rationale:
+        "A target whose `interval.complete:` property is `true` has said its line of holders is \
+         finished, so a span inside it that fewer instances hold than it seats is a missing \
+         tenure or a wrong date. Only interior spans count: before the first holder the line \
+         had not started, and after the last it may have ended. A target that declares nothing \
+         is not checked, because most corpora are incomplete by design. Intervals are half-open \
+         and compared at the precision both sides share, so a handover on one date is not a \
+         gap, and neither is `1893` followed by `1893-06-01`. Warn, because a line marked \
+         complete may already hold real gaps.",
+};
+
 /// A span inside a complete line of holders during which fewer instances hold the target than
 /// it seats (#1213).
 ///
@@ -2646,20 +2691,7 @@ pub fn interval_gap(nodes: &[Node], edges: &Edges, classes: &[Class]) -> Check {
             }
         }
     }
-    Check::new(
-        "interval-gap",
-        "A span inside a finished line of holders that fewer hold than the target seats",
-        Severity::Warn,
-        "A target whose `interval.complete:` property is `true` has said its line of holders is \
-         finished, so a span inside it that fewer instances hold than it seats is a missing \
-         tenure or a wrong date. Only interior spans count: before the first holder the line \
-         had not started, and after the last it may have ended. A target that declares nothing \
-         is not checked, because most corpora are incomplete by design. Intervals are half-open \
-         and compared at the precision both sides share, so a handover on one date is not a \
-         gap, and neither is `1893` followed by `1893-06-01`. Warn, because a line marked \
-         complete may already hold real gaps.",
-        violations,
-    )
+    Check::new(&INTERVAL_GAP, violations)
 }
 
 /// Separators that turn a tag into a tag-plus-something.
@@ -2693,6 +2725,37 @@ fn reported_inner(found: &str) -> &str {
         .and_then(|s| s.strip_suffix(']'))
         .unwrap_or(found)
 }
+
+pub const CLAIM_TAG_MALFORMED: CheckSpec = CheckSpec {
+    id: "claim-tag-malformed",
+    title: "Evidence tag that counts as nothing",
+    severity: Severity::Warn,
+    rationale: "The three tokens are matched exactly, which is what keeps `[open questions](…)` \
+         from reading as an open claim. The cost is that a tag with its citation folded \
+         inside the brackets matches nothing and is silently counted as untagged — a node \
+         that looks tagged to a reader and reads as bare assertion to every counter. This \
+         reports the near miss rather than guessing at it. Brackets are matched by depth \
+         over the block rather than to the first `]` on the line, because a citation that is \
+         itself a link both nests a `]` and wraps: measured on one derived corpus, the line \
+         scan found 234 of 445 such tags and none of the 179 that wrapped. The block is the \
+         bound, so an unbalanced `[` in quoted source costs one bracket rather than every \
+         tag below it.\n\n\
+         Scope: every instance file and every class file, read as bytes — so a tag in a \
+         class's `description`, in a `properties[]` or `edges[]` entry, or in its \
+         `analytic_note` is reported the same way one in a node is. Measured over 17 corpora, \
+         all four carry tags. Reading a class's parsed fields instead would miss two of the \
+         four outright, because the property and edge structs declare no `description` at \
+         all. `universal.yml` is not read: it is a property list, not an argument.\n\n\
+         One check, two pieces of advice. A detail naming a source is told to put the \
+         citation beside the tag. A detail that *narrows* the claim is not, because moving \
+         `as proposed` out of the brackets leaves a bare `[verified]` asserting more than the \
+         sentence does — the advice would make the corpus less accurate and the counter more \
+         confident. Measured over thirteen derived corpora, ~89% of details name a source, so \
+         the citation advice is the default and a detail diverts only on an unambiguous \
+         narrowing tell: a second standing, or a narrowing head as its first word. That tell \
+         also admits a space-introduced detail the separator list cannot see, which is where \
+         59 of the 105 narrowing details in the population were sitting.",
+};
 
 /// Bracketed forms that open with an evidence tag and are not one.
 ///
@@ -2780,38 +2843,29 @@ pub fn claim_tag_malformed(prose: &[ProseView<'_>]) -> Check {
             violations.push(Violation::new(format!("{}:{}", n.rel, tag.line), message));
         }
     }
-    Check::new(
-        "claim-tag-malformed",
-        "Evidence tag that counts as nothing",
-        Severity::Warn,
-        "The three tokens are matched exactly, which is what keeps `[open questions](…)` \
-         from reading as an open claim. The cost is that a tag with its citation folded \
-         inside the brackets matches nothing and is silently counted as untagged — a node \
-         that looks tagged to a reader and reads as bare assertion to every counter. This \
-         reports the near miss rather than guessing at it. Brackets are matched by depth \
-         over the block rather than to the first `]` on the line, because a citation that is \
-         itself a link both nests a `]` and wraps: measured on one derived corpus, the line \
-         scan found 234 of 445 such tags and none of the 179 that wrapped. The block is the \
-         bound, so an unbalanced `[` in quoted source costs one bracket rather than every \
-         tag below it.\n\n\
-         Scope: every instance file and every class file, read as bytes — so a tag in a \
-         class's `description`, in a `properties[]` or `edges[]` entry, or in its \
-         `analytic_note` is reported the same way one in a node is. Measured over 17 corpora, \
-         all four carry tags. Reading a class's parsed fields instead would miss two of the \
-         four outright, because the property and edge structs declare no `description` at \
-         all. `universal.yml` is not read: it is a property list, not an argument.\n\n\
-         One check, two pieces of advice. A detail naming a source is told to put the \
-         citation beside the tag. A detail that *narrows* the claim is not, because moving \
-         `as proposed` out of the brackets leaves a bare `[verified]` asserting more than the \
-         sentence does — the advice would make the corpus less accurate and the counter more \
-         confident. Measured over thirteen derived corpora, ~89% of details name a source, so \
-         the citation advice is the default and a detail diverts only on an unambiguous \
-         narrowing tell: a second standing, or a narrowing head as its first word. That tell \
-         also admits a space-introduced detail the separator list cannot see, which is where \
-         59 of the 105 narrowing details in the population were sitting.",
-        violations,
-    )
+    Check::new(&CLAIM_TAG_MALFORMED, violations)
 }
+
+pub const CLASS_CLAIM_UNCOUNTED: CheckSpec = CheckSpec {
+    id: "class-claim-uncounted",
+    title: "Evidence tag asserted in class prose, which no counter reads",
+    severity: Severity::Info,
+    rationale:
+        "A claim is \"a statement in a node\" — CONSTITUTION.md, Article V — and the counters \
+         hold to that. A class file may still write one, because a class is where a corpus \
+         argues for its own shape and that argument is evidenced like any other. This reports \
+         the gap rather than closing it, and the reason it is not closed is measured: taking \
+         the counter's own rule to class files finds 6 tags across 2 of the 4 corpora this \
+         repository ships, and every one of the six is a class explaining its own vocabulary — \
+         \"`[verified]` means somebody confirmed the change shipped and held\". They survive \
+         the narration rule because it is past-tense-only and the word after every one of them \
+         is \"means\". Telling those six from a real assertion is a judgement about wording, \
+         which is the same reason Article V gives for refusing to delegate claim identity to a \
+         checker at all. So the count is shown and not spent, and only what is asserted \
+         outside backticks is shown at all. If a corpus finds real claims here, the fix is to \
+         move them into a node — where they are counted, cited, and reachable by every other \
+         check.",
+};
 
 /// Evidence tags in a class file's prose, which nothing counts.
 ///
@@ -2869,27 +2923,26 @@ pub fn class_claim_uncounted(classes: &[Class]) -> Check {
             })
         })
         .collect();
-    Check::new(
-        "class-claim-uncounted",
-        "Evidence tag asserted in class prose, which no counter reads",
-        Severity::Info,
-        "A claim is \"a statement in a node\" — CONSTITUTION.md, Article V — and the counters \
-         hold to that. A class file may still write one, because a class is where a corpus \
-         argues for its own shape and that argument is evidenced like any other. This reports \
-         the gap rather than closing it, and the reason it is not closed is measured: taking \
-         the counter's own rule to class files finds 6 tags across 2 of the 4 corpora this \
-         repository ships, and every one of the six is a class explaining its own vocabulary — \
-         \"`[verified]` means somebody confirmed the change shipped and held\". They survive \
-         the narration rule because it is past-tense-only and the word after every one of them \
-         is \"means\". Telling those six from a real assertion is a judgement about wording, \
-         which is the same reason Article V gives for refusing to delegate claim identity to a \
-         checker at all. So the count is shown and not spent, and only what is asserted \
-         outside backticks is shown at all. If a corpus finds real claims here, the fix is to \
-         move them into a node — where they are counted, cited, and reachable by every other \
-         check.",
-        violations,
-    )
+    Check::new(&CLASS_CLAIM_UNCOUNTED, violations)
 }
+
+pub const CLAIM_PROPERTY_UNDECLARED: CheckSpec = CheckSpec {
+    id: "claim-property-undeclared",
+    title: "Property spelling a standing that its class did not declare `type: claim`",
+    severity: Severity::Info,
+    rationale: "A claim in a node's field is counted when the class declares that field \
+         `type: claim`, and is read by nothing when it does not — not by `status`, not by \
+         `open-questions`, not by the `due` questions clock, not by the MCP `claims` \
+         resource. The corpus wrote the standing; the declaration is what makes it \
+         reachable. This reports bare spellings only: a bracketed `[open]` is already \
+         counted wherever it sits, because the prose scan reads the file's bytes, and every \
+         bracketed value measured in an undeclared field is a placeholder for a value the \
+         corpus does not have yet rather than a claim. It is Info because the right repair \
+         is not always the declaration: a `status` holding `open`, `narrowing` and \
+         `answered` is a lifecycle and not an evidence standing, and declaring that one \
+         `type: claim` would make the corpus assert something it did not. The finding names \
+         both fixes and imposes neither.",
+};
 
 /// A property whose value spells a standing, in a class that did not declare it `type: claim`.
 ///
@@ -2960,24 +3013,7 @@ pub fn claim_property_undeclared(nodes: &[Node], classes: &[Class]) -> Check {
             violations.push(Violation::new(&n.rel, detail).at(Severity::Info));
         }
     }
-    Check::new(
-        "claim-property-undeclared",
-        "Property spelling a standing that its class did not declare `type: claim`",
-        Severity::Info,
-        "A claim in a node's field is counted when the class declares that field \
-         `type: claim`, and is read by nothing when it does not — not by `status`, not by \
-         `open-questions`, not by the `due` questions clock, not by the MCP `claims` \
-         resource. The corpus wrote the standing; the declaration is what makes it \
-         reachable. This reports bare spellings only: a bracketed `[open]` is already \
-         counted wherever it sits, because the prose scan reads the file's bytes, and every \
-         bracketed value measured in an undeclared field is a placeholder for a value the \
-         corpus does not have yet rather than a claim. It is Info because the right repair \
-         is not always the declaration: a `status` holding `open`, `narrowing` and \
-         `answered` is a lifecycle and not an evidence standing, and declaring that one \
-         `type: claim` would make the corpus assert something it did not. The finding names \
-         both fixes and imposes neither.",
-        violations,
-    )
+    Check::new(&CLAIM_PROPERTY_UNDECLARED, violations)
 }
 
 /// A value shortened to its first line and 60 characters, so a finding stays one line.
@@ -3197,6 +3233,20 @@ pub fn citations(
         .collect()
 }
 
+pub const VERIFIED_UNSOURCED: CheckSpec = CheckSpec {
+    id: "verified-unsourced",
+    title: "A claim asserted at `[verified]` that rests on nothing",
+    severity: Severity::Warn,
+    rationale: "`[verified]` means supported by a committed primary source. A node asserting one \
+         while linking to no catalog entry has claimed a standing it cannot demonstrate. \
+         This is the one direction the claim vocabulary exists to prevent: over-counting \
+         evidence is the flattering error, and a mature corpus measured eight miscounts of \
+         which all eight promoted. The catalog checks beside this one verify the catalog's \
+         own bookkeeping; this is the only one that asks whether a claim rests on anything. \
+         The fix is a citation or a demotion, and which of the two is the author's call — \
+         nothing here proposes a promotion, ever.",
+};
+
 /// A `[verified]` claim in a node that draws on no registered source.
 ///
 /// The claim vocabulary is the epistemic core of the system and, until this check, its
@@ -3285,20 +3335,7 @@ pub fn verified_unsourced(
             Some(Violation::new(&n.rel, detail))
         })
         .collect();
-    Check::new(
-        "verified-unsourced",
-        "A claim asserted at `[verified]` that rests on nothing",
-        Severity::Warn,
-        "`[verified]` means supported by a committed primary source. A node asserting one \
-         while linking to no catalog entry has claimed a standing it cannot demonstrate. \
-         This is the one direction the claim vocabulary exists to prevent: over-counting \
-         evidence is the flattering error, and a mature corpus measured eight miscounts of \
-         which all eight promoted. The catalog checks beside this one verify the catalog's \
-         own bookkeeping; this is the only one that asks whether a claim rests on anything. \
-         The fix is a citation or a demotion, and which of the two is the author's call — \
-         nothing here proposes a promotion, ever.",
-        violations,
-    )
+    Check::new(&VERIFIED_UNSOURCED, violations)
 }
 
 /// How many corpus nodes rest on a source, and which of them.
@@ -3349,6 +3386,23 @@ const RESTING_NAMED: usize = 3;
 fn corpus_address(rel: &str) -> &str {
     rel.strip_prefix(".yidam/corpus/").unwrap_or(rel)
 }
+
+pub const CATALOG_EXPIRED: CheckSpec = CheckSpec {
+    id: "catalog-expired",
+    title: "A source record older than the corpus said it may be",
+    severity: Severity::Warn,
+    rationale: "A catalog entry records where something came from; until it could also record how \
+         long that record may stand, a source fetched a year ago read exactly like one \
+         fetched today. Declare `ttl_days:` on the entry — a gauge record and a statute do \
+         not age at the same rate — or a corpus-wide default under `[catalog]` in \
+         `.yidam/config.toml`. Absent both, nothing expires. This reports rather than gates \
+         because an aged record is a thing to look at, and refreshing it is a knowledge event \
+         a person owns. It does not claim the source changed: nothing here reads upstream, \
+         and `doctor` does no network. It claims nobody has looked. The finding names the \
+         nodes resting on the record, because the reader who has to act is the one who wrote \
+         them — and naming them here is what keeps the question in one file instead of \
+         copied into every node that cites it.",
+};
 
 /// A catalog record that has stood longer than the corpus said it may.
 ///
@@ -3405,24 +3459,19 @@ pub fn catalog_expired(
             ))
         })
         .collect();
-    Check::new(
-        "catalog-expired",
-        "A source record older than the corpus said it may be",
-        Severity::Warn,
-        "A catalog entry records where something came from; until it could also record how \
-         long that record may stand, a source fetched a year ago read exactly like one \
-         fetched today. Declare `ttl_days:` on the entry — a gauge record and a statute do \
-         not age at the same rate — or a corpus-wide default under `[catalog]` in \
-         `.yidam/config.toml`. Absent both, nothing expires. This reports rather than gates \
-         because an aged record is a thing to look at, and refreshing it is a knowledge event \
-         a person owns. It does not claim the source changed: nothing here reads upstream, \
-         and `doctor` does no network. It claims nobody has looked. The finding names the \
-         nodes resting on the record, because the reader who has to act is the one who wrote \
-         them — and naming them here is what keeps the question in one file instead of \
-         copied into every node that cites it.",
-        violations,
-    )
+    Check::new(&CATALOG_EXPIRED, violations)
 }
+
+pub const CATALOG_UNCITED: CheckSpec = CheckSpec {
+    id: "catalog-uncited",
+    title: "Registered source nothing draws from",
+    severity: Severity::Info,
+    rationale: "A catalog entry describes a source, not knowledge, so an uncited one is not an \
+         error. It is either a source registered ahead of the extraction that will use it, \
+         or a claim resting on evidence that never became a node. The two look identical \
+         from here and are worth telling apart — which is what `obtained: false` declares. \
+         Entries that have said they are the former are not reported.",
+};
 
 pub fn catalog_uncited(sources: &[Source], cites: &[Vec<String>]) -> Check {
     let violations = sources
@@ -3431,18 +3480,19 @@ pub fn catalog_uncited(sources: &[Source], cites: &[Vec<String>]) -> Check {
         .filter(|(s, c)| s.obtained && c.is_empty())
         .map(|(s, _)| Violation::new(&s.rel, "no corpus node draws on this source"))
         .collect();
-    Check::new(
-        "catalog-uncited",
-        "Registered source nothing draws from",
-        Severity::Info,
-        "A catalog entry describes a source, not knowledge, so an uncited one is not an \
-         error. It is either a source registered ahead of the extraction that will use it, \
-         or a claim resting on evidence that never became a node. The two look identical \
-         from here and are worth telling apart — which is what `obtained: false` declares. \
-         Entries that have said they are the former are not reported.",
-        violations,
-    )
+    Check::new(&CATALOG_UNCITED, violations)
 }
+
+pub const CATALOG_UNOBTAINED_BUT_CITED: CheckSpec = CheckSpec {
+    id: "catalog-unobtained-but-cited",
+    title: "Source nobody has fetched, cited anyway",
+    severity: Severity::Error,
+    rationale: "This is the price of the `obtained: false` exemption, which is otherwise the \
+         cheapest way to silence `catalog-uncited`. A node drawing on a source the catalog \
+         says was never retrieved is one of two things and both are defects: the flag is \
+         stale and was not cleared when the source arrived, or the citation rests on \
+         something nobody has read.",
+};
 
 pub fn catalog_unobtained_but_cited(sources: &[Source], cites: &[Vec<String>]) -> Check {
     let violations = sources
@@ -3460,17 +3510,7 @@ pub fn catalog_unobtained_but_cited(sources: &[Source], cites: &[Vec<String>]) -
             )
         })
         .collect();
-    Check::new(
-        "catalog-unobtained-but-cited",
-        "Source nobody has fetched, cited anyway",
-        Severity::Error,
-        "This is the price of the `obtained: false` exemption, which is otherwise the \
-         cheapest way to silence `catalog-uncited`. A node drawing on a source the catalog \
-         says was never retrieved is one of two things and both are defects: the flag is \
-         stale and was not cleared when the source arrived, or the citation rests on \
-         something nobody has read.",
-        violations,
-    )
+    Check::new(&CATALOG_UNOBTAINED_BUT_CITED, violations)
 }
 
 /// How a declared `used-by` list disagrees with the citations, by basename.
@@ -3522,6 +3562,16 @@ pub fn used_by_drift(used_by: Option<&[String]>, citing: &[String]) -> Option<Us
     })
 }
 
+pub const CATALOG_USED_BY_DECLARED: CheckSpec = CheckSpec {
+    id: "catalog-used-by-declared",
+    title: "Catalog entry storing what cites it",
+    severity: Severity::Warn,
+    rationale: "The citations are the record of what draws on an entry, and `yidam catalog-audit` \
+         reports them as `cited_by`. A `used-by:` list stored beside them can only drift from \
+         them, and keeping it current cost a commit per entry per new citation. An entry does \
+         not list what cites it.",
+};
+
 /// A catalog entry that still stores what cites it (RFC-0053 §2.3).
 ///
 /// The citations are the record, and `yidam catalog-audit` reports them as `cited_by`. A stored
@@ -3543,21 +3593,24 @@ pub fn catalog_used_by_declared(sources: &[Source]) -> Check {
             )
         })
         .collect();
-    Check::new(
-        "catalog-used-by-declared",
-        "Catalog entry storing what cites it",
-        Severity::Warn,
-        "The citations are the record of what draws on an entry, and `yidam catalog-audit` \
-         reports them as `cited_by`. A `used-by:` list stored beside them can only drift from \
-         them, and keeping it current cost a commit per entry per new citation. An entry does \
-         not list what cites it.",
-        violations,
-    )
+    Check::new(&CATALOG_USED_BY_DECLARED, violations)
 }
 
 pub(crate) fn basename(p: &str) -> &str {
     p.rsplit('/').next().unwrap_or(p)
 }
+
+pub const CATALOG_ARTIFACT_MALFORMED: CheckSpec = CheckSpec {
+    id: "catalog-artifact-malformed",
+    title: "Obtained-artifact record is missing or mistyped",
+    severity: Severity::Error,
+    rationale:
+        "An artifact record is what makes `obtained: true` demonstrable rather than asserted \
+         — the digest names the bytes the entry claims to have. A record without a well-formed \
+         digest names nothing, so it is a claim of retrieval with no more standing than the \
+         flag it was added to support. Error, because the failure is in the record itself and \
+         is settled entirely by files in this repository.",
+};
 
 /// An artifact record that cannot be read as one.
 ///
@@ -3627,17 +3680,7 @@ pub fn catalog_artifact_malformed(sources: &[Source]) -> Check {
             }
         }
     }
-    Check::new(
-        "catalog-artifact-malformed",
-        "Obtained-artifact record is missing or mistyped",
-        Severity::Error,
-        "An artifact record is what makes `obtained: true` demonstrable rather than asserted \
-         — the digest names the bytes the entry claims to have. A record without a well-formed \
-         digest names nothing, so it is a claim of retrieval with no more standing than the \
-         flag it was added to support. Error, because the failure is in the record itself and \
-         is settled entirely by files in this repository.",
-        violations,
-    )
+    Check::new(&CATALOG_ARTIFACT_MALFORMED, violations)
 }
 
 /// What is wrong with a recorded digest, if anything. `field` is how the finding names it.
@@ -3663,6 +3706,17 @@ fn digest_problem(field: &str, digest: Option<&str>) -> Option<String> {
         Some(_) => None,
     }
 }
+
+pub const CATALOG_ARTIFACT_UNROUTABLE: CheckSpec = CheckSpec {
+    id: "catalog-artifact-unroutable",
+    title: "Artifact routed to a vault nothing declares",
+    severity: Severity::Error,
+    rationale: "A record naming a vault that `.yidam/config.toml` does not declare is a route to \
+         nowhere: nothing will ever store or fetch those bytes, and the entry reads as though \
+         something will. Both sides are committed, so this check answers identically in every \
+         clone — it reports a defect in the corpus, never a fact about your credentials. \
+         `vault: none` is a route and means the local cache and nowhere else.",
+};
 
 /// An artifact routed to a vault this repository does not declare.
 ///
@@ -3705,18 +3759,26 @@ pub fn catalog_artifact_unroutable(sources: &[Source], declared: &[String]) -> C
             ));
         }
     }
-    Check::new(
-        "catalog-artifact-unroutable",
-        "Artifact routed to a vault nothing declares",
-        Severity::Error,
-        "A record naming a vault that `.yidam/config.toml` does not declare is a route to \
-         nowhere: nothing will ever store or fetch those bytes, and the entry reads as though \
-         something will. Both sides are committed, so this check answers identically in every \
-         clone — it reports a defect in the corpus, never a fact about your credentials. \
-         `vault: none` is a route and means the local cache and nowhere else.",
-        violations,
-    )
+    Check::new(&CATALOG_ARTIFACT_UNROUTABLE, violations)
 }
+
+pub const CATALOG_LOCATION_MALFORMED: CheckSpec = CheckSpec {
+    id: "catalog-location-malformed",
+    title: "Catalog location missing or mistyped",
+    severity: Severity::Warn,
+    rationale: "A `location` is a list of typed places. The type decides whether a reader is \
+         offered a link, so a value whose shape contradicts its type renders wrongly; and \
+         where an entry has several locations, the description is the only thing \
+         distinguishing them. An `identifier` names a source by what it is rather than where \
+         it is, as `scheme:local-id` — `doi:10.1167/tvst.8.5.14` — and one kind serves every \
+         scheme so that the set of kinds stays closed. Once the repository enables a source \
+         pack, the scheme must be one an enabled pack declares and the local id must match \
+         its pattern, since that pack is what resolves it; a repository that enables none \
+         is held to the shape alone. A file inside a fetched zip is named under `members:` \
+         beside the value, never in it, and each must be a path that stays inside the \
+         archive. A `url` carrying a `#` fragment is reported: the fragment is never sent, \
+         so the fetch takes the whole file while the entry reads as holding the part.",
+};
 
 pub fn catalog_location_malformed(
     sources: &[Source],
@@ -3787,24 +3849,7 @@ pub fn catalog_location_malformed(
             }
         }
     }
-    Check::new(
-        "catalog-location-malformed",
-        "Catalog location missing or mistyped",
-        Severity::Warn,
-        "A `location` is a list of typed places. The type decides whether a reader is \
-         offered a link, so a value whose shape contradicts its type renders wrongly; and \
-         where an entry has several locations, the description is the only thing \
-         distinguishing them. An `identifier` names a source by what it is rather than where \
-         it is, as `scheme:local-id` — `doi:10.1167/tvst.8.5.14` — and one kind serves every \
-         scheme so that the set of kinds stays closed. Once the repository enables a source \
-         pack, the scheme must be one an enabled pack declares and the local id must match \
-         its pattern, since that pack is what resolves it; a repository that enables none \
-         is held to the shape alone. A file inside a fetched zip is named under `members:` \
-         beside the value, never in it, and each must be a path that stays inside the \
-         archive. A `url` carrying a `#` fragment is reported: the fragment is never sent, \
-         so the fetch takes the whole file while the entry reads as holding the part.",
-        violations,
-    )
+    Check::new(&CATALOG_LOCATION_MALFORMED, violations)
 }
 
 /// What is wrong with an `identifier` location's value, if anything.
@@ -3866,6 +3911,17 @@ fn undeclared(v: &str, packs: &crate::sources::resolve::Enabled) -> Option<Strin
     }
 }
 
+pub const CATALOG_TYPE_UNKNOWN: CheckSpec = CheckSpec {
+    id: "catalog-type-unknown",
+    title: "Catalog type outside the closed set",
+    severity: Severity::Warn,
+    rationale:
+        "A catalog `type` says what form a source takes, and the set is closed so that a reader \
+         and the schema agree on what each word means. A word outside it is reported rather than \
+         mapped: `primary` says what standing a source has, and a primary source can be a \
+         statute, a dataset or a report, so only someone who read it can choose.",
+};
+
 /// A catalog entry whose `type:` is outside the closed set.
 ///
 /// The set grew by four in RFC-0048 §2.1 — `statute`, `report`, `standard`, `document` — which
@@ -3898,16 +3954,7 @@ pub fn catalog_type_unknown(sources: &[Source]) -> Check {
             ),
         ));
     }
-    Check::new(
-        "catalog-type-unknown",
-        "Catalog type outside the closed set",
-        Severity::Warn,
-        "A catalog `type` says what form a source takes, and the set is closed so that a reader \
-         and the schema agree on what each word means. A word outside it is reported rather than \
-         mapped: `primary` says what standing a source has, and a primary source can be a \
-         statute, a dataset or a report, so only someone who read it can choose.",
-        violations,
-    )
+    Check::new(&CATALOG_TYPE_UNKNOWN, violations)
 }
 
 // ── presentation ──────────────────────────────────────────────────────────────
@@ -3927,6 +3974,17 @@ fn is_delimiter_row(line: &str) -> bool {
             .iter()
             .all(|c| !c.trim().is_empty() && c.trim().chars().all(|ch| ch == '-' || ch == ':'))
 }
+
+pub const MALFORMED_REGEN_BLOCK: CheckSpec = CheckSpec {
+    id: "malformed-regen-block",
+    title: "REGEN block whose extent is not what it looks like",
+    severity: Severity::Warn,
+    rationale: "A REGEN block is three markers: the open tag, the `-->` that ends it, and \
+         `<!-- /REGEN -->`. `yidam regen` finds all three or writes nothing at all, without \
+         saying so — the section goes stale and looks like a generator that stopped running. \
+         Where the missing tag is a close tag, the block also swallows whatever is below it, \
+         so the *next* section stops updating for the same invisible reason.",
+};
 
 /// REGEN blocks that took lines which were not theirs.
 ///
@@ -3982,18 +4040,17 @@ pub fn malformed_regen_block(files: &[(String, String)]) -> Check {
             ));
         }
     }
-    Check::new(
-        "malformed-regen-block",
-        "REGEN block whose extent is not what it looks like",
-        Severity::Warn,
-        "A REGEN block is three markers: the open tag, the `-->` that ends it, and \
-         `<!-- /REGEN -->`. `yidam regen` finds all three or writes nothing at all, without \
-         saying so — the section goes stale and looks like a generator that stopped running. \
-         Where the missing tag is a close tag, the block also swallows whatever is below it, \
-         so the *next* section stops updating for the same invisible reason.",
-        violations,
-    )
+    Check::new(&MALFORMED_REGEN_BLOCK, violations)
 }
+
+pub const MALFORMED_TABLE: CheckSpec = CheckSpec {
+    id: "malformed-table",
+    title: "Markdown table whose rows disagree on width",
+    severity: Severity::Warn,
+    rationale: "A ragged table does not render as a table. Every reader of that file sees a \
+         paragraph of pipes instead of the thing the author was trying to show, and the \
+         author usually never looks at the rendered output again.",
+};
 
 /// Ragged markdown tables in any committed prose.
 ///
@@ -4051,15 +4108,7 @@ pub fn malformed_table(files: &[(String, String)]) -> Check {
             i = j;
         }
     }
-    Check::new(
-        "malformed-table",
-        "Markdown table whose rows disagree on width",
-        Severity::Warn,
-        "A ragged table does not render as a table. Every reader of that file sees a \
-         paragraph of pipes instead of the thing the author was trying to show, and the \
-         author usually never looks at the rendered output again.",
-        violations,
-    )
+    Check::new(&MALFORMED_TABLE, violations)
 }
 
 #[cfg(test)]
@@ -9622,6 +9671,18 @@ fn carries_iso_date(text: &str) -> bool {
             .all(|&i| b[i].is_ascii_digit())
 }
 
+pub const RESOLUTION_ANNOTATION_MALFORMED: CheckSpec = CheckSpec {
+    id: "resolution-annotation-malformed",
+    title: "Resolution annotation is malformed or in the wrong section",
+    severity: Severity::Error,
+    rationale: "Both halves are structural rather than a judgement about wording, which is why \
+         this gates where its sibling does not. An annotation with no date cannot be read \
+         against the record it extends — the whole point is that the record speaks for its \
+         own date and the annotation for a later one. An annotation under `What was \
+         resolved` or `What changed` edits history instead of extending it, and those \
+         sections are the ones a reader trusts to describe a settled past.",
+};
+
 pub fn resolution_annotation_malformed(annotations: &[Annotation]) -> Check {
     let violations = annotations
         .iter()
@@ -9652,18 +9713,7 @@ pub fn resolution_annotation_malformed(annotations: &[Annotation]) -> Check {
             None
         })
         .collect();
-    Check::new(
-        "resolution-annotation-malformed",
-        "Resolution annotation is malformed or in the wrong section",
-        Severity::Error,
-        "Both halves are structural rather than a judgement about wording, which is why \
-         this gates where its sibling does not. An annotation with no date cannot be read \
-         against the record it extends — the whole point is that the record speaks for its \
-         own date and the annotation for a later one. An annotation under `What was \
-         resolved` or `What changed` edits history instead of extending it, and those \
-         sections are the ones a reader trusts to describe a settled past.",
-        violations,
-    )
+    Check::new(&RESOLUTION_ANNOTATION_MALFORMED, violations)
 }
 
 /// Words that announce a decision rather than report a movement.
@@ -9680,6 +9730,20 @@ const DECIDING_WORDS: &[&str] = &[
     "supersedes",
     "superseded",
 ];
+
+pub const RESOLUTION_ANNOTATION_DECIDES: CheckSpec = CheckSpec {
+    id: "resolution-annotation-decides",
+    title: "Resolution annotation announces an outcome",
+    severity: Severity::Warn,
+    rationale: "An annotation may say a question was proposed, retrieved, measured or superseded \
+         in fact; it may not say it was settled. Closing an open item is synthesis, and \
+         Article V puts synthesis in resolution events — so an annotation that decides \
+         something is a resolution performed by one elector, in one commit, in a file the \
+         protocol never routes through a resolution. Warn rather than Error because this \
+         is a heuristic over wording: it cannot see an outcome announced in words that are \
+         not on the list, and gating on it would make every false positive a blocked \
+         commit and the check would be switched off within a week.",
+};
 
 pub fn resolution_annotation_decides(annotations: &[Annotation]) -> Check {
     let violations = annotations
@@ -9701,21 +9765,20 @@ pub fn resolution_annotation_decides(annotations: &[Annotation]) -> Check {
             ))
         })
         .collect();
-    Check::new(
-        "resolution-annotation-decides",
-        "Resolution annotation announces an outcome",
-        Severity::Warn,
-        "An annotation may say a question was proposed, retrieved, measured or superseded \
-         in fact; it may not say it was settled. Closing an open item is synthesis, and \
-         Article V puts synthesis in resolution events — so an annotation that decides \
-         something is a resolution performed by one elector, in one commit, in a file the \
-         protocol never routes through a resolution. Warn rather than Error because this \
-         is a heuristic over wording: it cannot see an outcome announced in words that are \
-         not on the list, and gating on it would make every false positive a blocked \
-         commit and the check would be switched off within a week.",
-        violations,
-    )
+    Check::new(&RESOLUTION_ANNOTATION_DECIDES, violations)
 }
+
+pub const RESOLUTION_ELECTOR_UNREGISTERED: CheckSpec = CheckSpec {
+    id: "resolution-elector-unregistered",
+    title: "Resolution names a ma/* branch no elector row registers",
+    severity: Severity::Error,
+    rationale: "A resolution's authority rests on the seats it names, so a name the registry does \
+         not carry is the one part of the record that cannot be read charitably — either the \
+         seat was never registered, or it was removed and the records resting on it were \
+         left behind. This gates where its sibling warns because it is set membership \
+         between two committed files rather than a judgement about a missing field: there is \
+         no state of the world in which the answer is arguable.",
+};
 
 /// A `ma/*` reference a resolution makes that `electors.md` does not register.
 ///
@@ -9754,19 +9817,23 @@ pub fn resolution_elector_unregistered(
             ));
         }
     }
-    Check::new(
-        "resolution-elector-unregistered",
-        "Resolution names a ma/* branch no elector row registers",
-        Severity::Error,
-        "A resolution's authority rests on the seats it names, so a name the registry does \
-         not carry is the one part of the record that cannot be read charitably — either the \
-         seat was never registered, or it was removed and the records resting on it were \
-         left behind. This gates where its sibling warns because it is set membership \
-         between two committed files rather than a judgement about a missing field: there is \
-         no state of the world in which the answer is arguable.",
-        violations,
-    )
+    Check::new(&RESOLUTION_ELECTOR_UNREGISTERED, violations)
 }
+
+pub const RESOLUTION_EXECUTOR_UNRECORDED: CheckSpec = CheckSpec {
+    id: "resolution-executor-unrecorded",
+    title: "Resolution record does not name the seat that executed it",
+    // The declared level. `resolution_executor_unrecorded` raises it to Error where
+    // `keys_bind_seats` holds; see that function for why the condition is the one it is.
+    severity: Severity::Warn,
+    rationale:
+        "Article II governs weight and Article III governs record, and they answer different \
+         questions. Naming the executor grants it nothing — no standing, no tiebreak, no \
+         priority in any later resolution — which is why recording it costs the article \
+         nothing. What it buys is that the most consequential actor in the event stops being \
+         the one actor the provenance omits. The record already names the tips that were \
+         read; the reader was the gap.",
+};
 
 /// A resolution record that does not say which seat executed it.
 ///
@@ -9808,23 +9875,27 @@ pub fn resolution_executor_unrecorded(
             )
         })
         .collect();
-    Check::new(
-        "resolution-executor-unrecorded",
-        "Resolution record does not name the seat that executed it",
-        if keys_bind_seats {
-            Severity::Error
-        } else {
-            Severity::Warn
-        },
-        "Article II governs weight and Article III governs record, and they answer different \
-         questions. Naming the executor grants it nothing — no standing, no tiebreak, no \
-         priority in any later resolution — which is why recording it costs the article \
-         nothing. What it buys is that the most consequential actor in the event stops being \
-         the one actor the provenance omits. The record already names the tips that were \
-         read; the reader was the gap.",
-        violations,
-    )
+    let mut check = Check::new(&RESOLUTION_EXECUTOR_UNRECORDED, violations);
+    if keys_bind_seats {
+        check.severity = Severity::Error;
+    }
+    check
 }
+
+pub const RESOLUTION_DELIBERATION_UNRECORDED: CheckSpec = CheckSpec {
+    id: "resolution-deliberation-unrecorded",
+    title: "Resolution record does not name its rounds or the positions it read",
+    severity: Severity::Warn,
+    rationale:
+        "Article III asks for ancestry, and ancestry is not only which commits were read: it \
+         is which claims were contested and by whom. `positions:` names them and `rounds:` \
+         says whether the electors read each other before the synthesis. A record carrying \
+         both can be audited by someone who was not there; one without them can only be \
+         believed. `rounds: 1` is a complete loop, so the fields cost nothing to write. A \
+         record older than the fields warns, because nobody can recover a round count \
+         mechanically. A record added after the repository's own PROTOCOL.md asked for them \
+         gates, because there the omission was a choice.",
+};
 
 /// A resolution record that does not say how its deliberation went: no `rounds:`, or no
 /// `positions:`.
@@ -9886,20 +9957,7 @@ pub fn resolution_deliberation_unrecorded(
             Some(if knew { v.at(Severity::Error) } else { v })
         })
         .collect();
-    Check::new(
-        "resolution-deliberation-unrecorded",
-        "Resolution record does not name its rounds or the positions it read",
-        Severity::Warn,
-        "Article III asks for ancestry, and ancestry is not only which commits were read: it \
-         is which claims were contested and by whom. `positions:` names them and `rounds:` \
-         says whether the electors read each other before the synthesis. A record carrying \
-         both can be audited by someone who was not there; one without them can only be \
-         believed. `rounds: 1` is a complete loop, so the fields cost nothing to write. A \
-         record older than the fields warns, because nobody can recover a round count \
-         mechanically. A record added after the repository's own PROTOCOL.md asked for them \
-         gates, because there the omission was a choice.",
-        violations,
-    )
+    Check::new(&RESOLUTION_DELIBERATION_UNRECORDED, violations)
 }
 
 #[cfg(test)]
@@ -10465,6 +10523,19 @@ fn broken_prose_link(links: &[ProseLink]) -> Check {
     broken_prose_link_with_rows(links, Path::new(""), &[])
 }
 
+pub const BROKEN_PROSE_LINK: CheckSpec = CheckSpec {
+    id: "broken-prose-link",
+    title: "A markdown link in prose does not resolve",
+    severity: Severity::Error,
+    rationale: "A link resolves against the directory of the file it sits in — that is what a \
+         reader's client does — so a path spelled from the repository root is broken in \
+         every file that is not at the root. Error severity, which puts it under the \
+         baseline ratchet: a link listed there and since repaired fails the build exactly \
+         as a new break does, because a list permitted to be wrong drifts and one that \
+         over-lists silently re-permits whatever it over-lists. Fenced and inline code are \
+         not read, so an example path in a shell command is not a finding.",
+};
+
 /// [`broken_prose_link`], with each `#row=` fragment resolved against the table its entry
 /// declares (RFC-0059 §2.5). `tables` is [`super::tables::declared`]'s reading, and `root` is
 /// what each declaring entry's path is relative to.
@@ -10489,19 +10560,7 @@ pub(crate) fn broken_prose_link_with_rows(
             violations.push(Violation::new(format!("{}:{}", l.file, l.line), why));
         }
     }
-    Check::new(
-        "broken-prose-link",
-        "A markdown link in prose does not resolve",
-        Severity::Error,
-        "A link resolves against the directory of the file it sits in — that is what a \
-         reader's client does — so a path spelled from the repository root is broken in \
-         every file that is not at the root. Error severity, which puts it under the \
-         baseline ratchet: a link listed there and since repaired fails the build exactly \
-         as a new break does, because a list permitted to be wrong drifts and one that \
-         over-lists silently re-permits whatever it over-lists. Fenced and inline code are \
-         not read, so an example path in a shell command is not a finding.",
-        violations,
-    )
+    Check::new(&BROKEN_PROSE_LINK, violations)
 }
 
 /// Why a `#row=` link names no row, or `None` when it names one.
@@ -10558,6 +10617,25 @@ fn row_unresolved(
     })
 }
 
+pub const BROKEN_OBJECT_LINK: CheckSpec = CheckSpec {
+    id: "broken-object-link",
+    title: "A link from the artifact into the corpus does not resolve",
+    severity: Severity::Warn,
+    rationale:
+        "The artifact that `[object] paths` declares cites its corpus the way the corpus cites \
+         it: with a relative markdown link. Links from the corpus into the artifact are in \
+         prose `broken-prose-link` already walks. The other direction was read by nothing: \
+         deleting a node that a crate's README linked to produced twenty findings in a derived \
+         corpus, and none of them named the README. Read over the tracked `.md`, `.rs` and \
+         `.ts` files the object globs claim, which is where those links sit across the derived \
+         corpora. Bare paths in code are not read, because a path string in code is as often \
+         a file the code writes as one it cites. Warn and not Error: the finding lands on a \
+         file the corpus gate has never judged, and the first run over a repository should \
+         report what it finds, not refuse it. A `#L` range on one of these links is held by \
+         the line-citation checks. Not read for a corpus whose kuten declares it `projected`, \
+         because that corpus is regenerated from the artifact.",
+};
+
 /// A link from the artifact into the corpus whose target is not there (#577).
 ///
 /// `links` are the ones [`crate::coupling::inbound`] found: every link in the artifact whose
@@ -10577,24 +10655,7 @@ pub fn broken_object_link(links: &[ProseLink]) -> Check {
             )
         })
         .collect();
-    Check::new(
-        "broken-object-link",
-        "A link from the artifact into the corpus does not resolve",
-        Severity::Warn,
-        "The artifact that `[object] paths` declares cites its corpus the way the corpus cites \
-         it: with a relative markdown link. Links from the corpus into the artifact are in \
-         prose `broken-prose-link` already walks. The other direction was read by nothing: \
-         deleting a node that a crate's README linked to produced twenty findings in a derived \
-         corpus, and none of them named the README. Read over the tracked `.md`, `.rs` and \
-         `.ts` files the object globs claim, which is where those links sit across the derived \
-         corpora. Bare paths in code are not read, because a path string in code is as often \
-         a file the code writes as one it cites. Warn and not Error: the finding lands on a \
-         file the corpus gate has never judged, and the first run over a repository should \
-         report what it finds, not refuse it. A `#L` range on one of these links is held by \
-         the line-citation checks. Not read for a corpus whose kuten declares it `projected`, \
-         because that corpus is regenerated from the artifact.",
-        violations,
-    )
+    Check::new(&BROKEN_OBJECT_LINK, violations)
 }
 
 /// A broken prose link inside a region the repository declared it did not author, paired
@@ -10603,6 +10664,25 @@ pub struct UnauthoredLink<'a> {
     pub region: &'a crate::authorship::Region,
     pub link: ProseLink,
 }
+
+pub const UNAUTHORED_PROSE_LINK: CheckSpec = CheckSpec {
+    id: "unauthored-prose-link",
+    title: "A broken prose link in material this repository did not author",
+    severity: Severity::Info,
+    rationale:
+        "Error severity is the right verdict for a link somebody here can go and fix. It is \
+         the wrong one for generated output, whose defect belongs to the generator and whose \
+         file is rewritten by the next build, and for an unmodified import, where editing the \
+         file to satisfy a linter falsifies the record it exists to keep. A consumer that met \
+         43 broken links under `docs/` could act on 28: fifteen were inside a directory whose \
+         own README says it is a frozen copy of an upstream project at a fork point. It \
+         baselined them, which records `we accept this violation` when the truth is `this \
+         file is not ours` — and a baselined entry that is later repaired fails the build, so \
+         the gate came to depend on nobody ever re-syncing the import. Declared in \
+         `.yidam/authorship.yml`. Reported rather than silenced, with the reason and whoever \
+         can act on it, because these are real defects addressed to somebody else. Info \
+         severity: never gates, never baselined.",
+};
 
 pub fn unauthored_prose_link(links: &[UnauthoredLink<'_>]) -> Check {
     let violations = links
@@ -10619,25 +10699,22 @@ pub fn unauthored_prose_link(links: &[UnauthoredLink<'_>]) -> Check {
             )
         })
         .collect();
-    Check::new(
-        "unauthored-prose-link",
-        "A broken prose link in material this repository did not author",
-        Severity::Info,
-        "Error severity is the right verdict for a link somebody here can go and fix. It is \
-         the wrong one for generated output, whose defect belongs to the generator and whose \
-         file is rewritten by the next build, and for an unmodified import, where editing the \
-         file to satisfy a linter falsifies the record it exists to keep. A consumer that met \
-         43 broken links under `docs/` could act on 28: fifteen were inside a directory whose \
-         own README says it is a frozen copy of an upstream project at a fork point. It \
-         baselined them, which records `we accept this violation` when the truth is `this \
-         file is not ours` — and a baselined entry that is later repaired fails the build, so \
-         the gate came to depend on nobody ever re-syncing the import. Declared in \
-         `.yidam/authorship.yml`. Reported rather than silenced, with the reason and whoever \
-         can act on it, because these are real defects addressed to somebody else. Info \
-         severity: never gates, never baselined.",
-        violations,
-    )
+    Check::new(&UNAUTHORED_PROSE_LINK, violations)
 }
+
+pub const AUTHORSHIP_REGION_STALE: CheckSpec = CheckSpec {
+    id: "authorship-region-stale",
+    title: "A declared authorship region matches nothing on disk",
+    severity: Severity::Warn,
+    rationale: "A manifest permitted to be wrong drifts, exactly as a lint baseline does, and the \
+         entry that outlives the directory it describes is the one that quietly excuses a \
+         path somebody later creates under the same name. `generated` regions are exempt: \
+         they are written by a build and are frequently git-ignored, so absence on a fresh \
+         clone carries no information. Warn rather than Error, unlike the baseline's own \
+         staleness rule, and for the reason this check exists — an imported region is \
+         re-synced by somebody upstream on their schedule, and gating on it would make the \
+         build's colour depend on that.",
+};
 
 pub fn authorship_region_stale(stale: &[&crate::authorship::Region]) -> Check {
     let violations = stale
@@ -10653,20 +10730,7 @@ pub fn authorship_region_stale(stale: &[&crate::authorship::Region]) -> Check {
             )
         })
         .collect();
-    Check::new(
-        "authorship-region-stale",
-        "A declared authorship region matches nothing on disk",
-        Severity::Warn,
-        "A manifest permitted to be wrong drifts, exactly as a lint baseline does, and the \
-         entry that outlives the directory it describes is the one that quietly excuses a \
-         path somebody later creates under the same name. `generated` regions are exempt: \
-         they are written by a build and are frequently git-ignored, so absence on a fresh \
-         clone carries no information. Warn rather than Error, unlike the baseline's own \
-         staleness rule, and for the reason this check exists — an imported region is \
-         re-synced by somebody upstream on their schedule, and gating on it would make the \
-         build's colour depend on that.",
-        violations,
-    )
+    Check::new(&AUTHORSHIP_REGION_STALE, violations)
 }
 
 #[cfg(test)]

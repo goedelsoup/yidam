@@ -123,7 +123,7 @@ people what good looks like, and that has to be said here.
 
 **(c) `orphan-in` is the only check that carries an age.** `Violation::age` is `None` for every
 finding except those `orphan_in_dated` decorates
-([`orphan_in_dated`](../../yidam/cli/src/cmd/lint/mod.rs#L1012-L1029),
+([`orphan_in_dated`](../../yidam/cli/src/cmd/lint/mod.rs#L995-L1012),
 [`model.rs:58`](../../yidam/cli/src/cmd/lint/model.rs#L58)). "Past its residence threshold" is
 therefore well-defined for exactly one check today. That is not a problem to fix here — it is a
 bound on how much of the corpus `propose` can speak about, and the command should say so rather
@@ -143,9 +143,9 @@ catalog's own bookkeeping against the corpus's citations. None of them looks ups
 **And the built machinery for this exact case deliberately does not retag.** E3 shipped it one
 epic ago for dependency citations: `citations::moved` compares two surveys and emits a
 `Movement` whose payload is a *question* — `/// Phrased as a question, deliberately. The answer
-is a person's.` ([`citations.rs:856-866`](../../yidam/cli/src/cmd/lint/citations.rs#L856-L866)).
+is a person's.` ([`citations.rs:867-877`](../../yidam/cli/src/cmd/lint/citations.rs#L867-L877)).
 The renderer is explicit about the temptation it is refusing
-([`citations.rs:976-989`](../../yidam/cli/src/cmd/lint/citations.rs#L976-L989)):
+([`citations.rs:987-1000`](../../yidam/cli/src/cmd/lint/citations.rs#L987-L1000)):
 
 ```text
 3 question(s) opened by this update — nothing was changed, and no claim was re-tagged:

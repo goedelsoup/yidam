@@ -74,7 +74,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::citations::{flatten, truncate};
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::corpus::{normalize, Class, Node, Source};
 use crate::parse::CatalogArtifact;
 use crate::reading::Reading;
@@ -85,9 +85,44 @@ use crate::vault::{Cache, ContentHash};
 pub const QUOTATION_PROPERTY_TYPE: &str = "quotation";
 
 /// The three check ids, named once, for the reason [`super::local_citations`] names its four.
-pub const UNRESOLVED: &str = "quotation-unresolved";
-pub const SPAN_DRIFT: &str = "quotation-span-drift";
-pub const UNCHECKED: &str = "quotation-unchecked";
+pub const UNRESOLVED: CheckSpec = CheckSpec {
+    id: "quotation-unresolved",
+    title: "A quotation names no artifact the catalog records",
+    severity: Severity::Error,
+    rationale:
+        "A property declared `type: quotation` states that its words are in a document this \
+         corpus catalogued, and a quotation whose `of:` names no entry, or an entry that \
+         records no artifact, names no bytes those words could be in. An entry holding \
+         several artifacts is several revisions, and a quotation that does not pin one with \
+         `sha256:` would be satisfied by whichever revision happens to hold the words — the \
+         retyping from the wrong revision that motivated the type. Error: the population is \
+         empty in a corpus that declares no quotation, so no repository that predates it is \
+         put in debt.",
+};
+pub const SPAN_DRIFT: CheckSpec = CheckSpec {
+    id: "quotation-span-drift",
+    title: "A quotation's span is not in the artifact it names",
+    severity: Severity::Error,
+    rationale: "The artifact's bytes are in this machine's vault cache, they hash to the digest the \
+         catalog records, and the span is not in them. Whitespace is normalized on both sides \
+         and nothing else is, so a re-wrapped quotation compares equal and a retyped one does \
+         not. A span read from a rendered page is compared with the bytes as stored, markup \
+         included. A PDF is compared with the text reading its record names, where a word \
+         broken by a line-end hyphen also matches written whole. The repair is to read the document again and copy the words from it; \
+         editing the span until the finding clears is the one response that destroys what \
+         the check is for.",
+};
+pub const UNCHECKED: CheckSpec = CheckSpec {
+    id: "quotation-unchecked",
+    title: "A quotation whose artifact cannot be read here",
+    severity: Severity::Info,
+    rationale: "A vault stores bytes and git stores the record of them, so a lint run can compare \
+         only the bytes this machine has fetched, and only when they are text. On a CI runner \
+         every quotation lands here. Reported rather than passed, because a quotation nobody \
+         compared and one that held are different facts; Info, because an empty cache is not \
+         a defect in the corpus. `yidam vault pull` fetches the bytes, and \
+         `yidam catalog-extract` takes the text reading a PDF is compared with.",
+};
 
 /// One quotation, as written.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -343,6 +378,14 @@ struct Finding {
     message: String,
 }
 
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) unresolved: Check,
+    pub(crate) span_drift: Check,
+    pub(crate) unchecked: Check,
+}
+
 /// The three checks, over one walk of the corpus.
 ///
 /// `cache` is `None` where this machine has none to resolve, which is a reason every
@@ -354,7 +397,7 @@ pub fn checks(
     sources: &[Source],
     catalog: &Path,
     cache: Option<&Cache>,
-) -> [Check; 3] {
+) -> Checks {
     let entries: HashMap<PathBuf, &Source> =
         sources.iter().map(|s| (normalize(&s.path), s)).collect();
     let mut read_once: HashMap<ContentHash, Bytes> = HashMap::new();
@@ -379,7 +422,7 @@ pub fn checks(
                     .iter()
                     .find_map(|p| entries.get(p))
                 else {
-                    report(UNRESOLVED, "names no catalog entry".to_string());
+                    report(UNRESOLVED.id, "names no catalog entry".to_string());
                     continue;
                 };
                 let recorded: Vec<(&CatalogArtifact, ContentHash)> = entry
@@ -390,7 +433,7 @@ pub fn checks(
                 let artifact = match (&q.sha256, recorded.as_slice()) {
                     (_, []) => {
                         report(
-                            UNRESOLVED,
+                            UNRESOLVED.id,
                             format!(
                                 "`{}` records no artifact, so there are no bytes to quote — \
                                  `yidam catalog fetch` records one",
@@ -403,7 +446,7 @@ pub fn checks(
                         Some(a) => a,
                         None => {
                             report(
-                                UNRESOLVED,
+                                UNRESOLVED.id,
                                 format!(
                                     "pins `sha256: {pin}`, and `{}` records no artifact \
                                      under it",
@@ -416,7 +459,7 @@ pub fn checks(
                     (None, [only]) => only,
                     (None, many) => {
                         report(
-                            UNRESOLVED,
+                            UNRESOLVED.id,
                             format!(
                                 "`{}` records {} artifacts and this quotation pins none — add \
                                  `sha256:` naming the one the span was read from",
@@ -433,12 +476,12 @@ pub fn checks(
                     .or_insert_with(|| load(cache, meta, hash));
                 match bytes {
                     Bytes::Unreadable(why) => {
-                        report(UNCHECKED, format!("the artifact {} {why}", short(hash)))
+                        report(UNCHECKED.id, format!("the artifact {} {why}", short(hash)))
                     }
                     Bytes::Text(text) if text.contains(&flatten(&q.span)) => {}
                     Bytes::Read(reading, _) if reading.holds(&q.span) => {}
                     Bytes::Read(_, of) => report(
-                        SPAN_DRIFT,
+                        SPAN_DRIFT.id,
                         format!(
                             "\"{}\" is not in the text reading {} of artifact {}",
                             truncate(&q.span),
@@ -447,7 +490,7 @@ pub fn checks(
                         ),
                     ),
                     Bytes::Text(_) => report(
-                        SPAN_DRIFT,
+                        SPAN_DRIFT.id,
                         format!(
                             "\"{}\" is not in artifact {}",
                             truncate(&q.span),
@@ -466,11 +509,11 @@ pub fn checks(
             .map(|f| Violation::new(&f.rel, f.message.clone()))
             .collect()
     };
-    [
-        quotation_unresolved(file(UNRESOLVED)),
-        quotation_span_drift(file(SPAN_DRIFT)),
-        quotation_unchecked(file(UNCHECKED)),
-    ]
+    Checks {
+        unresolved: quotation_unresolved(file(UNRESOLVED.id)),
+        span_drift: quotation_span_drift(file(SPAN_DRIFT.id)),
+        unchecked: quotation_unchecked(file(UNCHECKED.id)),
+    }
 }
 
 /// A digest short enough to sit in a finding — the twelve characters a person compares by
@@ -480,52 +523,15 @@ fn short(hash: &ContentHash) -> String {
 }
 
 fn quotation_unresolved(violations: Vec<Violation>) -> Check {
-    Check::new(
-        UNRESOLVED,
-        "A quotation names no artifact the catalog records",
-        Severity::Error,
-        "A property declared `type: quotation` states that its words are in a document this \
-         corpus catalogued, and a quotation whose `of:` names no entry, or an entry that \
-         records no artifact, names no bytes those words could be in. An entry holding \
-         several artifacts is several revisions, and a quotation that does not pin one with \
-         `sha256:` would be satisfied by whichever revision happens to hold the words — the \
-         retyping from the wrong revision that motivated the type. Error: the population is \
-         empty in a corpus that declares no quotation, so no repository that predates it is \
-         put in debt.",
-        violations,
-    )
+    Check::new(&UNRESOLVED, violations)
 }
 
 fn quotation_span_drift(violations: Vec<Violation>) -> Check {
-    Check::new(
-        SPAN_DRIFT,
-        "A quotation's span is not in the artifact it names",
-        Severity::Error,
-        "The artifact's bytes are in this machine's vault cache, they hash to the digest the \
-         catalog records, and the span is not in them. Whitespace is normalized on both sides \
-         and nothing else is, so a re-wrapped quotation compares equal and a retyped one does \
-         not. A span read from a rendered page is compared with the bytes as stored, markup \
-         included. A PDF is compared with the text reading its record names, where a word \
-         broken by a line-end hyphen also matches written whole. The repair is to read the document again and copy the words from it; \
-         editing the span until the finding clears is the one response that destroys what \
-         the check is for.",
-        violations,
-    )
+    Check::new(&SPAN_DRIFT, violations)
 }
 
 fn quotation_unchecked(violations: Vec<Violation>) -> Check {
-    Check::new(
-        UNCHECKED,
-        "A quotation whose artifact cannot be read here",
-        Severity::Info,
-        "A vault stores bytes and git stores the record of them, so a lint run can compare \
-         only the bytes this machine has fetched, and only when they are text. On a CI runner \
-         every quotation lands here. Reported rather than passed, because a quotation nobody \
-         compared and one that held are different facts; Info, because an empty cache is not \
-         a defect in the corpus. `yidam vault pull` fetches the bytes, and \
-         `yidam catalog-extract` takes the text reading a PDF is compared with.",
-        violations,
-    )
+    Check::new(&UNCHECKED, violations)
 }
 
 #[cfg(test)]
@@ -575,7 +581,7 @@ mod tests {
             Self { dir }
         }
 
-        fn run(&self, with_cache: bool) -> [Check; 3] {
+        fn run(&self, with_cache: bool) -> Checks {
             let root = self.dir.path();
             let corpus = crate::paths::yidam_corpus_dir(root);
             let overlay = Overlay::default();
@@ -607,9 +613,14 @@ mod tests {
     }
 
     /// Every finding, as `(check, detail)`.
-    fn findings(checks: &[Check; 3]) -> Vec<(String, String)> {
-        checks
-            .iter()
+    fn findings(checks: &Checks) -> Vec<(String, String)> {
+        let Checks {
+            unresolved,
+            span_drift,
+            unchecked,
+        } = checks;
+        [unresolved, span_drift, unchecked]
+            .into_iter()
             .flat_map(|c| {
                 c.violations
                     .iter()
@@ -618,7 +629,7 @@ mod tests {
             .collect()
     }
 
-    fn only(checks: &[Check; 3]) -> (String, String) {
+    fn only(checks: &Checks) -> (String, String) {
         let all = findings(checks);
         assert_eq!(all.len(), 1, "expected exactly one finding, got {all:?}");
         all.into_iter().next().unwrap()
@@ -642,7 +653,7 @@ mod tests {
             &[MESSAGE.as_bytes()],
         );
         let (check, detail) = only(&f.run(true));
-        assert_eq!(check, SPAN_DRIFT);
+        assert_eq!(check, SPAN_DRIFT.id);
         assert!(detail.contains("public good"), "{detail}");
     }
 
@@ -664,7 +675,7 @@ mod tests {
             &[],
         );
         let (check, detail) = only(&f.run(true));
-        assert_eq!(check, UNRESOLVED);
+        assert_eq!(check, UNRESOLVED.id);
         assert!(detail.contains("names no catalog entry"), "{detail}");
     }
 
@@ -672,7 +683,7 @@ mod tests {
     fn an_entry_recording_no_artifact_is_unresolved() {
         let f = Fixture::new("    of: veto-message\n    span: veto\n", "  []\n", &[]);
         let (check, detail) = only(&f.run(true));
-        assert_eq!(check, UNRESOLVED);
+        assert_eq!(check, UNRESOLVED.id);
         assert!(detail.contains("records no artifact"), "{detail}");
     }
 
@@ -692,7 +703,7 @@ mod tests {
             &[enrolled, introduced],
         );
         let (check, detail) = only(&unpinned.run(true));
-        assert_eq!(check, UNRESOLVED);
+        assert_eq!(check, UNRESOLVED.id);
         assert!(detail.contains("records 2 artifacts"), "{detail}");
 
         let pinned = Fixture::new(
@@ -703,7 +714,7 @@ mod tests {
             &both,
             &[enrolled, introduced],
         );
-        assert_eq!(only(&pinned.run(true)).0, SPAN_DRIFT);
+        assert_eq!(only(&pinned.run(true)).0, SPAN_DRIFT.id);
     }
 
     #[test]
@@ -717,7 +728,7 @@ mod tests {
             &[MESSAGE.as_bytes()],
         );
         let (check, detail) = only(&f.run(true));
-        assert_eq!(check, UNRESOLVED);
+        assert_eq!(check, UNRESOLVED.id);
         assert!(detail.contains("records no artifact under it"), "{detail}");
     }
 
@@ -729,9 +740,9 @@ mod tests {
             &[],
         );
         let (check, detail) = only(&f.run(true));
-        assert_eq!(check, UNCHECKED);
+        assert_eq!(check, UNCHECKED.id);
         assert!(detail.contains("yidam vault pull"), "{detail}");
-        assert_eq!(only(&f.run(false)).0, UNCHECKED);
+        assert_eq!(only(&f.run(false)).0, UNCHECKED.id);
     }
 
     #[test]
@@ -742,7 +753,7 @@ mod tests {
             &[b"%PDF-1.7"],
         );
         let (check, detail) = only(&f.run(true));
-        assert_eq!(check, UNCHECKED);
+        assert_eq!(check, UNCHECKED.id);
         assert!(detail.contains("application/pdf"), "{detail}");
         assert!(detail.contains("yidam catalog-extract"), "{detail}");
     }
@@ -755,7 +766,7 @@ mod tests {
             &[b"\x89PNG"],
         );
         let (check, detail) = only(&f.run(true));
-        assert_eq!(check, UNCHECKED);
+        assert_eq!(check, UNCHECKED.id);
         assert!(detail.contains("image/png"), "{detail}");
     }
 
@@ -794,7 +805,7 @@ mod tests {
     fn a_span_not_in_the_reading_is_drift_naming_the_reading() {
         let f = pdf_quoting("a veto of this item is in the public good", READ.as_bytes());
         let (check, detail) = only(&f.run(true));
-        assert_eq!(check, SPAN_DRIFT);
+        assert_eq!(check, SPAN_DRIFT.id);
         let reading = ContentHash::of_bytes(READ.as_bytes());
         assert!(detail.contains(&short(&reading)), "{detail}");
         assert!(detail.contains("text reading"), "{detail}");
@@ -806,7 +817,7 @@ mod tests {
     fn a_reading_not_held_or_corrupt_is_unchecked() {
         let absent = pdf_quoting("a veto of this item", b"");
         let (check, detail) = only(&absent.run(true));
-        assert_eq!(check, UNCHECKED);
+        assert_eq!(check, UNCHECKED.id);
         assert!(detail.contains("text reading"), "{detail}");
         assert!(detail.contains("yidam vault pull"), "{detail}");
 
@@ -816,7 +827,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, "something else entirely").unwrap();
         let (check, detail) = only(&corrupt.run(true));
-        assert_eq!(check, UNCHECKED);
+        assert_eq!(check, UNCHECKED.id);
         assert!(detail.contains("corrupt"), "{detail}");
     }
 
@@ -850,7 +861,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, "something else entirely").unwrap();
         let (check, detail) = only(&f.run(true));
-        assert_eq!(check, UNCHECKED);
+        assert_eq!(check, UNCHECKED.id);
         assert!(detail.contains("corrupt"), "{detail}");
     }
 

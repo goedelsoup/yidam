@@ -369,7 +369,7 @@ mod tests {
     use super::*;
 
     fn err_check(id: &'static str, nodes: &[&str]) -> Check {
-        Check::new(
+        Check::unregistered(
             id,
             "T",
             Severity::Error,
@@ -418,7 +418,7 @@ mod tests {
     /// never be in it — and must not be reported as a regression on that account.
     #[test]
     fn warn_violations_are_never_baselined() {
-        let c = Check::new(
+        let c = Check::unregistered(
             "class-asserts-purpose",
             "T",
             Severity::Warn,

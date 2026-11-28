@@ -140,17 +140,110 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::corpus::{normalize, DecisionRecord, Edges, Node, Source};
 use crate::universal::Universal;
 
 /// The check ids, named once — a filter keyed on a literal would drift from the id the
 /// baseline records the moment any of them was reworded.
-pub const UNTAGGED: &str = "edge-untagged";
-pub const VERIFIED_UNSOURCED: &str = "edge-verified-unsourced";
-pub const STANDING_UNHELD: &str = "edge-standing-unheld";
-pub const SOURCE_UNRESOLVED: &str = "edge-source-unresolved";
-pub const ENTRY_SOURCE_UNRESOLVED: &str = "entry-source-unresolved";
+pub const UNTAGGED: CheckSpec = CheckSpec {
+    id: "edge-untagged",
+    title: "An empirical edge that does not say what it rests on",
+    severity: Severity::Warn,
+    rationale:
+        "`agent-conduct.md`: *an edge is a claim written as structure*, asserted in the form a \
+         reader is least likely to check. The prose rules have applied to node bodies since the \
+         vocabulary existed and the graph — the part a traversal actually walks — was exempt \
+         from them. This asks an edge the same question: `claim_tag: verified`, `inference` or \
+         `open` on the link, beside `target` and `relationship`, or the honest third option the \
+         guidelines name, which is to leave the edge out. A value spelling no standing is \
+         reported separately from a missing one, because a typo in the field is a claim graded \
+         into somewhere nothing can read it. \
+         \
+         Runs only where `.yidam/corpus/universal.yml` declares `edge_claims: required: true`, \
+         and never on a relationship that file lists as `structural:` — `instance-of`, \
+         `concerns`, `subject-of` and whatever else a corpus's bookkeeping is spelled with. \
+         Unconditionally it would open with one finding per edge in the graph, which is a gate \
+         arriving in a corpus that never agreed to it. Warn, because which of the three \
+         standings an edge deserves is the author's judgement and nothing here proposes one.",
+};
+pub const VERIFIED_UNSOURCED: CheckSpec = CheckSpec {
+    id: "edge-verified-unsourced",
+    title: "An edge asserted at `verified` that names no source",
+    severity: Severity::Warn,
+    rationale: "The edge half of `verified-unsourced`, and the same one-directional argument: \
+         over-counting evidence is the flattering error and it is the one the claim vocabulary \
+         exists to prevent. `verified` means supported by a committed primary source; an edge \
+         claiming it with no `source:` has claimed a standing it cannot demonstrate. The fix is \
+         a source or a demotion, and which of the two is the author's call — nothing here \
+         proposes a promotion, ever. \
+         \
+         This needs no declaration to switch on and gets none: its population is empty in a \
+         corpus that tags no edges, because writing `claim_tag: verified` is itself the \
+         declaration the check reads. So it cannot put a repository that predates it in debt, \
+         and it reports on an edge that asserted `verified` even where the corpus exempted that \
+         relationship from being asked — an exemption says the relationship is bookkeeping, and \
+         bookkeeping that claims to be verified has stopped being bookkeeping.",
+};
+pub const STANDING_UNHELD: CheckSpec = CheckSpec {
+    id: "edge-standing-unheld",
+    title: "An edge asserts a standing its own endpoints do not hold",
+    severity: Severity::Warn,
+    rationale:
+        "The graph half of `local-citation-tag-drift`: a citation resting on `[verified]` over a \
+         paragraph this corpus tags `[inference]` asserts something its own corpus denies, and an \
+         edge asserting `verified` between two nodes this corpus grades `[open]` does the same \
+         thing in the form a reader is least likely to check. A node's standing here is a \
+         property its class declared `type: claim` — the node's own grade, not the weakest marker \
+         in its prose, because a synthesis node carries all three tags by design. A node that \
+         declares none is compared to nothing. \
+         \
+         One-directional, like every check in this family: an `open` edge between two `verified` \
+         nodes is not a defect, it is a corpus saying it knows both things and not that they are \
+         related, which is what the vocabulary is for. The endpoint compared against is the \
+         weaker of the two ends, and the edge's own standing is the strongest it spells. \
+         \
+         Warn, and this one cannot be Error. Every other contradiction check here gates on the \
+         ground that its population is empty by construction; this one's is not, because a corpus \
+         can adopt edge tags on a graph whose nodes were graded years earlier and inherit \
+         findings it did not create. Which of the two sides is wrong is the author's judgement \
+         and nothing here proposes an answer.",
+};
+pub const SOURCE_UNRESOLVED: CheckSpec = CheckSpec {
+    id: "edge-source-unresolved",
+    title: "An edge's `source:` names nothing this repository holds",
+    severity: Severity::Error,
+    rationale:
+        "`edge-verified-unsourced` asks whether a `verified` edge names a source, and until this \
+         check that was the whole of the question: a `source:` naming a catalog entry that was \
+         renamed, or that never existed, passed exactly as one that resolves. This resolves it. \
+         A value may name a catalog entry by its file stem, a catalog entry by a path written \
+         as a `links:` target is, or a decision record by its `id:` — the three spellings the \
+         derived corpora were measured writing, and the last admitted because an edge can rest \
+         on a rule this corpus wrote rather than on a document it retrieved, for which a \
+         catalog entry would be the wrong citation. \
+         \
+         Error, on the one ground the rest of this family cannot claim. Which standing an edge \
+         deserves is the author's judgement and every sibling here is Warn for it; whether the \
+         thing an edge cites is in this tree is not a judgement at all, and is the question \
+         `dangling-edge` already gates on, one key over. The population is empty in a corpus \
+         that writes no `source:`, and was measured at zero across every corpus that writes \
+         one, so no repository that predates the check is put in debt by it. It reads every \
+         edge that names a source, whatever the tag beside it: an `inference` edge naming a \
+         dead source has still cited nothing.",
+};
+pub const ENTRY_SOURCE_UNRESOLVED: CheckSpec = CheckSpec {
+    id: "entry-source-unresolved",
+    title: "Evidenced list entry names a source this repository does not hold",
+    severity: Severity::Error,
+    rationale:
+        "An entry of a `list` whose record declares a `claim` field carries its own standing, \
+         and a standing rests on a source. Its `source` is resolved as a link's `source:` is: a \
+         catalog entry by its file stem or by a path from the node, or a decision record by its \
+         `id:`. A name that resolves to nothing cites nothing, whatever standing sits beside \
+         it. A blank `source` is not checked, and a list whose record declares no `claim` \
+         field is not read at all (RFC-0050).",
+};
 
 /// What a `source:` may name — everything this repository holds that an edge can rest on.
 ///
@@ -276,18 +369,7 @@ pub fn entry_source_unresolved(
             .collect::<Vec<_>>()
         })
         .collect();
-    Check::new(
-        ENTRY_SOURCE_UNRESOLVED,
-        "Evidenced list entry names a source this repository does not hold",
-        Severity::Error,
-        "An entry of a `list` whose record declares a `claim` field carries its own standing, \
-         and a standing rests on a source. Its `source` is resolved as a link's `source:` is: a \
-         catalog entry by its file stem or by a path from the node, or a decision record by its \
-         `id:`. A name that resolves to nothing cites nothing, whatever standing sits beside \
-         it. A blank `source` is not checked, and a list whose record declares no `claim` \
-         field is not read at all (RFC-0050).",
-        violations,
-    )
+    Check::new(&ENTRY_SOURCE_UNRESOLVED, violations)
 }
 
 /// What a link's `claim_tag` spells.
@@ -399,6 +481,15 @@ fn edge_address(link: &crate::parse::CorpusLink) -> String {
     )
 }
 
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) untagged: Check,
+    pub(crate) verified_unsourced: Check,
+    pub(crate) standing_unheld: Check,
+    pub(crate) source_unresolved: Check,
+}
+
 /// The four checks, over one walk of the corpus.
 ///
 /// Returned together and destructured at the call site for [`super::citations::checks`]'s
@@ -412,7 +503,7 @@ pub fn checks(
     sources: &[Source],
     decisions: &[DecisionRecord],
     catalog: &Path,
-) -> [Check; 4] {
+) -> Checks {
     let required = universal.edge_claims_required();
     let held = Held::build(sources, decisions, catalog);
     let mut untagged = Vec::new();
@@ -514,115 +605,28 @@ pub fn checks(
             }
         }
     }
-    [
-        edge_untagged(untagged),
-        edge_verified_unsourced(unsourced),
-        edge_standing_unheld(unheld),
-        edge_source_unresolved(unresolved),
-    ]
+    Checks {
+        untagged: edge_untagged(untagged),
+        verified_unsourced: edge_verified_unsourced(unsourced),
+        standing_unheld: edge_standing_unheld(unheld),
+        source_unresolved: edge_source_unresolved(unresolved),
+    }
 }
 
 fn edge_source_unresolved(violations: Vec<Violation>) -> Check {
-    Check::new(
-        SOURCE_UNRESOLVED,
-        "An edge's `source:` names nothing this repository holds",
-        Severity::Error,
-        "`edge-verified-unsourced` asks whether a `verified` edge names a source, and until this \
-         check that was the whole of the question: a `source:` naming a catalog entry that was \
-         renamed, or that never existed, passed exactly as one that resolves. This resolves it. \
-         A value may name a catalog entry by its file stem, a catalog entry by a path written \
-         as a `links:` target is, or a decision record by its `id:` — the three spellings the \
-         derived corpora were measured writing, and the last admitted because an edge can rest \
-         on a rule this corpus wrote rather than on a document it retrieved, for which a \
-         catalog entry would be the wrong citation. \
-         \
-         Error, on the one ground the rest of this family cannot claim. Which standing an edge \
-         deserves is the author's judgement and every sibling here is Warn for it; whether the \
-         thing an edge cites is in this tree is not a judgement at all, and is the question \
-         `dangling-edge` already gates on, one key over. The population is empty in a corpus \
-         that writes no `source:`, and was measured at zero across every corpus that writes \
-         one, so no repository that predates the check is put in debt by it. It reads every \
-         edge that names a source, whatever the tag beside it: an `inference` edge naming a \
-         dead source has still cited nothing.",
-        violations,
-    )
-    .spanning_links()
+    Check::new(&SOURCE_UNRESOLVED, violations).spanning_links()
 }
 
 fn edge_standing_unheld(violations: Vec<Violation>) -> Check {
-    Check::new(
-        STANDING_UNHELD,
-        "An edge asserts a standing its own endpoints do not hold",
-        Severity::Warn,
-        "The graph half of `local-citation-tag-drift`: a citation resting on `[verified]` over a \
-         paragraph this corpus tags `[inference]` asserts something its own corpus denies, and an \
-         edge asserting `verified` between two nodes this corpus grades `[open]` does the same \
-         thing in the form a reader is least likely to check. A node's standing here is a \
-         property its class declared `type: claim` — the node's own grade, not the weakest marker \
-         in its prose, because a synthesis node carries all three tags by design. A node that \
-         declares none is compared to nothing. \
-         \
-         One-directional, like every check in this family: an `open` edge between two `verified` \
-         nodes is not a defect, it is a corpus saying it knows both things and not that they are \
-         related, which is what the vocabulary is for. The endpoint compared against is the \
-         weaker of the two ends, and the edge's own standing is the strongest it spells. \
-         \
-         Warn, and this one cannot be Error. Every other contradiction check here gates on the \
-         ground that its population is empty by construction; this one's is not, because a corpus \
-         can adopt edge tags on a graph whose nodes were graded years earlier and inherit \
-         findings it did not create. Which of the two sides is wrong is the author's judgement \
-         and nothing here proposes an answer.",
-        violations,
-    )
-    .spanning_links()
+    Check::new(&STANDING_UNHELD, violations).spanning_links()
 }
 
 fn edge_untagged(violations: Vec<Violation>) -> Check {
-    Check::new(
-        UNTAGGED,
-        "An empirical edge that does not say what it rests on",
-        Severity::Warn,
-        "`agent-conduct.md`: *an edge is a claim written as structure*, asserted in the form a \
-         reader is least likely to check. The prose rules have applied to node bodies since the \
-         vocabulary existed and the graph — the part a traversal actually walks — was exempt \
-         from them. This asks an edge the same question: `claim_tag: verified`, `inference` or \
-         `open` on the link, beside `target` and `relationship`, or the honest third option the \
-         guidelines name, which is to leave the edge out. A value spelling no standing is \
-         reported separately from a missing one, because a typo in the field is a claim graded \
-         into somewhere nothing can read it. \
-         \
-         Runs only where `.yidam/corpus/universal.yml` declares `edge_claims: required: true`, \
-         and never on a relationship that file lists as `structural:` — `instance-of`, \
-         `concerns`, `subject-of` and whatever else a corpus's bookkeeping is spelled with. \
-         Unconditionally it would open with one finding per edge in the graph, which is a gate \
-         arriving in a corpus that never agreed to it. Warn, because which of the three \
-         standings an edge deserves is the author's judgement and nothing here proposes one.",
-        violations,
-    )
-    .spanning_links()
+    Check::new(&UNTAGGED, violations).spanning_links()
 }
 
 fn edge_verified_unsourced(violations: Vec<Violation>) -> Check {
-    Check::new(
-        VERIFIED_UNSOURCED,
-        "An edge asserted at `verified` that names no source",
-        Severity::Warn,
-        "The edge half of `verified-unsourced`, and the same one-directional argument: \
-         over-counting evidence is the flattering error and it is the one the claim vocabulary \
-         exists to prevent. `verified` means supported by a committed primary source; an edge \
-         claiming it with no `source:` has claimed a standing it cannot demonstrate. The fix is \
-         a source or a demotion, and which of the two is the author's call — nothing here \
-         proposes a promotion, ever. \
-         \
-         This needs no declaration to switch on and gets none: its population is empty in a \
-         corpus that tags no edges, because writing `claim_tag: verified` is itself the \
-         declaration the check reads. So it cannot put a repository that predates it in debt, \
-         and it reports on an edge that asserted `verified` even where the corpus exempted that \
-         relationship from being asked — an exemption says the relationship is bookkeeping, and \
-         bookkeeping that claims to be verified has stopped being bookkeeping.",
-        violations,
-    )
-    .spanning_links()
+    Check::new(&VERIFIED_UNSOURCED, violations).spanning_links()
 }
 
 #[cfg(test)]
@@ -718,7 +722,12 @@ mod tests {
                 .into_iter()
                 .map(|c| (c.to_string(), declared.clone())),
         );
-        let [untagged, unsourced, unheld, unresolved] = checks(
+        let Checks {
+            untagged,
+            verified_unsourced: unsourced,
+            standing_unheld: unheld,
+            source_unresolved: unresolved,
+        } = checks(
             &nodes,
             &crate::corpus::Edges::build(&nodes),
             &Universal::parse(universal),

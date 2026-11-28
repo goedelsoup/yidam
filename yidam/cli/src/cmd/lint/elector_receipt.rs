@@ -30,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use super::history::read_blobs;
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::cmd::sangha::{parse_electors, ElectorRow, Resolution};
 
 /// The registry, at whatever revision it is being read from.
@@ -129,6 +129,22 @@ pub(crate) fn disagreements(
     out
 }
 
+pub const ELECTOR_RECEIPT_DISAGREES: CheckSpec = CheckSpec {
+    id: "elector-receipt-disagrees",
+    title: "Elector receipt disagrees with the seat's registry row",
+    severity: Severity::Warn,
+    rationale:
+        "`yidam dispatch` records the model, version and configuration digest an elector ran \
+         under in a receipt beside the position, and `electors.md` records the same three about \
+         the seat. The registry is what a resolution's `independence:` is derived from; the \
+         receipt only corroborates it. A receipt that disagrees with the row at the same tip — \
+         or records a value the row leaves blank — means the derivation is describing an \
+         occupant that is not the one that answered, and nothing else would say so. Both files \
+         are read at the same tip, so a model bump between two revisions is never reported as \
+         a disagreement. Warn rather than a gate: the repair is a registry update or a new \
+         dispatch, and either is a person's call.",
+};
+
 pub(crate) fn elector_receipt_disagrees(audits: &[ReceiptAudit]) -> Check {
     let violations = audits
         .iter()
@@ -143,21 +159,7 @@ pub(crate) fn elector_receipt_disagrees(audits: &[ReceiptAudit]) -> Check {
             })
         })
         .collect();
-    Check::new(
-        "elector-receipt-disagrees",
-        "Elector receipt disagrees with the seat's registry row",
-        Severity::Warn,
-        "`yidam dispatch` records the model, version and configuration digest an elector ran \
-         under in a receipt beside the position, and `electors.md` records the same three about \
-         the seat. The registry is what a resolution's `independence:` is derived from; the \
-         receipt only corroborates it. A receipt that disagrees with the row at the same tip — \
-         or records a value the row leaves blank — means the derivation is describing an \
-         occupant that is not the one that answered, and nothing else would say so. Both files \
-         are read at the same tip, so a model bump between two revisions is never reported as \
-         a disagreement. Warn rather than a gate: the repair is a registry update or a new \
-         dispatch, and either is a person's call.",
-        violations,
-    )
+    Check::new(&ELECTOR_RECEIPT_DISAGREES, violations)
 }
 
 // ── reading the repository ────────────────────────────────────────────────────
