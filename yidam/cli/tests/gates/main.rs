@@ -39,6 +39,7 @@ mod domain_parity_testkit;
 mod edit_publish;
 mod embed_parity;
 mod feature_split;
+mod feature_tests;
 mod formal_specs;
 mod gluon_arm;
 mod hook_claims;

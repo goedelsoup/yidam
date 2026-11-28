@@ -268,8 +268,9 @@ run `index-build`, the semantic retrieval path, and the sqlite/rdf exports. That
 provisions what it does, and why it is the *maintainer's* setup rather than the one
 [Getting started](#getting-started) describes.
 
-CI runs the harness and the light CLI build as parallel jobs on every PR; the full-feature
-build (ONNX runtime, SQLite) runs on `main` and on a weekly schedule.
+CI runs the harness and the light CLI build as parallel jobs on every PR. The PR also
+compile-checks the feature-gated builds and runs the few tests only they run; the full-feature
+test suite (ONNX runtime, SQLite) runs on `main` and on a weekly schedule.
 
 ## Naming
 
