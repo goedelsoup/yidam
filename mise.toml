@@ -7,7 +7,7 @@
 #
 # `mise install` provisions the toolchains below.
 # `mise tasks`   lists every available task.
-# `mise run ci`  is what CI runs.
+# `mise run ci`  is what a pull request's CI runs, less the jobs whose tools mise lacks.
 
 [settings]
 # Rust — domain computer (crates/), bootstrap harness (yidam/tests/harness/), yidam CLI (yidam/cli/).
@@ -53,6 +53,14 @@ _.path = [".local/bin"]
 # different profile would pass while writing nothing for the summary to read, which is the
 # exact shape of failure this phase exists to remove.
 NEXTEST_PROFILE = "ci"
+# The CLI's default feature set without `vector-read`, said once (#1640). It is the build
+# `docs/installation.md` gives for leaving ONNX Runtime out, and `check-features` and
+# `ci-cli-full` both compile it, as `--features $CLI_FEATURES_WITHOUT_VECTOR_READ`. The
+# shell expands it, so cargo gets the same command it did. Not a mise `[vars]` template: no
+# mise file opens a Tera tag (`task_layer.rs`). Two copies stay outside this file, ci.yml's
+# `list-features` input and the install guide; `local_ci.rs` holds both equal to this value,
+# and this value to Cargo.toml's default less `vector-read`.
+CLI_FEATURES_WITHOUT_VECTOR_READ = "reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app"
 
 # ── yidam CLI — build ─────────────────────────────────────────────────
 # The `yidam` binary lives in yidam/cli/. In a derived repo it is installed by
@@ -776,7 +784,7 @@ run = [
 [tasks.check-features]
 description = "Compile-check the feature-gated CLI builds that only `ci-cli-full` otherwise compiles."
 run = [
-  "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app --locked -- -D warnings",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features $CLI_FEATURES_WITHOUT_VECTOR_READ --locked -- -D warnings",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports --locked -- -D warnings",
 ]
@@ -825,9 +833,9 @@ description = "Full-feature CI for the yidam CLI (all optional features, and the
 # only build that proves the one `cargo install --features vector-read` gives.
 run = [
   "cargo fmt --all --manifest-path yidam/cli/Cargo.toml -- --check",
-  "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app --locked -- -D warnings",
-  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app --locked",
-  "cargo test --doc --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports,tonpa,vault-s3,s3-vectors,export-graph,serve-http,catalog-fetch,pdf-text,github-app --locked",
+  "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features $CLI_FEATURES_WITHOUT_VECTOR_READ --locked -- -D warnings",
+  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --no-default-features --features $CLI_FEATURES_WITHOUT_VECTOR_READ --locked",
+  "cargo test --doc --manifest-path yidam/cli/Cargo.toml --no-default-features --features $CLI_FEATURES_WITHOUT_VECTOR_READ --locked",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
   "cargo test --doc --manifest-path yidam/cli/Cargo.toml --all-features --locked",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports --locked -- -D warnings",
@@ -916,8 +924,8 @@ env NEXTEST_PROFILE=default cargo mutants \
   --file src/cmd/lint/commits.rs
 """
 
-# The editor client. Not a cargo workspace, so it is not in the `ci` composite below —
-# `mise run ci` is the Rust gate and stays fast. CI runs this as its own job.
+# The editor client, and what `ci (vscode)` runs after installing the CLI. Locally `mise run
+# ci` reaches it through `ci-vscode-local` below, which supplies the binary that job installs.
 #
 # `//yidam/editors/vscode:ci` would be the natural spelling, but this repo is not in mise
 # monorepo mode: the subproject mise.toml files exist for local use inside a directory,
@@ -938,9 +946,25 @@ run = [
   "npm run package",
 ]
 
+# `ci (vscode)` as a contributor runs it (#1640). The job installs the CLI from this tree and
+# sets `YIDAM_REQUIRE_CONTRACT`, so a missing or stale binary fails instead of skipping. Run
+# bare, `ci-vscode` resolves whatever `yidam` is on PATH and skips the contract tests without
+# one — a local green the job would not give.
+#
+# This builds the binary rather than `cargo install`ing it: an install would replace the
+# contributor's own `~/.cargo/bin/yidam`. `YIDAM_BIN` names the build, which `test/stage.ts`
+# reads before PATH. The build line is `bench-scaling`'s, and `ci-cli`'s suite links the same
+# binary. CI keeps calling `ci-vscode` directly, so the job is unchanged.
+[tasks.ci-vscode-local]
+description = "`ci (vscode)` locally: build the CLI, then run `ci-vscode` with a missing or stale binary a failure."
+run = [
+  "cargo build --manifest-path yidam/cli/Cargo.toml --locked",
+  "YIDAM_BIN=\"$MISE_PROJECT_ROOT/yidam/cli/target/debug/yidam\" YIDAM_REQUIRE_CONTRACT=1 mise run ci-vscode",
+]
+
 # The web editor surface (RFC-0030, #606). Same shape as `ci-vscode` and for the same reason:
-# `mise run ci` compiles neither the extension nor the docs site and does not compile this
-# either, so the CI job is the only gate this package has.
+# no cargo gate compiles the extension, the docs site or this package, so `ci-editor-web` is
+# the only gate this package has.
 #
 # Build before test, deliberately: a build error is a worse signal to receive from a test
 # runner than from a builder, and the build is what proves the design system still resolves
@@ -1191,8 +1215,6 @@ fi
 echo "ci-domains: fmt-checked and linted $count crates, plus the parity testkit"
 """
 
-# Composite for local use (`mise run ci`); CI runs ci-harness, ci-cli and
-# ci-domains as separate parallel jobs (see .github/workflows/ci.yml).
 # ── release ───────────────────────────────────────────────────────────────
 # Cutting a release is order-dependent and the order is not visible from a
 # shell about to run `git tag`. ./release.sh does the ordering rather than
@@ -1213,8 +1235,34 @@ run = "scripts/file-upgrade-notes.sh"
 description = "Apply .github/repository.json (description, homepage, topics) to the GitHub repository. Usage: mise run repo-metadata [--check]"
 run = "scripts/repo-metadata.sh"
 
+# What a pull request's checks run, as one local command (#1640). Each entry is the task a
+# pull-request job in .github/workflows/ci.yml calls; CI runs them as parallel jobs. Five jobs
+# have no entry because mise does not provision what they need: `verify` (lake and dafny),
+# `semver` (a `+stable` toolchain and the crates.io baseline), `receipt-compat` (a downloaded
+# release), `cross` (an apt cross-linker) and `quality` (other jobs' artifacts). `mark-guard`
+# is left out of `design` for rsvg-convert. `local_ci.rs` holds this list to the workflow:
+# a new pull-request job fails it until it is here or excluded there with a reason.
 [tasks.ci]
-description = "Full CI pass: harness + yidam CLI fmt-check, clippy, test; domain crate fmt-check."
+description = "What a pull request's CI runs, locally: every pull-request job whose tools mise provides. `ci-fast` is the old three-task pass."
+depends = [
+  "ci-harness",
+  "ci-cli",
+  "ci-domains",
+  "domain-parity",
+  "ci-vscode-local",
+  "ci-editor-web",
+  "lint-selftest",
+  "parity",
+  "design-lint",
+  "supply-chain",
+  "bench-scaling",
+  "check-features",
+]
+
+# The pass `mise run ci` was before #1640: the harness, the CLI and the domain crates. It is
+# the smaller check between edits; `ci` is the one to run before a push.
+[tasks.ci-fast]
+description = "Harness, CLI and domain-crate checks only: fmt-check, clippy -D warnings, tests."
 depends = ["ci-harness", "ci-cli", "ci-domains"]
 
 # ── docs site (yidam/web/docs/) ───────────────────────────────────────────
