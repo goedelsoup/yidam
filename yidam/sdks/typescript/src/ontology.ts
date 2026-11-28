@@ -214,8 +214,12 @@ function propertySchema(p: OntologyProperty): unknown {
 function annotatedSchema(p: OntologyProperty): unknown {
   let body = propertySchema(p)
   if (typeof body === 'object' && body !== null) {
-    if (p.description !== '') body = { ...body, description: p.description }
-    if (p.unit !== '') body = { ...body, 'x-yidam-unit': p.unit }
+    // A local of type `object`: the narrowing above does not survive the first reassignment
+    // of `body`, which is declared `unknown`, so a second spread of it would not type-check.
+    let annotated: object = body
+    if (p.description !== '') annotated = { ...annotated, description: p.description }
+    if (p.unit !== '') annotated = { ...annotated, 'x-yidam-unit': p.unit }
+    body = annotated
   }
   return body
 }

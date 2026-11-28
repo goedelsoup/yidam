@@ -1,0 +1,25 @@
+{
+  // Type-checking only (#1646). vitest strips types without reading them, so before this file
+  // a type error in the published SDK was found by whoever imported it. `mise run ts-typecheck`
+  // runs `tsc --noEmit -p` here; nothing is compiled, and the package still exports `src/*.ts`.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "noEmit": true,
+    // Every relative import names its `.ts` file, which is what lets vitest and Node load
+    // `src/` without a build. Allowed only because nothing is emitted.
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    // TypeScript 6 loads no `@types/*` package unless it is listed. `@types/node` arrives
+    // through vitest's dependency tree rather than a line of this package.json.
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

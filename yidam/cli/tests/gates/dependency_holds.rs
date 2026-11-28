@@ -341,13 +341,24 @@ fn every_editor_type_checks_with_one_typescript_major() {
         majors.insert(dir, major(declared));
     }
 
+    // The fourth compiler: `mise run ts-typecheck` checks the SDK and the domain packages with
+    // a per-task pin rather than a package.json, so no lockfile and no dependabot group sees it
+    // (#1646). Held to the same major, so a type the editors accept is one the SDK's check does.
+    let mise: toml::Table = read("mise.toml")
+        .parse()
+        .unwrap_or_else(|e| panic!("mise.toml is not TOML: {e}"));
+    let pinned = mise["tasks"]["ts-typecheck"]["tools"]["npm:typescript"]
+        .as_str()
+        .expect("[tasks.ts-typecheck] pins no `npm:typescript` in its `tools`");
+    majors.insert("mise.toml [tasks.ts-typecheck]", major(pinned));
+
     let distinct: std::collections::BTreeSet<_> = majors.values().collect();
     assert!(
         distinct.len() == 1,
         "the editors compile with different TypeScript majors: {majors:?}. The docs site and \
          the web editor are held at `@astrojs/check`'s peer range; the extension follows them, \
-         so a major moves in all three package.json files in one change, not in one \
-         dependabot group at a time."
+         so a major moves in all three package.json files and the `ts-typecheck` pin in \
+         mise.toml in one change, not in one dependabot group at a time."
     );
 }
 

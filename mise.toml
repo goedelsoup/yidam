@@ -440,6 +440,47 @@ description = "The whole supply-chain gate: advisories, licences, unused deps."
 # baseline from crates.io, and it answers a different question — what a *release* would
 # break, rather than what this tree carries.
 depends = ["deny", "machete"]
+
+# ── the languages rustfmt and clippy do not reach (#1646) ─────────────────
+#
+# Rust is held by rustfmt, clippy and its compiler. Until these tasks the TypeScript SDK and
+# domain packages were held only by vitest, which strips types without reading them, and the
+# Python and shell in this tree by their tests or by nothing. Each tool is pinned to an exact
+# version per task, for [tasks.verify]'s reason, so a new release of one cannot turn main red.
+
+# TypeScript 6, the major `every_editor_type_checks_with_one_typescript_major` holds the editors
+# to; that gate holds this pin to it too. The SDK checks `src/` and `tests/` against
+# `@types/node`, which its install provides; each domain checks `src/` only, through
+# `yidam/domains/parity/tsconfig.base.json`, and needs no install at all.
+[tasks.ts-typecheck]
+description = "Type-check the TypeScript SDK and every domain package with tsc --noEmit."
+tools = { "npm:typescript" = "6.0.3" }
+run = """
+set -eu
+scripts/npm-ensure.sh yidam/sdks/typescript
+tsc --noEmit -p yidam/sdks/typescript
+
+# Every domain package, discovered by its package.json rather than by its tsconfig.json: a
+# fifteenth domain that came without a tsconfig would otherwise be skipped in silence.
+count=0
+for manifest in yidam/domains/*/typescript/package.json; do
+  [ -f "$manifest" ] || continue
+  dir=$(dirname "$manifest")
+  if [ ! -f "$dir/tsconfig.json" ]; then
+    echo "ERROR: $dir has no tsconfig.json. Give it the two-line one every other domain has,"
+    echo "       extending ../../parity/tsconfig.base.json."
+    exit 1
+  fi
+  tsc --noEmit -p "$dir"
+  count=$((count + 1))
+done
+if [ "$count" -eq 0 ]; then
+  echo "ERROR: no domain packages found under yidam/domains/*/typescript/package.json"
+  echo "       the glob matched nothing — fix the pattern before trusting this task"
+  exit 1
+fi
+echo "ts-typecheck: the SDK and $count domain packages type-check"
+"""
 # ── design system (#465) ──────────────────────────────────────────────────
 #
 # `_adherence.oxlintrc.json` forbids raw hex, raw px, off-system fonts and undeclared
@@ -1292,6 +1333,7 @@ depends = [
   "ci-editor-web",
   "lint-selftest",
   "parity",
+  "ts-typecheck",
   "design-lint",
   "supply-chain",
   "bench-scaling",
