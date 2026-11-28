@@ -37,9 +37,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Each job carries a `timeout-minutes` (#1740): about twice its slowest successful run up to
+  # November 2026, never under 10, and more where a cold cache or a release is at stake.
   decide:
     name: decide
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read

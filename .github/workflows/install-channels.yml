@@ -53,9 +53,12 @@ on:
 # Every job resolves the same expected version and every job asserts against it,
 # so a channel serving a stale artifact fails as loudly as one serving none.
 jobs:
+  # Each job carries a `timeout-minutes` (#1740): about twice its slowest successful run up to
+  # November 2026, never under 10, and more where a cold cache or a release is at stake.
   released:
     name: what is released
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
@@ -95,6 +98,7 @@ jobs:
     name: install.sh (linux, clean container)
     needs: released
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     # Debian 13, because 12's glibc (2.36) is below the release floor (2.39) since #442.
     container: debian:trixie-slim
     steps:
@@ -130,6 +134,7 @@ jobs:
     name: install.sh (macos)
     needs: released
     runs-on: macos-latest
+    timeout-minutes: 10
     steps:
       # A token, because this job's subject is the darwin binary and not the throttle.
       #
@@ -165,6 +170,7 @@ jobs:
     name: brew install goedelsoup/tap/yidam
     needs: released
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: The line the README documents
         run: |
@@ -190,6 +196,7 @@ jobs:
     name: cargo binstall yidam
     needs: released
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       # `@stable`, deliberately, and it is the opposite of the pin release.yml carries.
       # This job exists to be a *user*, and a user has whatever stable is on the day they
@@ -222,6 +229,7 @@ jobs:
     name: cargo install yidam (crates.io)
     needs: released
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       # `@stable`, deliberately, and it is the opposite of the pin release.yml carries.
       # This job exists to be a *user*, and a user has whatever stable is on the day they
@@ -251,6 +259,7 @@ jobs:
     name: cargo install --git yidam
     needs: released
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       # `@stable`, deliberately, and it is the opposite of the pin release.yml carries.
       # This job exists to be a *user*, and a user has whatever stable is on the day they
@@ -318,6 +327,7 @@ jobs:
     name: mise use github:goedelsoup/yidam
     needs: released
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       # Resolving one version costs a `releases?per_page=100` call and the
       # unauthenticated budget is 60/hour — exhausted while probing for #394.
@@ -358,6 +368,7 @@ jobs:
   editor-released:
     name: what is released (editor)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
@@ -418,6 +429,7 @@ jobs:
     needs: editor-released
     if: needs.editor-released.outputs.version != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: The version Open VSX serves
         run: |
@@ -450,6 +462,7 @@ jobs:
     needs: editor-released
     if: needs.editor-released.outputs.version != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: The asset a VS Code user is told to download
         env:
@@ -567,6 +580,7 @@ jobs:
   edit-released:
     name: what is released (edit)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
@@ -602,6 +616,7 @@ jobs:
     needs: edit-released
     if: needs.edit-released.outputs.version != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: The version npm serves
         run: |
@@ -640,6 +655,7 @@ jobs:
     name: .mcpb on the release
     needs: released
     runs-on: macos-latest
+    timeout-minutes: 10
     steps:
       - name: The bundle a Claude Desktop user is told to download
         env:

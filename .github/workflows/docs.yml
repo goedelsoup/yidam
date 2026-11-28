@@ -71,6 +71,9 @@ permissions:
   actions: read
 
 jobs:
+  # Each job carries a `timeout-minutes` (#1740): about twice its slowest successful run up to
+  # November 2026, never under 10, and more where a cold cache or a release is at stake.
+
   # ── which versions exist (#466) ────────────────────────────────────────────
   #
   # Four layers release independently and this site documents Layer 4, the tooling, because
@@ -82,6 +85,7 @@ jobs:
   versions:
     name: versions
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
       list: ${{ steps.resolve.outputs.list }}
@@ -169,6 +173,7 @@ jobs:
     name: build (${{ matrix.slot }})
     needs: versions
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       # One version failing must not cancel the others: the report is more useful with four
       # builds and one error than with one error and four cancellations.
@@ -288,6 +293,7 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: [versions, build]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -372,6 +378,8 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: assemble
     runs-on: ubuntu-latest
+    # Not twice a run: above the two polls below, which sleep 10 + 13.3 minutes before their own errors.
+    timeout-minutes: 35
     # Pages allows one deployment at a time and queuing is correct here: cancelling
     # an in-flight deploy can leave the site serving a half-published build.
     concurrency:
