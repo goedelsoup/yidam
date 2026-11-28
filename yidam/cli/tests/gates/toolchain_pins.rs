@@ -14,6 +14,11 @@
 //! in `mise.yidam.toml` (it runs in a derived repository, which has no such file), and the two
 //! `rust-version` fields.
 //!
+//! Three sentences state the version in prose, where a reader chooses whether they can
+//! `cargo install` (#1722). They keep the number, and `prose_copies_state_the_pinned_toolchain`
+//! holds each one, anchored on the sentence itself rather than on a scan for the digits, which
+//! this repository's prose would over-match: it describes its own history in old versions.
+//!
 //! `rust-version` is the sharp one. It is the floor a crates.io consumer is promised, no gate
 //! ever compiled it, and it sits on a published library. An unverified floor is not a lower
 //! floor; it is a claim that can stop being true at any dependency bump with nothing going red.
@@ -455,6 +460,92 @@ fn the_derived_source_build_uses_the_pinned_toolchain() {
         wrong.is_empty(),
         "rust-toolchain.toml pins `{pin}`, and these derived-repository tasks build with \
          something else:\n{}",
+        wrong.join("\n")
+    );
+}
+
+/// The version a line states after `anchor`: the digits and dots that follow it.
+///
+/// `None` when the line does not start with the anchor. A trailing `.` is sentence
+/// punctuation, not part of the version.
+fn stated_after(line: &str, anchor: &str) -> Option<String> {
+    let rest = line.strip_prefix(anchor)?;
+    let end = rest
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(rest.len());
+    Some(rest[..end].trim_end_matches('.').to_string())
+}
+
+/// The prose copies of the toolchain version, each held to the pin (#1722).
+///
+/// A README line and an install-guide sentence tell a reader whether `cargo install` will
+/// work for them, and the template's commented example is what a derived repository's owner
+/// uncomments. Each keeps its number, so each is a copy, and nothing compared it with the pin:
+/// after a bump they stated a floor the crate no longer built on and every gate stayed green.
+///
+/// Each is anchored on the start of the statement itself. A scan of every file for the pin's
+/// digits would over-match, because this repository's prose names old versions when it tells
+/// its own history. An anchor that no longer matches exactly one line fails too, so rewording
+/// the sentence cannot drop it out of the gate: reword it and move the anchor with it.
+///
+/// `true` in the third column holds the full version; `false` holds `major.minor`.
+const PROSE_COPIES: [(&str, &str, bool); 3] = [
+    ("README.md", "MSRV is Rust ", false),
+    ("docs/installation.md", "**MSRV is Rust ", false),
+    ("sadhana/root/mise.toml", "# rust = { version = \"", true),
+];
+
+#[test]
+fn prose_copies_state_the_pinned_toolchain() {
+    // The reader first, so an anchor that matches nothing cannot pass by reading nothing.
+    assert_eq!(
+        stated_after("MSRV is Rust 1.88, the toolchain", "MSRV is Rust ").as_deref(),
+        Some("1.88")
+    );
+    assert_eq!(
+        stated_after("MSRV is Rust 1.88.", "MSRV is Rust ").as_deref(),
+        Some("1.88")
+    );
+    assert_eq!(
+        stated_after(
+            "# rust = { version = \"1.88.0\", x }",
+            "# rust = { version = \""
+        )
+        .as_deref(),
+        Some("1.88.0")
+    );
+    assert_eq!(stated_after("Its MSRV is Rust 1.85", "MSRV is Rust "), None);
+
+    let pin = pin();
+    let minor = pin.split('.').take(2).collect::<Vec<_>>().join(".");
+    let mut wrong = Vec::new();
+    for (file, anchor, full) in PROSE_COPIES {
+        let want = if full { &pin } else { &minor };
+        let text = read(&repo_root().join(file));
+        let stated: Vec<(usize, String)> = text
+            .lines()
+            .enumerate()
+            .filter_map(|(i, l)| Some((i + 1, stated_after(l, anchor)?)))
+            .collect();
+        if stated.len() != 1 {
+            wrong.push(format!(
+                "  {file}: {} lines start with `{anchor}`, and exactly one must. The sentence \
+                 was reworded or removed; move the anchor in PROSE_COPIES with it.",
+                stated.len()
+            ));
+            continue;
+        }
+        let (line, version) = &stated[0];
+        if version != want {
+            wrong.push(format!(
+                "  {file}:{line}: states `{version}`, and rust-toolchain.toml pins `{pin}` \
+                 (expected `{want}`)"
+            ));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "these prose copies of the toolchain version disagree with the pin:\n{}",
         wrong.join("\n")
     );
 }

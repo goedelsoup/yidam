@@ -161,15 +161,15 @@ serde = { version = "1", features = ["derive"] }
 # not a rewrite. Diffed against `0.9.34`, four files differ and the whole parse path —
 # `de.rs`, `loader.rs`, `libyaml/`, `ser.rs`, `mapping.rs` — is identical; the two diffs
 # that touch code at all are `i64::max_value()` → `i64::MAX` and a borrow in
-# `value/index.rs`. Same five dependencies, MSRV 1.64 against this crate's 1.88.
+# `value/index.rs`. Same five dependencies, MSRV 1.64, far below this crate's pin.
 #
 # That identity is the reason for the choice and not a convenience.
 # `yidam/sdks/parity/README.md` pins this parser's YAML 1.1 scalar resolution as the Rust
 # side of a three-language contract — given `010` it answers `"010"` where PyYAML answers
 # `8` — and 110 fixtures are written against it. A parser resolving scalars differently
 # would be a new contract rather than a maintenance bump, which is what rules out
-# `serde-saphyr`: YAML 1.2, a different scanner, and an MSRV of 1.89 that this workspace's
-# 1.88 floor cannot take regardless.
+# `serde-saphyr`: YAML 1.2, a different scanner, and an MSRV of 1.89, above the pin, which this
+# workspace cannot take regardless.
 #
 # Not fixed by this, and worth knowing before the next person reopens it: the scanner
 # underneath — `unsafe-libyaml`, transitive, unchanged by the fork — is also dtolnay's and
@@ -310,7 +310,7 @@ gluon_codegen = { version = "0.18.4", optional = true }
 # rather than on `tree-sitter`, so their versions move apart from the runtime's.
 #
 # `tree-sitter` 0.27 and `tree-sitter-language` 0.1.9 need Rust 1.90; the lockfile holds 0.26
-# and 0.1.7 for the 1.88 pin.
+# and 0.1.7 for the pin.
 tree-sitter = { version = "0.26", optional = true }
 tree-sitter-rust = { version = "0.24", optional = true }
 tree-sitter-python = { version = "0.25", optional = true }
