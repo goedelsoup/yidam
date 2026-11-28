@@ -35,8 +35,8 @@ mise run ci
 
 This runs the task behind each pull-request job in `.github/workflows/ci.yml`: the harness,
 the CLI, the domain crates and their parity tests, the extension, the editor surface and its
-lint self-test, the SDK parity suite, the design lint, the supply-chain gate, the scaling bench
-and the feature-gated compile check. A gate fails when a pull-request job is missing from it.
+lint self-test, the SDK parity suite, the design lint, the supply-chain gate, the scaling bench,
+the feature-gated compile check and the feature-gated tests. A gate fails when a pull-request job is missing from it.
 **Check it by exit code**, not by reading the output: a task that fails mid-pipeline still
 prints a lot of green.
 
@@ -70,13 +70,28 @@ mise run docs-build   # the docs site — an unlisted page fails the build
 CI runs those tasks as parallel jobs on every PR, plus the five left out above. A pull request also compiles
 the feature-gated code: `ci (cli · feature check)` runs the three clippy lines `ci-cli-full`
 runs: over the default set without `vector-read`, over `--all-features` and over
-`--no-default-features --features reports`. What it does not do is run their
-tests, or pass `--all-targets` — a `#[cfg(test)]` fixture behind a feature is still first
-compiled after the merge. **The full-feature test run is on `main` and weekly, not on PRs.**
+`--no-default-features --features reports`.
 
-So `mise run check-features` before you push a change behind a feature, `vector-read` included —
-its `#[cfg(not(...))]` arms compile only there now — and prefer taking gated facts as arguments
-so the logic around them stays testable from every build.
+The same job then builds the test targets of the first two and runs the tests that only those
+builds run. Those are the tests behind a `#[cfg(feature ...)]`, or ignored by a
+`cfg_attr(feature ...)`, on themselves or on a module they are in. The tasks are
+`test-features-without-vector-read` and `test-features-all-features`. Each runs a filter
+committed under `yidam/cli/tests/goldens/feature-tests/`, and a gate derives that filter from
+the attributes. When you add, remove or re-gate such a test, that gate fails until you
+regenerate the filter:
+
+```sh
+UPDATE_GOLDENS=1 cargo test --manifest-path yidam/cli/Cargo.toml --test gates feature_tests::
+```
+
+A test whose behaviour changes through a `cfg!` in its body is not selected. Neither is the
+`reports` build, whose tests fail on purpose. **The rest of the full-feature test run is on
+`main` and weekly, not on PRs.**
+
+So run `mise run check-features` and both `test-features-*` tasks before you push a change
+behind a feature, `vector-read` included. Its `#[cfg(not(...))]` arms compile only there now.
+Prefer taking gated facts as arguments, so the logic around them stays testable from every
+build.
 
 ## What a change needs
 

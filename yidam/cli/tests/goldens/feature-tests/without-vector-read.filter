@@ -1,0 +1,5 @@
+(binary_id(yidam) & test(=cmd::cycle::tests::a_clock_this_build_cannot_discharge_proposes_no_act))
+| (binary_id(yidam) & test(=cmd::serve::tests::a_light_build_says_why_it_cannot_use_an_index_that_exists))
+| (binary_id(yidam::suite) & test(=due::the_index_clock_in_a_build_that_cannot_make_one))
+| (binary_id(yidam::suite) & test(=mcp_serve::a_worktree_handshake_names_the_shared_index))
+| (binary_id(yidam::suite) & test(=mcp_serve::an_index_this_build_cannot_read_is_not_reported_as_a_missing_index))

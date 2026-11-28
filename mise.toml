@@ -780,13 +780,52 @@ run = [
 # `vault::creds` unconditionally, found by hand, with twelve more errors behind it. Compiled, not tested — the `reports` note in yidam/cli/Cargo.toml says why.
 #
 # What it does not cover is the tests — no `--all-targets` here, for the same reason
-# `ci-cli-full` omits it — nor anything that only fails when run. Those stay on main.
+# `ci-cli-full` omits it. The two `test-features-*` tasks below compile the test targets of the
+# first two legs and run the tests whose own attributes change with the features (#1639); the
+# rest of each leg's suite stays on main.
 [tasks.check-features]
 description = "Compile-check the feature-gated CLI builds that only `ci-cli-full` otherwise compiles."
 run = [
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features $CLI_FEATURES_WITHOUT_VECTOR_READ --locked -- -D warnings",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --all-features --locked -- -D warnings",
   "cargo clippy --manifest-path yidam/cli/Cargo.toml --no-default-features --features reports --locked -- -D warnings",
+]
+
+# The tests a non-default build adds, run on the pull request (#1639).
+#
+# `check-features` compiles these two builds and ran none of their tests, and `ci-cli-full` runs
+# them only after the merge. So a test that exists, or is un-ignored, only under a non-default
+# feature set was first executed on main: the `#[cfg(not(feature = "vector-read"))]` tests in
+# `tests/suite/mcp_serve.rs`, and the two `cfg_attr(feature = "vector-read", ignore = ...)`
+# tests that run only in a build that cannot make an index.
+#
+# Each task runs only the tests that run in its build and not in the default one, which
+# `ci-cli` has already tested. The filter is derived from the attributes on the tests and on
+# the modules holding them, and committed: `tests/gates/feature_tests.rs` fails when the
+# committed filter is not what the attributes say, and `UPDATE_GOLDENS=1` rewrites it. The
+# listing and the count before the run are so that a name the derivation got wrong fails here
+# rather than matching nothing. What it cannot see is a test whose behaviour changes through a
+# `cfg!` in its body; those still run only in `ci-cli-full` and `coverage-full`.
+#
+# The compile is the cost, not the run: the test binaries of the whole build are linked to run
+# a few dozen of them. That is still most of what `ci-cli-full` would cost a pull request,
+# without the 4,600-test execution of a build that `ci-cli` has mostly already run.
+[tasks.test-features-without-vector-read]
+description = "Run the CLI tests that only the default build without vector-read runs."
+run = [
+  "rm -f yidam/cli/target/nextest/ci/junit.xml",
+  "mkdir -p yidam/cli/target && cargo nextest list --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --no-default-features --features $CLI_FEATURES_WITHOUT_VECTOR_READ --locked --message-format oneline -E \"$(cat yidam/cli/tests/goldens/feature-tests/without-vector-read.filter)\" > yidam/cli/target/feature-tests-without-vector-read.list",
+  "test \"$(wc -l < yidam/cli/target/feature-tests-without-vector-read.list | tr -d ' ')\" -eq \"$(grep -c 'test(=' yidam/cli/tests/goldens/feature-tests/without-vector-read.filter)\" || { echo 'nextest lists a different number of tests than yidam/cli/tests/goldens/feature-tests/without-vector-read.filter names, so one of its names matches nothing; compare it with yidam/cli/target/feature-tests-without-vector-read.list' >&2; exit 1; }",
+  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --no-default-features --features $CLI_FEATURES_WITHOUT_VECTOR_READ --locked --no-tests=fail -E \"$(cat yidam/cli/tests/goldens/feature-tests/without-vector-read.filter)\"",
+]
+
+[tasks.test-features-all-features]
+description = "Run the CLI tests that only the --all-features build runs."
+run = [
+  "rm -f yidam/cli/target/nextest/ci/junit.xml",
+  "mkdir -p yidam/cli/target && cargo nextest list --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --all-features --locked --message-format oneline -E \"$(cat yidam/cli/tests/goldens/feature-tests/all-features.filter)\" > yidam/cli/target/feature-tests-all-features.list",
+  "test \"$(wc -l < yidam/cli/target/feature-tests-all-features.list | tr -d ' ')\" -eq \"$(grep -c 'test(=' yidam/cli/tests/goldens/feature-tests/all-features.filter)\" || { echo 'nextest lists a different number of tests than yidam/cli/tests/goldens/feature-tests/all-features.filter names, so one of its names matches nothing; compare it with yidam/cli/target/feature-tests-all-features.list' >&2; exit 1; }",
+  "cargo nextest run --config-file .config/nextest.toml --manifest-path yidam/cli/Cargo.toml --all-features --locked --no-tests=fail -E \"$(cat yidam/cli/tests/goldens/feature-tests/all-features.filter)\"",
 ]
 
 # Full-feature CLI build (index/sqlite/rdf) — pulls fastembed and an ONNX runtime.
@@ -1257,6 +1296,8 @@ depends = [
   "supply-chain",
   "bench-scaling",
   "check-features",
+  "test-features-without-vector-read",
+  "test-features-all-features",
 ]
 
 # The pass `mise run ci` was before #1640: the harness, the CLI and the domain crates. It is

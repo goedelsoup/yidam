@@ -566,9 +566,10 @@ jobs:
     # never on PRs, so PR latency stays on the light build. This is the guard
     # against the reports and index paths drifting apart inside yidam (RFC-0003).
     #
-    # What a pull request gets instead is `cli-features` below: this job's three clippy legs
-    # and none of its tests. That is the compile half, which is where all three of the
-    # recorded outages were; running the gated suite is still a thing only the merge does.
+    # What a pull request gets instead is `cli-features` below: this job's three clippy legs,
+    # and of its tests only the ones whose own attributes change with the features (#1639).
+    # That is the compile half, which is where all three of the recorded outages were, and the
+    # tests that exist only in a non-default build; the rest of the gated suite is the merge's.
     #
     # ── two jobs, and why they are two (#1016) ────────────────────────────────
     #
@@ -806,19 +807,33 @@ jobs:
     # The condition is the exact complement of `cli-full`'s, so between them these two run on
     # every event and never both: the compile check is what a pull request gets, and the merge
     # still gets the tests. `ci_reporting.rs` asserts that complement rather than trusting it.
+    #
+    # Since #1639 it also runs, per non-default build, the tests that run there and not in the
+    # default build `ci (cli)` tests: a `#[cfg(not(feature = "vector-read"))]` test, or one
+    # ignored only when `vector-read` is on, was otherwise first executed on main. Which tests
+    # those are is derived from their attributes and held by `feature_tests.rs`; the note on
+    # `[tasks.test-features-without-vector-read]` in mise.toml says how.
     name: ci (cli · feature check)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # 40 while it only ran clippy. It now links two builds' test binaries, the `--all-features`
+    # one with arrow and ort in each, and a cache miss builds the trees under them too.
+    timeout-minutes: 60
     env:
-      # Not a memory cap here — nothing in this job links. It is here because rust-cache
-      # hashes every `CARGO*`, `CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*` variable in the
-      # environment into its cache key, so a job that does not set what `cli-full` sets is a
-      # job that misses the cache it was written to borrow — silently, as a twenty-minute
-      # build rather than an error. `ci_reporting.rs` requires the two to agree.
+      # A memory cap since #1639, for the reason `cli-full` gives: this job now links the
+      # `--all-features` test binaries. It was here first because rust-cache hashes every
+      # `CARGO*`, `CC*`, `CFLAGS*`, `CXX*`, `CMAKE*` and `RUST*` variable in the environment into
+      # its cache key, so a job that does not set what `cli-full` sets is a job that misses the
+      # cache it was written to borrow — silently, as a twenty-minute build rather than an
+      # error. `ci_reporting.rs` requires the two to agree.
       CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Since #1639 this job runs part of the CLI suite, and `release_script` requires
+          # every such job to fetch tags and history. None of the selected tests reads them
+          # today; a test that does, gated by a feature, would be selected without warning.
+          fetch-depth: 0
       - uses: jdx/mise-action@v4
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
@@ -837,9 +852,37 @@ jobs:
       # A cache miss here — a lockfile bump is the common one, and the fastembed bump above is
       # exactly that — falls back to building the tree, which is why this is capped rather
       # than left on the 6-hour default. It is the cheap gate or it is nothing.
-      - name: Compile-check the feature-gated builds
+      - name: Compile-check the feature-gated builds, with a resource sampler
         timeout-minutes: 30
-        run: mise run check-features
+        run: .github/scripts/with-sampler.sh mise run check-features
+      # Each leg's summary is read before the next leg runs, because both write the one
+      # `junit.xml` the `ci` profile names. `!cancelled()` so the second leg still reports when
+      # the first is red. No `manifest:` — its census would list every test in the build beside
+      # the results of the few this leg selects.
+      - name: Tests only the build without vector-read runs, with a resource sampler
+        if: ${{ !cancelled() }}
+        timeout-minutes: 20
+        run: .github/scripts/with-sampler.sh mise run test-features-without-vector-read
+      - uses: ./.github/actions/test-summary
+        if: always()
+        with:
+          gate: ci (cli · feature tests without vector-read)
+          job: ci (cli · feature check)
+          junit: yidam/cli/target/nextest/ci/junit.xml
+          artifact: test-results-cli-features-without-vector-read
+          json: "true"
+      - name: Tests only the --all-features build runs, with a resource sampler
+        if: ${{ !cancelled() }}
+        timeout-minutes: 30
+        run: .github/scripts/with-sampler.sh mise run test-features-all-features
+      - uses: ./.github/actions/test-summary
+        if: always()
+        with:
+          gate: ci (cli · feature tests with all features)
+          job: ci (cli · feature check)
+          junit: yidam/cli/target/nextest/ci/junit.xml
+          artifact: test-results-cli-features-all-features
+          json: "true"
 
   quality:
     # One `quality-report.json` out of every gate's fragment (#467).
@@ -859,7 +902,7 @@ jobs:
     # failed.
     name: ci (quality report)
     if: always()
-    needs: [ci, vscode, editor-web, parity, cli-full, cli-full-coverage]
+    needs: [ci, vscode, editor-web, parity, cli-full, cli-full-coverage, cli-features]
     # Declared rather than inherited. The repository's default is read-all today, which grants
     # the jobs API by accident; a settings change to "restricted" would take it away and the
     # step that reads conclusions would fail with a report that still merges — quietly losing
