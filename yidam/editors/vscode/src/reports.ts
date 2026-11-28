@@ -4,348 +4,290 @@
  * These describe what the CLI emits. They are not a model of the corpus and nothing here
  * derives anything: every field is transcribed. The moment this file starts *computing* a
  * verdict, the boundary the whole RFC set exists to hold has moved.
+ *
+ * # Where the shapes come from
+ *
+ * **`report.schema.json`, by way of `report-schema.generated.d.ts`** (#1645). Nothing below
+ * restates a field's type. Each view names the fields this extension reads and takes their
+ * types from the generated envelope, so a field the schema renames or drops is a compile
+ * error here rather than an `undefined` at the point of use, and `test/report-schema.test.ts`
+ * holds the generated file to the schema and every committed golden to these views.
+ *
+ * The schema is one envelope with every command's fields flattened beside each other, so it
+ * cannot say which fields a given command emits; that is what each view below adds, and the
+ * only thing. Three helpers say how a view departs from the schema's optionality, and each
+ * use is a statement about this command's output rather than about the type:
+ *
+ * - `Present` — the command always emits these. The envelope marks them optional because
+ *   another command does not.
+ * - `Older` — the schema requires these, and a binary older than the field omits them. A
+ *   repository pins its binary while this extension auto-updates, and adding a field does not
+ *   raise `format_version`, so the handshake cannot tell the two apart. The `?` is what makes
+ *   the compiler require a guard at every read rather than trusting that they match.
+ * - `Pick` — the fields read here. A field the CLI adds is not an error until something
+ *   wants it.
+ *
+ * What this does **not** do is check anything at runtime: `fetchReport` still casts. The
+ * goldens are checked against these types by the type checker, in a test; a live binary's
+ * output is checked by the handshake's `format_version` and by nothing else.
  */
 
-export interface Envelope {
-  format_version: string
-  yidam: { version: string; commit: string; features: string[] }
-  root: string
-}
+import type {
+  ADoctorCheck,
+  ALintCheck,
+  Span as SchemaSpan,
+  YidamReportEnvelope,
+} from './report-schema.generated.d.ts'
 
-export interface Span {
-  line: number
-}
+type R = YidamReportEnvelope
 
-export interface Violation {
-  node: string
-  detail: string
-  /**
-   * This finding's own severity, and the one that decides whether it **gates**.
-   *
-   * Normally the check's, and not always: `Check::severity_of` in the CLI returns an
-   * override or an age escalation before falling back to the check's level, so
-   * `missing-property` is declared `warn` and raises the one property a class marked
-   * `required: true` to `error`. Read it here and never from the check — a client that read
-   * `check.severity` rendered the one finding whose whole purpose is to gate as advisory,
-   * in this extension, the web editor and the LSP alike (#655).
-   *
-   * **Optional because a binary older than #645 does not emit it, not because a violation
-   * may lack one.** `report.schema.json` makes it required, and adding a field does not
-   * raise `format_version`, so the handshake cannot tell the two apart. A repository pins
-   * its binary while this extension auto-updates, so the drift is a normal state. Absent
-   * means *this binary predates the field* — fall back to the check's severity, which is
-   * what that binary's own gate used.
-   */
-  severity?: 'error' | 'warn' | 'info'
-  /**
-   * Whether the committed baseline already records this violation.
-   *
-   * **Only meaningful when this violation's severity is `error`** — the baseline records
-   * error-severity violations and nothing else, so a warn or info violation is always
-   * `false`. Read with `severity` above, never alone, and never with the check's.
-   */
-  in_baseline: boolean
-  span?: Span
-}
+/** These fields of `T`, required. See the header. */
+export type Present<T, K extends keyof T> = { [P in K]-?: Exclude<T[P], undefined> }
 
-export interface Check {
-  id: string
-  title: string
+/** These fields of `T`, optional, because a binary older than them omits them. See the header. */
+export type Older<T, K extends keyof T> = { [P in K]?: T[P] }
+
+/**
+ * One row of an array-valued envelope field.
+ *
+ * `Extract` because three keys — `nodes`, `open_questions`, `positions` — are an array in one
+ * command and an integer in another, and the row is the array arm's.
+ */
+export type Row<K extends keyof R> = Extract<Exclude<R[K], undefined>, readonly unknown[]>[number]
+
+/** One command's integer arm of a key that is an array elsewhere. */
+type Count<K extends keyof R> = Extract<Exclude<R[K], undefined>, number>
+
+/**
+ * The fields every report carries.
+ *
+ * `format_version` is `string` here where the schema says the constant `"1"`, deliberately:
+ * the handshake exists to read a value this build does not understand and refuse it by name,
+ * and a type that says the value can only be `"1"` would be the type lying about the one
+ * case it is read for.
+ */
+export type Envelope = Present<R, 'yidam' | 'root'> & { format_version: string }
+
+export type Span = SchemaSpan
+
+type LintViolation = ALintCheck['violations'][number]
+
+export type Violation = Pick<LintViolation, 'node' | 'detail' | 'in_baseline' | 'span'> &
   /**
-   * The severity the check is *declared* at, which is what the check is **for**.
+   * `severity` is this finding's own severity, and the one that decides whether it
+   * **gates** — normally the check's, and not always: `Check::severity_of` returns an
+   * override or an age escalation first, so `missing-property` is declared `warn` and raises
+   * the one property a class marked `required: true` to `error`. Read it here and never from
+   * the check (#655).
    *
-   * Not the severity of its findings — see `Violation.severity`, which is what happened.
-   * Read this to describe a check; read that one to render a finding.
+   * Older than #645 a binary does not emit it. Absent means *this binary predates the field*
+   * — fall back to the check's severity, which is what that binary's own gate used.
+   *
+   * `in_baseline` is only meaningful when this violation's severity is `error`: the baseline
+   * records error-severity violations and nothing else.
    */
-  severity: 'error' | 'warn' | 'info'
-  rationale: string
+  Older<LintViolation, 'severity'>
+
+/**
+ * A lint check. `severity` here is the level the check is *declared* at, which is what the
+ * check is **for** — read it to describe a check, and `Violation.severity` to render a
+ * finding.
+ */
+export type Check = Pick<ALintCheck, 'id' | 'title' | 'severity' | 'rationale'> & {
   violations: Violation[]
 }
 
-export interface StaleEntry {
-  check: string
-  node: string
-}
+type Gate = Exclude<R['gate'], undefined>
+
+export type StaleEntry = Gate['stale_baseline_entries'][number]
 
 /**
  * A baseline entry that has outlived the expiry the baseline declares.
  *
  * It no longer forgives the violation it lists, so that violation gates again — and it is
- * **not** the same event as an introduced one. The CLI is explicit about the difference: an
- * introduced violation is something this change did, an expired one is something the
- * repository agreed to deal with and has not. Telling somebody they introduced a finding
- * that has sat in their baseline for two hundred commits would be wrong, so these are
- * rendered apart from `new_violations` and apart from `stale_baseline_entries`.
+ * **not** the same event as an introduced one. An introduced violation is something this
+ * change did, an expired one is something the repository agreed to deal with and has not,
+ * so these are rendered apart from `new_violations` and apart from `stale_baseline_entries`.
  *
  * The violation itself still carries `in_baseline: true`, because the baseline does still
  * list it. That is why an expired entry cannot be found by reading the violations alone.
+ * `commits` is corpus-touching commits rather than days: a day count is a function of when
+ * you ask, and a commit count is a function of HEAD.
  */
-export interface ExpiredEntry {
-  check: string
-  node: string
-  /**
-   * Corpus-touching commits it has stood for.
-   *
-   * Commits rather than days, for the reason `AgeOut` gives: a day count is a function of
-   * when you ask, and a commit count is a function of HEAD.
-   */
-  commits: number
-}
+export type ExpiredEntry = Gate['expired_baseline_entries'][number]
 
-export interface LintReport extends Envelope {
-  gate: {
-    passed: boolean
-    new_violations: number
-    baselined_violations: number
-    stale_baseline_entries: StaleEntry[]
+export type LintReport = Envelope & {
+  gate: Pick<
+    Gate,
+    'passed' | 'new_violations' | 'baselined_violations' | 'stale_baseline_entries'
+  > &
     /**
-     * Entries the baseline no longer forgives. **These fail the gate.**
-     *
-     * Counted in `baselined_violations` as well — the baseline does list them — so the two
-     * numbers overlap and neither can be derived from the other.
-     *
-     * **Optional because a binary older than the expiry clock does not emit it, not because
-     * a report may lack it.** `report.schema.json` makes it required, and adding a field
-     * does not raise `format_version`, so the handshake cannot tell the two apart — the
-     * same drift `Violation.severity` and `SourceRow.cited_by` document. Absent means *this
-     * binary has no expiry clock*, which is the same answer as an empty list; the `?` is
-     * what makes the compiler require a guard rather than trusting the two agree.
+     * Entries the baseline no longer forgives. **These fail the gate.** Counted in
+     * `baselined_violations` as well, so the two numbers overlap and neither can be derived
+     * from the other. Absent from a binary with no expiry clock, which is the same answer as
+     * an empty list.
      */
-    expired_baseline_entries?: ExpiredEntry[]
-  }
+    Older<Gate, 'expired_baseline_entries'>
   checks: Check[]
 }
 
-export interface GraphCheckReport extends Envelope {
-  passed: boolean
-  corpus_empty: boolean
-  total_instances: number
-  clean_instances: number
-  classes_defined: number
-  nodes_with_issues: { node: string; issues: string[] }[]
-  classes_without_instances: string[]
+export type GraphCheckReport = Envelope &
+  Present<
+    R,
+    | 'passed'
+    | 'corpus_empty'
+    | 'total_instances'
+    | 'clean_instances'
+    | 'classes_defined'
+    | 'nodes_with_issues'
+    | 'classes_without_instances'
+  >
+
+/**
+ * `status`. The `edge_claims_*` three are the same counts over the corpus's edges (#857),
+ * beside the node counts and never added to them; the schema itself leaves them optional,
+ * because a CLI released before them must still validate.
+ *
+ * `genesis` is `string | null`: null in a projection, whose first commit is the host
+ * repository's (RFC-0064 §2.3). The hand-written type before #1645 said `string`.
+ */
+export type StatusReport = Envelope &
+  Present<
+    R,
+    | 'catalog_entries'
+    | 'claims_verified'
+    | 'claims_inference'
+    | 'claims_open'
+    | 'index_present'
+    | 'active_phases'
+    | 'genesis'
+  > &
+  Pick<R, 'edge_claims_verified' | 'edge_claims_inference' | 'edge_claims_open'> & {
+    nodes: Count<'nodes'>
+    open_questions: Count<'open_questions'>
+  }
+
+type NodeRow = Row<'nodes'>
+
+/**
+ * A `corpus-index` row. The schema's `nodes` row is a flat union of this and `graph`'s, so
+ * it marks the counts optional; `corpus-index` emits all of them. The `edge_claims_*` three
+ * are optional in the schema too, for `StatusReport`'s reason.
+ */
+export type IndexRow = Present<
+  NodeRow,
+  | 'node'
+  | 'class'
+  | 'label'
+  | 'links_out'
+  | 'claims_verified'
+  | 'claims_inference'
+  | 'claims_open'
+  | 'lines'
+> &
+  Pick<NodeRow, 'edge_claims_verified' | 'edge_claims_inference' | 'edge_claims_open'>
+
+export type CorpusIndexReport = Envelope & { nodes: IndexRow[] }
+
+type OpenQuestionRow = Row<'open_questions'>
+
+/**
+ * `scope` is `node` or `edge` — which of the two asked it (#857). An edge tagged `open` is
+ * listed in its own right beside the node ones, so two entries may name the same `node` path
+ * and a view that deduplicated by path would drop one. `relationship` and `target` are
+ * `scope: 'edge'` only.
+ */
+export type OpenQuestionsReport = Envelope & {
+  open_questions: Pick<OpenQuestionRow, 'node' | 'label' | 'scope' | 'relationship' | 'target'>[]
 }
 
-export interface StatusReport extends Envelope {
-  nodes: number
-  open_questions: number
-  catalog_entries: number
-  claims_verified: number
-  claims_inference: number
-  claims_open: number
-  /**
-   * The same three over the corpus's edges (#857). Beside the node counts and never added to
-   * them — a consumer wanting the corpus-wide total adds the two itself. Optional, because a
-   * pinned binary older than the fields omits them.
-   */
-  edge_claims_verified?: number
-  edge_claims_inference?: number
-  edge_claims_open?: number
-  index_present: boolean
-  active_phases: number
-  genesis: string
-}
+type PhaseRow = Row<'phases'>
 
-export interface IndexRow {
-  node: string
-  class: string
-  label: string
-  links_out: number
-  claims_verified: number
-  claims_inference: number
-  claims_open: number
-  /**
-   * The same three over the node's edges — its links' `claim_tag` (#857). Beside the node
-   * counts and never folded into them: a node's claims are measured over its text, and an edge
-   * is in no node's text. Optional, because a pinned binary older than the fields omits them.
-   */
-  edge_claims_verified?: number
-  edge_claims_inference?: number
-  edge_claims_open?: number
-  lines: number
-}
-
-export interface CorpusIndexReport extends Envelope {
-  nodes: IndexRow[]
-}
-
-export interface OpenQuestionsReport extends Envelope {
-  open_questions: {
-    node: string
-    label: string
-    /**
-     * `node` or `edge` — which of the two asked it (#857). An edge tagged `open` is listed in
-     * its own right beside the node ones, so two entries may name the same `node` path and a
-     * view that deduplicated by path would drop one.
-     *
-     * Optional because a pinned binary older than the field omits it, for the same reason
-     * `PhasesReport.state` is.
-     */
-    scope?: string
-    /** `scope: 'edge'` only: the relationship the open edge asserts. */
-    relationship?: string
-    /** `scope: 'edge'` only: the target, exactly as the node wrote it. */
-    target?: string
-  }[]
-}
-
-export interface PhasesReport extends Envelope {
-  phases: {
-    name: string
-    ref_name: string
-    owner: string
-    started: string
-    commits: number
-    /**
-     * `active`, `interrupted`, `settled`, `rewritten`, or `position` — `git::REF_STATES`,
-     * which `report.schema.json` declares as a closed enum. `rewritten` was added by #773 and
-     * this comment did not follow it for two releases; the type is `string` so nothing broke,
-     * which is exactly why nothing said so. `interrupted` was added by #473 and means a phase
-     * run resolved a plan whose steps did not all complete — read `source` to learn whether
-     * that could have been known here.
-     *
-     * Optional because a pinned binary older than the field omits it, and a view that renders
-     * `undefined` is worse than one that renders nothing.
-     */
-    state?: string
-    /**
-     * `record` or `ref` — which evidence decided `state`. RFC-0028 §3 ranks the two rather
-     * than collapsing them: the ref's namespace answers *what is this ref*, and the phase
-     * record answers *what happened in this run*. A row marked `ref` is an inference from
-     * branch shape, which is every phase in every repository that predates `yidam phase
-     * start`.
-     *
-     * Optional for `state`'s reason: a pinned binary older than the field omits it.
-     */
-    source?: string
-    /**
-     * The phase type the ref's record declares. Absent — never blank — where the ref carries
-     * no record, which a view must render as unknown rather than filling in a default: there
-     * is no default list, by RFC-0028 Erratum 1.
-     */
-    type?: string
-  }[]
+/**
+ * `state` is `git::REF_STATES`, a closed enum in the schema and now in this type. `source` is
+ * `record` or `ref` — which evidence decided `state` (RFC-0028 §3). Both are required by the
+ * schema and absent from a binary older than them, and a view that renders `undefined` is
+ * worse than one that renders nothing.
+ *
+ * `type` is absent — never blank — where the ref carries no record, which a view must render
+ * as unknown rather than filling in a default (RFC-0028 Erratum 1).
+ */
+export type PhasesReport = Envelope & {
+  phases: (Pick<PhaseRow, 'name' | 'ref_name' | 'owner' | 'started' | 'commits' | 'type'> &
+    Older<PhaseRow, 'state' | 'source'>)[]
 }
 
 /**
  * `index-status`. Carries `built_at` and no age string, deliberately: an age is a function
- * of when you ask, so the CLI reports the stamp and the client renders the age.
+ * of when you ask, so the CLI reports the stamp and the client renders the age. `row_count`
+ * (RFC-0060) is absent from a CLI older than it.
  */
-export interface IndexStatusReport extends Envelope {
-  index_present: boolean
-  meta_present: boolean
-  built_at: number | null
-  built: string | null
-  model: string | null
-  embedding_dim: number | null
-  node_count: number | null
-  /** Rows, one per passage (RFC-0060). Absent from a CLI older than the field. */
-  row_count?: number | null
-  stale_nodes: number
-}
+export type IndexStatusReport = Envelope &
+  Present<
+    R,
+    | 'index_present'
+    | 'meta_present'
+    | 'built_at'
+    | 'built'
+    | 'model'
+    | 'embedding_dim'
+    | 'node_count'
+    | 'stale_nodes'
+  > &
+  Older<R, 'row_count'>
 
-export interface Elector {
-  name: string
-  branch: string
-  role: string
-  branch_present: boolean
-}
+export type Elector = Pick<Row<'electors'>, 'name' | 'branch' | 'role' | 'branch_present'>
 
-export interface SanghaReport extends Envelope {
-  collective: boolean
-  electors: Elector[]
-  positions: { file: string; elector: string; question: string }[]
-  resolutions: {
-    file: string
-    evolution: string
-    date: string
-    tips: string[]
-    branch_present: boolean
-  }[]
-}
+export type SanghaReport = Envelope &
+  Present<R, 'collective'> & {
+    electors: Elector[]
+    positions: Pick<Row<'positions'>, 'file' | 'elector' | 'question'>[]
+    resolutions: Pick<
+      Row<'resolutions'>,
+      'file' | 'evolution' | 'date' | 'tips' | 'branch_present'
+    >[]
+  }
 
 /** `regen --check`. The verdict that turned the Health view's REGEN row into a gate. */
-export interface RegenReport extends Envelope {
-  passed: boolean
-  stale: { file: string; generator: string }[]
-}
+export type RegenReport = Envelope &
+  Present<R, 'passed'> & { stale: Pick<Row<'stale'>, 'file' | 'generator'>[] }
+
+type SchemaSourceRow = Row<'sources'>
 
 /**
- * `catalog-audit`. The provenance layer, and the one report that names both ends of an edge.
+ * A `catalog-audit` row — the provenance layer, and the one report that names both ends of
+ * an edge.
  *
- * `cited_by` is what makes a source placeable under the node that draws on it. Without it a
- * client wanting that had to re-resolve every link in the corpus — which is the
- * re-implementation this whole contract exists to prevent, arrived at from the other side.
+ * `cited_by` is what makes a source placeable under the node that draws on it; without it a
+ * client had to re-resolve every link in the corpus, which is the re-implementation this
+ * contract exists to prevent. A CLI older than 0.6.0 does not emit it. `used_by` and `drift`
+ * are retained for compatibility (RFC-0053): empty and null from the CLI that retired the
+ * stored list, an object from an older one, and absent from one older still. `drift` is
+ * **computed by the CLI** — recomputing it here would be the editor forming a second opinion
+ * about a verdict.
  */
-export interface CatalogAuditReport extends Envelope {
-  sources: SourceRow[]
-}
+export type SourceRow = Pick<
+  SchemaSourceRow,
+  'entry' | 'type' | 'description' | 'obtained' | 'citations' | 'nodes' | 'elsewhere'
+> &
+  Older<SchemaSourceRow, 'cited_by' | 'used_by' | 'drift'>
 
-export interface SourceRow {
-  /** File name within `.yidam/catalog/`. */
-  entry: string
-  type: string
-  description: string
-  /** Absent in the entry means obtained; only an explicit `false` claims otherwise. */
-  obtained: boolean
-  /** `nodes` + `elsewhere`, retained with the meaning it had before the two were split. */
-  citations: number
-  /** Corpus instances linking here. **The number every gate reads.** */
-  nodes: number
-  /** Class definitions and READMEs linking here. Never added to `nodes`. */
-  elsewhere: number
-  /**
-   * Repo-relative paths of those instances, sorted. Exactly `nodes` of them.
-   *
-   * Optional because a CLI older than 0.6.0 does not emit it, and `format_version` cannot
-   * say so: adding a field is not a contract break, so both CLIs speak `1` and the
-   * handshake passes. The extension auto-updates while a repository builds its binary from
-   * the commit pinned in `.yidam.toml`, so the two genuinely drift apart — the `?` is what
-   * makes the compiler require a guard at every read rather than trusting that they match.
-   */
-  cited_by?: string[]
-  /**
-   * The entry's declared `used-by`, verbatim — retained for compatibility. An entry no longer
-   * stores what cites it (RFC-0053), so this is empty once `yidam migrate used-by` has run.
-   * `cited_by` is the field to read.
-   */
-  used_by?: string[]
-  /**
-   * How that list disagreed with the citations — retained for compatibility, and null on every
-   * row from the CLI that retired the stored list (RFC-0053 §2.6). An older CLI still sends an
-   * object, so the tooltip still reads it. **Computed by the CLI** — recomputing it here would
-   * be the editor forming a second opinion about a verdict.
-   *
-   * Absent is a third answer, and it means the CLI predates the field — see `cited_by`.
-   */
-  drift?: { claimed_not_citing: string[]; citing_not_claimed: string[] } | null
-}
+/** `catalog-audit`. */
+export type CatalogAuditReport = Envelope & { sources: SourceRow[] }
+
+/**
+ * A `doctor` check. Key on `id`; the prose is free to change. `declined` is an offer decided
+ * against in writing — not actionable, like `ok`. `remedy` is stated and never run.
+ */
+export type DoctorCheck = Pick<ADoctorCheck, 'id' | 'question' | 'verdict' | 'detail' | 'remedy'>
 
 /**
  * `doctor`. Whether the *setup* is sound, which is a different question from whether the
- * corpus is — and the one a reader hits first.
+ * corpus is — and the one a reader hits first. Writes nothing and does no network, which is
+ * what makes it safe on the save path.
  *
- * Writes nothing and does no network, which is what makes it safe on the save path.
+ * `declined` and `unknown_declines` (RFC-0066) are absent from a binary older than them.
  */
-export interface DoctorReport extends Envelope {
-  passed: boolean
-  strict: boolean
-  failed: number
-  warned: number
-  /** Checks whose verdict is `declined`: offers this repository decided against (RFC-0066). Absent before it. */
-  declined?: number
-  /** Keys under `[doctor.declined]` naming no offer. `--strict` fails on one. */
-  unknown_declines?: string[]
-  checks: DoctorCheck[]
-}
-
-export interface DoctorCheck {
-  /** Stable identifier. Key on this; the prose is free to change. */
-  id: string
-  question: string
-  /** `declined` is an offer decided against in writing — not actionable, like `ok`. */
-  verdict: 'ok' | 'warn' | 'fail' | 'skipped' | 'declined'
-  detail: string
-  /** The command or edit that resolves it, stated and never run. Null when nothing to do. */
-  remedy: string | null
-}
+export type DoctorReport = Envelope &
+  Present<R, 'passed' | 'strict' | 'failed' | 'warned'> &
+  Older<R, 'declined' | 'unknown_declines'> & { checks: DoctorCheck[] }

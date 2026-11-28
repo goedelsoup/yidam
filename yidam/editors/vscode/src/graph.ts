@@ -31,66 +31,55 @@
  * No `vscode` import.
  */
 
-import type { Envelope } from './reports.ts'
+import type { YidamReportEnvelope } from './report-schema.generated.d.ts'
+import type { Envelope, Present, Row } from './reports.ts'
 
-export interface GraphLink {
-  target: string
-  relationship: string
-  /** Corpus-relative, resolved by the CLI. Empty when it lands outside the corpus. */
-  resolved: string
-  exists: boolean
-}
+// The shapes are `report.schema.json`'s, by way of `reports.ts`'s helpers (#1645): this file
+// names the fields it reads and takes their types from the generated envelope.
 
-export interface GraphNode {
-  /** Corpus-relative — this is a node's identity throughout. */
-  node: string
-  class: string
-  label: string
-  description: string
-  links: GraphLink[]
-}
+type SchemaNode = Row<'nodes'>
+type SchemaClass = Row<'classes'>
 
-export interface OntProperty {
-  name: string
-  type: string
-  description: string
-  /**
-   * Whether every instance of the class must carry this property (#301).
-   *
-   * The difference between a finding that fails CI and one that does not: `missing-property`
-   * gates on a property declared `true` and reports the rest. `graph --format json` did not
-   * carry it until #606, so this surface could not tell the two apart either.
-   *
-   * Optional in the type because a repository may pin a binary older than the field, and
-   * `format_version` does not rise for an additive one — `report.schema.json` says a consumer
-   * MUST ignore what it does not know, which cuts both ways. `undefined` means *this binary
-   * does not report requiredness*; it does not mean optional, and code that treats the two as
-   * the same is the mistake this field exists to end.
-   */
-  required?: boolean
-}
+/**
+ * `resolved` is corpus-relative, resolved by the CLI, and **empty** when it lands outside the
+ * corpus. `exists` is the gate's own test, and nothing here recomputes it.
+ */
+export type GraphLink = Exclude<SchemaNode['links'], undefined>[number]
 
-export interface OntEdge {
-  relationship: string
-  /** A class name, not a path. */
-  target: string
-  direction: string
-  description: string
-}
+/**
+ * A `graph` node. The schema's `nodes` row is a flat union of this and `corpus-index`'s, so
+ * it marks these optional; `graph` emits every one. `node` is corpus-relative — a node's
+ * identity throughout.
+ */
+export type GraphNode = Present<SchemaNode, 'node' | 'class' | 'label' | 'description' | 'links'>
 
-export interface GraphClass {
-  class: string
-  label: string
-  description: string
+type SchemaProperty = SchemaClass['properties'][number]
+
+/**
+ * A property a class declares.
+ *
+ * `required` is whether every instance of the class must carry it (#301) — the difference
+ * between a finding that fails CI and one that does not. Optional, in the schema as here,
+ * because a repository may pin a binary older than #606, and `format_version` does not rise
+ * for an additive field. `undefined` means *this binary does not report requiredness*; it
+ * does not mean optional, and code that treats the two as the same is the mistake this field
+ * exists to end.
+ */
+export type OntProperty = Pick<SchemaProperty, 'name' | 'type' | 'description' | 'required'>
+
+/** An edge a class declares. `target` is a class name, not a path. */
+export type OntEdge = SchemaClass['edges'][number]
+
+export type GraphClass = Pick<SchemaClass, 'class' | 'label' | 'description'> & {
   properties: OntProperty[]
   edges: OntEdge[]
 }
 
-export interface GraphReport extends Envelope {
-  corpus_dir: string
-  nodes: GraphNode[]
-  classes: GraphClass[]
-}
+export type GraphReport = Envelope &
+  Present<YidamReportEnvelope, 'corpus_dir'> & {
+    nodes: GraphNode[]
+    classes: GraphClass[]
+  }
 
 // ── reading the line under the cursor ────────────────────────────────────────
 

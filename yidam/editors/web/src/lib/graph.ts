@@ -21,24 +21,38 @@
  * a verdict here.
  */
 
-export interface GraphLink {
-  /** The raw target text, as authored — relative to the node's own directory. */
-  target: string
-  relationship: string
-  /** Corpus-relative, resolved by the CLI. Absent when it lands outside the corpus. */
-  resolved?: string
-  /** The CLI's answer, not this process's. */
-  exists?: boolean
-}
+import type { YidamReportEnvelope } from './report-schema.generated.d.ts'
 
-export interface GraphNode {
-  /** Corpus-relative. This is a node's identity throughout, and it is `node`, not `id`. */
-  node: string
-  class?: string
-  label?: string
-  description?: string
-  links?: GraphLink[]
-}
+// The shapes are `report.schema.json`'s, by way of `report-schema.generated.d.ts` (#1645):
+// each type below names the fields this page reads and takes their types from the generated
+// envelope. Every `?` is this page's rather than the schema's: it renders whatever a binary
+// sent, including a binary older than the field.
+
+type Row<K extends keyof YidamReportEnvelope> = Extract<
+  Exclude<YidamReportEnvelope[K], undefined>,
+  readonly unknown[]
+>[number]
+
+type SchemaNode = Row<'nodes'>
+type SchemaLink = Exclude<SchemaNode['links'], undefined>[number]
+type SchemaClass = Row<'classes'>
+type SchemaProperty = SchemaClass['properties'][number]
+type SchemaClassEdge = SchemaClass['edges'][number]
+
+/**
+ * `target` is the raw text, as authored — relative to the node's own directory. `resolved` is
+ * corpus-relative, resolved by the CLI, and empty when it lands outside the corpus; `exists` is
+ * the CLI's answer, not this process's. The schema requires both; they stay optional here for
+ * a binary older than them.
+ */
+export type GraphLink = Pick<SchemaLink, 'target' | 'relationship'> &
+  Partial<Pick<SchemaLink, 'resolved' | 'exists'>>
+
+/** Corpus-relative `node` is a node's identity throughout, and it is `node`, not `id`. */
+export type GraphNode = Pick<SchemaNode, 'node'> &
+  Partial<Pick<SchemaNode, 'class' | 'label' | 'description'>> & {
+    links?: GraphLink[]
+  }
 
 /**
  * A property a class declares.
@@ -59,25 +73,22 @@ export interface GraphNode {
  * binary does not report requiredness*, and the page says that rather than guessing, because
  * guessing is what produced the column that had to be removed.
  */
-export interface GraphProperty {
-  name: string
-  type?: string
-  description?: string
-  required?: boolean
-  /**
-   * What `missing-property` does when an instance omits this property (#1155).
-   *
-   * `required` folds `required: false` and silence into one `false`, and the check treats them
-   * differently: silence is reported, and `required: false` is not. A page that labelled every
-   * `false` property "reported" was wrong about the ones the class allowed. This is the check's
-   * verdict, carried by the binary so the page does not re-derive it. Optional for the reason
-   * `required` is: a binary older than the field does not send it.
-   */
-  omission?: Omission
-}
+export type GraphProperty = Pick<SchemaProperty, 'name'> &
+  Partial<Pick<SchemaProperty, 'type' | 'description' | 'required'>> & {
+    /**
+     * What `missing-property` does when an instance omits this property (#1155).
+     *
+     * `required` folds `required: false` and silence into one `false`, and the check treats
+     * them differently: silence is reported, and `required: false` is not. A page that
+     * labelled every `false` property "reported" was wrong about the ones the class allowed.
+     * This is the check's verdict, carried by the binary so the page does not re-derive it.
+     * Optional for the reason `required` is: a binary older than the field does not send it.
+     */
+    omission?: Omission
+  }
 
 /** The three verdicts `missing-property` gives an omitted property. */
-export type Omission = 'gates' | 'reported' | 'licensed'
+export type Omission = Exclude<SchemaProperty['omission'], undefined>
 
 /**
  * What omitting a property costs, as far as the binary that answered can say.
@@ -123,20 +134,14 @@ export function reportsRequired(properties: GraphProperty[]): boolean {
   return properties.length > 0 && properties.every((p) => typeof p.required === 'boolean')
 }
 
-export interface GraphClassEdge {
-  relationship: string
-  target?: string
-  direction?: string
-  description?: string
-}
+export type GraphClassEdge = Pick<SchemaClassEdge, 'relationship'> &
+  Partial<Pick<SchemaClassEdge, 'target' | 'direction' | 'description'>>
 
-export interface GraphClass {
-  class: string
-  label?: string
-  description?: string
-  properties?: GraphProperty[]
-  edges?: GraphClassEdge[]
-}
+export type GraphClass = Pick<SchemaClass, 'class'> &
+  Partial<Pick<SchemaClass, 'label' | 'description'>> & {
+    properties?: GraphProperty[]
+    edges?: GraphClassEdge[]
+  }
 
 export interface GraphReport {
   nodes?: GraphNode[]
@@ -146,7 +151,7 @@ export interface GraphReport {
    * report that says, and the one field the overlay bridge needs to address a buffer that
    * is not a file yet (`overlay.ts`). Optional for the reason `required` is.
    */
-  corpus_dir?: string
+  corpus_dir?: YidamReportEnvelope['corpus_dir']
 }
 
 /** The node with this identity, or nothing. A miss is a real state — see `[...id].astro`. */

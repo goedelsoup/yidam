@@ -11,56 +11,54 @@
  * this one now.
  */
 
-export interface Span {
-  line: number
+import type {
+  ALintCheck,
+  Severity as SchemaSeverity,
+  YidamReportEnvelope,
+} from './report-schema.generated.d.ts'
+
+// The shapes are `report.schema.json`'s, by way of `report-schema.generated.d.ts` (#1645):
+// this file names the fields it reads and takes their types from the generated envelope, so
+// a field the schema renames or drops is a compile error here. `test/report-schema.mjs`
+// holds the generated file to the schema. The `?`s below are this page's, not the schema's:
+// see each one.
+
+export type Span = Exclude<ALintCheck['violations'][number]['span'], undefined>
+
+export type Severity = SchemaSeverity
+
+type LintViolation = ALintCheck['violations'][number]
+
+/**
+ * `severity` is this finding's own severity, and the one that decides whether it **gates**.
+ * Normally its check's, and not always: `Check::severity_of` in the CLI returns an override
+ * or an age escalation before falling back to the check's level, so `missing-property` is
+ * declared `warn` and raises the one property a class marked `required: true` to `error`.
+ *
+ * **Optional because a binary older than #645 does not emit it, not because a violation may
+ * lack one.** `report.schema.json` makes it required, and adding a field does not raise
+ * `format_version`, so the handshake cannot tell the two apart — see `severityOf`.
+ *
+ * `in_baseline` is only meaningful when *this violation's* severity is `error`: the baseline
+ * records error-severity violations and nothing else. Read it with `severityOf` and never
+ * with the check's declared level, which is a different question.
+ */
+export type Violation = Pick<LintViolation, 'node' | 'detail' | 'in_baseline' | 'span'> & {
+  severity?: LintViolation['severity']
 }
 
-export type Severity = 'error' | 'warn' | 'info'
-
-export interface Violation {
-  node: string
-  detail: string
-  /**
-   * This finding's own severity, and the one that decides whether it **gates**.
-   *
-   * Normally its check's, and not always: `Check::severity_of` in the CLI returns an
-   * override or an age escalation before falling back to the check's level, so
-   * `missing-property` is declared `warn` and raises the one property a class marked
-   * `required: true` to `error`.
-   *
-   * **Optional because a binary older than #645 does not emit it, not because a violation
-   * may lack one.** `report.schema.json` makes it required, and adding a field does not
-   * raise `format_version`, so the handshake cannot tell the two apart — see `severityOf`.
-   */
-  severity?: Severity
-  /**
-   * Whether the committed baseline already records this violation.
-   *
-   * Only meaningful when *this violation's* severity is `error`: the baseline records
-   * error-severity violations and nothing else. Read it with `severityOf` and never with
-   * the check's declared level, which is a different question.
-   */
-  in_baseline: boolean
-  span?: Span
-}
-
-export interface Check {
-  id: string
-  title: string
-  /**
-   * The severity the check is *declared* at — what the check is **for**, not what its
-   * findings are. Render it in the check's heading; never use it to render a finding.
-   */
-  severity: Severity
-  rationale: string
+/**
+ * `severity` here is the level the check is *declared* at — what the check is **for**, not
+ * what its findings are. Render it in the check's heading; never use it to render a finding.
+ */
+export type Check = Pick<ALintCheck, 'id' | 'title' | 'severity' | 'rationale'> & {
   violations: Violation[]
 }
 
+type Gate = Exclude<YidamReportEnvelope['gate'], undefined>
+
 /** A baseline entry with no corresponding violation. **These fail the gate.** */
-export interface StaleEntry {
-  check: string
-  node: string
-}
+export type StaleEntry = Gate['stale_baseline_entries'][number]
 
 /**
  * A baseline entry that has outlived the expiry the baseline declares.
@@ -72,25 +70,21 @@ export interface StaleEntry {
  * commits would be wrong, so this is rendered apart from `new_violations` and apart from
  * `StaleEntry`. Mirrors the extension's `reports.ts`, deliberately: a second opinion about
  * these three states is how this page came to hold none of them (#751).
+ *
+ * `commits` is corpus-touching commits rather than days: a day count is a function of when
+ * you ask, a commit count is a function of HEAD.
  */
-export interface ExpiredEntry {
-  check: string
-  node: string
-  /**
-   * How many corpus-touching commits the entry survived.
-   *
-   * Commits rather than days: a day count is a function of when you ask, a commit count is a
-   * function of HEAD.
-   */
-  commits: number
-}
+export type ExpiredEntry = Gate['expired_baseline_entries'][number]
 
+/**
+ * The lint report, as far as this page reads it. Both fields optional because the page
+ * renders whatever came back, including nothing.
+ */
 export interface LintReport {
-  gate?: {
-    passed: boolean
-    new_violations: number
-    baselined_violations: number
-    stale_baseline_entries: StaleEntry[]
+  gate?: Pick<
+    Gate,
+    'passed' | 'new_violations' | 'baselined_violations' | 'stale_baseline_entries'
+  > & {
     /**
      * Entries the baseline no longer forgives. **These fail the gate.**
      *

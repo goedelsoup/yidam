@@ -30,28 +30,18 @@
  * No `vscode` import.
  */
 
-import type { Envelope } from './reports.ts'
+import type { YidamReportEnvelope } from './report-schema.generated.d.ts'
+import type { Envelope, Present, Row } from './reports.ts'
 
-export interface NeighborRow {
-  node: string
-  class: string
-  label: string
-  description: string
-  relationship: string
-  direction: 'out' | 'in'
-  hops: number
-  is_node: boolean
-}
+/** One node reached, at its shortest hop, with the direction of the edge it was reached by. */
+export type NeighborRow = Row<'neighbors'>
 
-export interface NeighborsReport extends Envelope {
-  corpus_dir: string
-  node: string
-  class: string
-  label: string
-  description: string
-  depth: number
-  neighbors: NeighborRow[]
-}
+/** `neighbors`. The shapes are `report.schema.json`'s, by way of `reports.ts` (#1645). */
+export type NeighborsReport = Envelope &
+  Present<
+    YidamReportEnvelope,
+    'corpus_dir' | 'node' | 'class' | 'label' | 'description' | 'depth' | 'neighbors'
+  >
 
 /** Transcribed from `yidam/design/tokens/{spacing,borders}.css`; checked against them by test. */
 export const TOKENS: Record<string, string> = {

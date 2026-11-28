@@ -202,7 +202,7 @@ amendment.)*
 > — [`tools.rs:1383-1385`](../../yidam/cli/src/cmd/serve/tools.rs#L1383-L1385)
 
 and the VS Code extension declines to parse corpus YAML rather than become "a second
-implementation of `parse_node`" ([`graph.ts:107-110`](../../yidam/editors/vscode/src/graph.ts#L107-L110)),
+implementation of `parse_node`" ([`graph.ts:97-100`](../../yidam/editors/vscode/src/graph.ts#L97-L100)),
 which describes a function that would not have parsed it either.
 
 This matters to Phase 3 beyond bookkeeping. The record says the format question was settled; the
