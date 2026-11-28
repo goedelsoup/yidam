@@ -1875,6 +1875,18 @@ fn settled(item: &DerivedItem<'_>) -> Option<DerivedStep> {
     }
 }
 
+/// Report every artifact behind the one a walk stopped at that the plan settled without
+/// sending.
+///
+/// A refusal, a local route and an unroutable kind are settled before the walk begins, so they
+/// do not depend on how far the sends went: an aborted push says about each of them what its
+/// dry run says (#1734). Nothing behind the failure is packed or sent.
+fn settled_behind(rest: &[DerivedItem<'_>], log: &mut Log<'_, DerivedStep>) {
+    for step in rest.iter().filter_map(settled) {
+        log.push(step);
+    }
+}
+
 /// Pack a derived artifact into a staging file in the cache root, and hash it.
 ///
 /// The staging file goes with its guard on every way out, an error from packing or hashing
@@ -1900,8 +1912,10 @@ fn rehearse_derived(
     emit: &mut dyn FnMut(&DerivedStep),
 ) -> DerivedOutcome {
     let mut log = Log::new(emit);
+    let mut reached = 0usize;
     let walked = (|| -> Result<()> {
         for item in plan {
+            reached += 1;
             let DerivedItem::Send { d, name, .. } = *item else {
                 if let Some(step) = settled(item) {
                     log.push(step);
@@ -1921,6 +1935,9 @@ fn rehearse_derived(
         }
         Ok(())
     })();
+    if walked.is_err() {
+        settled_behind(&plan[reached..], &mut log);
+    }
     DerivedOutcome {
         steps: log.steps,
         stopped: walked.err(),
@@ -1948,8 +1965,10 @@ fn send_derived(
 ) -> DerivedOutcome {
     let mut log = Log::new(emit);
     let mut changed = false;
+    let mut reached = 0usize;
     let walked = (|| -> Result<()> {
         for item in plan {
+            reached += 1;
             let DerivedItem::Send { d, name, cfg } = *item else {
                 if let Some(step) = settled(item) {
                     log.push(step);
@@ -2011,6 +2030,9 @@ fn send_derived(
         }
         Ok(())
     })();
+    if walked.is_err() {
+        settled_behind(&plan[reached..], &mut log);
+    }
 
     // Written whether or not the walk finished. The walk's own error is the one returned: it
     // is the cause, and a lock that then fails to write is its consequence.
@@ -2648,5 +2670,87 @@ mod tests {
         assert!(outcome.steps.is_empty(), "{:?}", outcome.steps);
         assert!(lock.get(vault::Derived::Bundle).is_none());
         assert!(!vault::lock_path(&root).exists());
+    }
+
+    /// A plan with one artifact to send between settled ones: an unroutable kind ahead of it,
+    /// and a refusal and a local route behind it.
+    fn settled_around_a_send(cfg: &vault::VaultConfig) -> Vec<DerivedItem<'_>> {
+        vec![
+            DerivedItem::Unroutable(vault::Derived::Embeddings, "no vault holds it".to_string()),
+            DerivedItem::Send {
+                d: vault::Derived::Bundle,
+                name: "default",
+                cfg,
+            },
+            DerivedItem::Refused(vec!["one".to_string(), "two".to_string()]),
+            DerivedItem::Local(vault::Derived::Index),
+        ]
+    }
+
+    /// The steps a walk over [`settled_around_a_send`] takes for what the plan settled.
+    fn the_settled_steps() -> Vec<DerivedStep> {
+        vec![
+            DerivedStep::Unroutable(vault::Derived::Embeddings, "no vault holds it".to_string()),
+            DerivedStep::Refused(vec!["one".to_string(), "two".to_string()]),
+            DerivedStep::Local(vault::Derived::Index),
+        ]
+    }
+
+    #[test]
+    fn an_aborted_derived_push_reports_what_its_dry_run_reports_about_every_settled_artifact() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let (root, cache, _) = bundled(tmp.path(), "a bundle");
+        let c = cfg("anyone", &[]);
+        let plan = settled_around_a_send(&c);
+
+        let rehearsed = rehearse_derived(
+            &root,
+            &plan,
+            &cache,
+            &vault::DerivedLock::default(),
+            &mut quiet,
+        );
+        assert!(rehearsed.stopped.is_none());
+        let dry: Vec<_> = rehearsed
+            .steps
+            .into_iter()
+            .filter(|s| !matches!(s, DerivedStep::WouldSend { .. }))
+            .collect();
+        assert_eq!(dry, the_settled_steps());
+
+        let fake = Fake {
+            refuse: Some(ContentHash::of_bytes(b"a bundle")),
+            ..Fake::default()
+        };
+        let mut lock = vault::DerivedLock::default();
+        let outcome = send_derived(&root, &plan, &fake, &cache, &mut lock, false, &mut quiet);
+
+        assert!(outcome.stopped.is_some());
+        // Each settled artifact is reported once, the one ahead of the failure where the walk
+        // reached it and the two behind it after the walk stopped, as the dry run reports them.
+        assert_eq!(outcome.steps, dry);
+        let puts = fake.calls().iter().filter(|c| c.starts_with("put")).count();
+        assert_eq!(puts, 1, "nothing more is sent: {:?}", fake.calls());
+        assert!(lock.get(vault::Derived::Bundle).is_none());
+    }
+
+    #[test]
+    fn a_derived_dry_run_that_cannot_pack_still_reports_every_settled_artifact() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let (root, cache, _) = bundled(tmp.path(), "a bundle");
+        std::fs::remove_file(root.join(".yidam").join("bundle.yiz")).unwrap();
+        let c = cfg("anyone", &[]);
+        let plan = settled_around_a_send(&c);
+
+        let outcome = rehearse_derived(
+            &root,
+            &plan,
+            &cache,
+            &vault::DerivedLock::default(),
+            &mut quiet,
+        );
+
+        assert!(outcome.stopped.is_some());
+        assert_eq!(outcome.steps, the_settled_steps());
     }
 }
