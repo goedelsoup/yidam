@@ -1,0 +1,12 @@
+function = "compile_class_schema"
+description = "A class definition whose top level is a list is refused: a class is a mapping of keys, and a list declares none of them (#1636)"
+
+[input]
+name = "reach"
+content = """
+- label: Reach
+- description: A length of channel.
+"""
+
+[expected]
+refused = true

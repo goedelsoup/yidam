@@ -2,6 +2,8 @@ import json
 import tomllib
 from pathlib import Path
 
+import pytest
+
 from yidam_core import corpus, embed, git, graph, markers, ontology, uri
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent / "parity" / "fixtures"
@@ -125,6 +127,13 @@ def test_parity_compile_class_schema():
     assert fixtures, "no compile_class_schema fixtures"
     for fx in fixtures:
         inp = fx["input"]
+        # A fixture either refuses the document or compiles it; one that says neither is
+        # ungraded, so it fails here rather than passing on whatever the parser did.
+        if "refused" in fx["expected"]:
+            assert fx["expected"]["refused"] is True, fx["description"]
+            with pytest.raises(ontology.ClassParseError):
+                ontology.parse_class(inp["name"], inp["content"])
+            continue
         cls = ontology.parse_class(inp["name"], inp["content"])
         got = ontology.compile_class_schema(cls)
         # Compared as parsed JSON, not as text: key order and whitespace are not part of

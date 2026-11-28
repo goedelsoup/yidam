@@ -169,23 +169,34 @@ def _properties(value: Any) -> list[OntologyProperty]:
     ]
 
 
-def parse_class(name: str, content: str) -> OntologyClass:
-    """Read a class definition. ``name`` is the fallback when the file does not name itself.
+class ClassParseError(ValueError):
+    """A class definition that does not parse as one YAML mapping."""
 
-    A file that does not parse yields a class that declares nothing, which under the
-    silence rule constrains nothing — the same direction ``lint`` degrades in. A malformed
-    ontology is a finding of its own, not a reason to start rejecting instances.
+
+def parse_class(name: str, content: str) -> OntologyClass:
+    """Read a class definition. ``name`` is the class: the ``<class>.ont.yml`` file stem.
+
+    **The stem names the class, whatever a ``class:`` field inside says (#1636).** It is the
+    name ``graph-check`` matches an instance's directory against and the name every CLI
+    route keys by, so a field that disagrees is not read.
+
+    **A document that does not parse raises** ``ClassParseError``: a YAML syntax error, more
+    than one document, or a top level that is not a mapping. It once read as a class
+    declaring nothing, which looked exactly like a class that was silent on purpose. An empty
+    document is not an error; it is a class declaring nothing. Every key is read on its own,
+    and one of the wrong shape reads as absent. The Rust SDK is the reference.
     """
     try:
         doc = yaml.safe_load(content)
-    except yaml.YAMLError:
-        doc = None
-    if not isinstance(doc, dict):
+    except yaml.YAMLError as e:
+        raise ClassParseError(str(e)) from e
+    if doc is None:
         doc = {}
+    if not isinstance(doc, dict):
+        raise ClassParseError("a class definition is a mapping, and this document is not one")
 
-    declared = _str(doc.get("class"))
     return OntologyClass(
-        name=declared or name,
+        name=name,
         label=_str(doc.get("label")),
         description=_str(doc.get("description")),
         properties=_properties(doc.get("properties")),

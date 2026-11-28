@@ -288,7 +288,23 @@ fn parity_compile_class_schema() {
     for fx in &fixtures {
         let input = &fx["input"];
         let name = input["name"].as_str().unwrap();
-        let class = ontology::parse_class(name, input["content"].as_str().unwrap());
+        let parsed = ontology::parse_class(name, input["content"].as_str().unwrap());
+        // A fixture either refuses the document or compiles it; one that says neither is
+        // ungraded, so it fails here rather than passing on whatever the parser did.
+        if fx["expected"].get("refused").is_some() {
+            assert_eq!(
+                fx["expected"]["refused"].as_bool(),
+                Some(true),
+                "{name}: `refused` is only ever true"
+            );
+            assert!(
+                parsed.is_err(),
+                "{name}: {}",
+                fx["description"].as_str().unwrap_or("")
+            );
+            continue;
+        }
+        let class = parsed.unwrap_or_else(|e| panic!("{name}: refused: {e}"));
         let got = ontology::compile_class_schema(&class);
 
         let want: serde_json::Value =

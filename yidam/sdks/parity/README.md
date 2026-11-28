@@ -244,6 +244,23 @@ why both SDKs carry the set as an explicit list rather than calling them. A TEMP
 does not end in its arrow is not a marker and is still scanned for an inline block. The fixtures
 with `(#1620)` in their description are what fail when any of this is put back.
 
+### `compile_class_schema` and a class that is refused
+
+A `compile_class_schema` fixture's input is a class file's stem (`name`) and its text
+(`content`); each runner reads it through `parse_class` first. Since 0.25.0 that read is part
+of the contract (#1636). The stem names the class, whatever a `class:` field inside the
+document says. A document that does not parse, or whose top level is not a mapping, is
+refused, and its fixture says so instead of naming a schema:
+
+```toml
+[expected]
+refused = true
+```
+
+Each runner then asserts `parse_class` failed — an `Err` in Rust, a `ClassParseError` raised in
+Python and thrown in TypeScript — and compiles nothing. An empty document is not refused: it
+declares nothing, and compiles to the open schema.
+
 ## The MUST rule
 
 **Every parity function must have at least one fixture.** There is no grace period.

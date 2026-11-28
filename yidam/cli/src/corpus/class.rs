@@ -586,16 +586,6 @@ pub struct FoundationalType {
     pub iri: Option<String>,
 }
 impl Class {
-    /// Build one from a class file's bytes and the path it came from.
-    ///
-    /// Shared with `query::at`, which reconstructs classes from git blobs rather than from a
-    /// walk. Two builders would be two answers to what a class *is* — and the one used less
-    /// often is the one that would quietly stop reading `edge_policy`, which is the field the
-    /// whole typecheck ladder turns on.
-    ///
-    /// It takes the *text* and deserializes here rather than taking a parsed [`ClassFields`],
-    /// so that [`Self::text`] and the fields cannot come from different strings. A caller
-    /// holding both could pass a mismatched pair, and nothing would say so.
     /// The class a `<class>.ont.yml` path names: its file stem.
     ///
     /// Split out of [`Self::parse`] because `lint::history` needs the answer for a class blob
@@ -609,12 +599,37 @@ impl Class {
             .unwrap_or_default()
     }
 
+    /// Build one from a class file's bytes and the path it came from.
+    ///
+    /// Shared with `query::at`, which reconstructs classes from git blobs rather than from a
+    /// walk. Two builders would be two answers to what a class *is* — and the one used less
+    /// often is the one that would quietly stop reading `edge_policy`, which is the field the
+    /// whole typecheck ladder turns on.
+    ///
+    /// It takes the *text* and deserializes here rather than taking a parsed [`ClassFields`],
+    /// so that [`Self::text`] and the fields cannot come from different strings. A caller
+    /// holding both could pass a mismatched pair, and nothing would say so.
+    ///
+    /// **One verdict on whether a class file parses (#1636).** `malformed` is the CLI's own
+    /// reading's failure, or else the SDK's: [`yidam_core::ontology::parse_class`] refuses a
+    /// document that is not one YAML mapping. `lint`'s `malformed-yaml`, `schema`, the MCP
+    /// server and `migrate` all read this field, so no route treats as an empty class a file
+    /// another route reports as unreadable. The CLI's message comes first when both fail.
     pub(crate) fn parse(rel: impl Into<String>, text: impl Into<String>) -> Self {
         let rel = rel.into();
         let text = text.into();
-        let (fields, malformed): (ClassFields, _) = super::parse_or_default(&text);
+        let name = Self::name_of(&rel);
+        let (mut fields, mut malformed): (ClassFields, _) = super::parse_or_default(&text);
+        if malformed.is_none() {
+            // Refused by the SDK alone, it is read as empty, as `parse_or_default` reads a
+            // document it could not read itself.
+            if let Err(e) = yidam_core::ontology::parse_class(&name, &text) {
+                fields = ClassFields::default();
+                malformed = Some(e.reason().to_string());
+            }
+        }
         Self {
-            name: Self::name_of(&rel),
+            name,
             rel,
             text,
             label: fields.label.unwrap_or_default(),
@@ -649,6 +664,21 @@ impl Class {
             .collect(),
             malformed,
         }
+    }
+
+    /// The class as the SDK publishes it: [`yidam_core::ontology::parse_class`] over this
+    /// file's text, named by [`Self::name`], the stem.
+    ///
+    /// **The one reading the public routes take (#1636).** `schema` compiles it, the MCP
+    /// server answers `licensed_edges` from it, and `migrate` plans against it. Each once
+    /// called the SDK itself and read an unparseable file as a class declaring nothing.
+    /// An error, with the reason, whenever [`Self::malformed`] is set.
+    pub(crate) fn contract(&self) -> Result<yidam_core::ontology::OntologyClass, String> {
+        if let Some(reason) = &self.malformed {
+            return Err(reason.clone());
+        }
+        yidam_core::ontology::parse_class(&self.name, &self.text)
+            .map_err(|e| e.reason().to_string())
     }
 }
 
@@ -748,6 +778,28 @@ mod tests {
         assert_eq!(c.name, "gage");
         // Only the name is the stem's. Everything else is read as the file wrote it.
         assert_eq!(c.label, "Gage");
+        // And the contract the public routes publish carries the same name (#1636).
+        let contract = c.contract().unwrap();
+        assert_eq!(contract.name, "gage");
+        assert_eq!(contract.label, "Gage");
+    }
+
+    /// A class file that does not parse has no contract, so no route reads it as a class
+    /// declaring nothing while `lint` reports it as `malformed-yaml` (#1636).
+    #[test]
+    fn an_unparseable_class_has_no_contract() {
+        for text in [
+            "label: \"unclosed\nedges: []\n",
+            "- a\n- b\n",
+            "just words\n",
+        ] {
+            let c = Class::parse(".yidam/corpus/reach.ont.yml", text);
+            assert!(c.malformed.is_some(), "{text:?} read as well-formed");
+            assert!(c.contract().is_err(), "{text:?} has a contract");
+        }
+        let empty = Class::parse(".yidam/corpus/reach.ont.yml", "");
+        assert!(empty.malformed.is_none());
+        assert_eq!(empty.contract().unwrap().name, "reach");
     }
 
     /// The three fields #1116 widened this with, each of which a reader used to reach by

@@ -1,0 +1,23 @@
+function = "compile_class_schema"
+description = "The filename stem names the class even when a `class:` field inside says another name: it is the name every CLI route keys by and graph-check matches an instance's directory against (#1636)"
+
+[input]
+name = "thread"
+content = """
+class: strand
+label: Thread
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — thread",
+  "type": "object",
+  "properties": {
+    "class": { "const": "thread" }
+  },
+  "required": ["class"],
+  "additionalProperties": true
+}
+"""

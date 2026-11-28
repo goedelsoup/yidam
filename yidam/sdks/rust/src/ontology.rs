@@ -40,7 +40,7 @@ use std::collections::BTreeSet;
 /// field names.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct OntologyClass {
-    /// The class name. `<class>.ont.yml`'s stem when the file does not say.
+    /// The class name: `<class>.ont.yml`'s stem, whatever a `class:` field inside says.
     pub name: String,
     #[serde(default)]
     pub label: String,
@@ -247,35 +247,92 @@ pub const CLAIM_TOKENS: [&str; 6] = [
     "[open]",
 ];
 
-/// Read a class definition. `name` is the fallback when the file does not name itself.
+/// Why a class definition could not be read: the document is not YAML, or it is YAML whose
+/// top level is not a mapping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassParseError {
+    reason: String,
+}
+
+impl ClassParseError {
+    /// What the YAML reader said, or that the top level was not a mapping.
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+}
+
+impl std::fmt::Display for ClassParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+impl std::error::Error for ClassParseError {}
+
+/// Read a class definition. `name` is the class: the `<class>.ont.yml` file stem.
 ///
-/// A file that does not parse yields a class that declares nothing, which under the silence
-/// rule constrains nothing. That is the same direction `lint` degrades in: a malformed
-/// ontology is a finding of its own, not a reason to start rejecting instances.
-pub fn parse_class(name: &str, content: &str) -> OntologyClass {
-    #[derive(Default, serde::Deserialize)]
-    struct Fields {
-        class: Option<String>,
-        #[serde(default)]
-        label: Option<String>,
-        #[serde(default)]
-        description: Option<String>,
-        #[serde(default)]
-        properties: Vec<OntologyProperty>,
-        #[serde(default)]
-        edges: Vec<OntologyEdge>,
-    }
-    let f: Fields = serde_yaml::from_str(content).unwrap_or_default();
-    OntologyClass {
-        name: f
-            .class
-            .filter(|c| !c.is_empty())
-            .unwrap_or_else(|| name.to_string()),
-        label: f.label.unwrap_or_default(),
-        description: f.description.unwrap_or_default(),
-        properties: f.properties,
-        edges: f.edges,
-    }
+/// **The stem names the class, and a `class:` field inside does not** (#1636). An instance
+/// lives in `corpus/<stem>/` and `lint` resolves its class by that directory, so a file
+/// `thread.ont.yml` declaring `class: strand` is the class `thread`. This function used to
+/// prefer the field, and the CLI kept a second parser that did not, so one file was two
+/// classes depending on which command read it.
+///
+/// **A document that does not parse is an error, not a class that declares nothing.** An
+/// empty class constrains nothing under the silence rule, which made an unreadable file
+/// indistinguishable from one nobody had filled in: its compiled schema accepted anything
+/// and its edges read as unstated. An empty document is not an error: it has declared
+/// nothing, and says so.
+///
+/// Every key is read leniently, as `fields:` is: a value of the wrong shape reads as absent
+/// and an entry that is not a mapping is no property or edge, so one wrongly shaped key never
+/// costs the class its other declarations. The Python and TypeScript readers do the same,
+/// and the parity fixtures hold all three to it.
+pub fn parse_class(name: &str, content: &str) -> Result<OntologyClass, ClassParseError> {
+    let doc: serde_yaml::Value = serde_yaml::from_str(content).map_err(|e| ClassParseError {
+        reason: e.to_string(),
+    })?;
+    let empty = serde_yaml::Mapping::new();
+    let map = match &doc {
+        serde_yaml::Value::Null => &empty,
+        serde_yaml::Value::Mapping(m) => m,
+        _ => {
+            return Err(ClassParseError {
+                reason: "a class definition is a mapping, and this document is not one".into(),
+            })
+        }
+    };
+    let str_of = |m: &serde_yaml::Mapping, k: &str| {
+        m.get(k)
+            .and_then(serde_yaml::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let edges = map
+        .get("edges")
+        .and_then(serde_yaml::Value::as_sequence)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_yaml::Value::as_mapping)
+                .map(|e| OntologyEdge {
+                    relationship: str_of(e, "relationship"),
+                    target: str_of(e, "target"),
+                    direction: str_of(e, "direction"),
+                    description: str_of(e, "description"),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(OntologyClass {
+        name: name.to_string(),
+        label: str_of(map, "label"),
+        description: str_of(map, "description"),
+        properties: map
+            .get("properties")
+            .map(lenient_properties)
+            .unwrap_or_default(),
+        edges,
+    })
 }
 
 /// The JSON Schema a declared property's value must satisfy.
@@ -563,5 +620,56 @@ mod source_class_tests {
     fn a_directionless_declaration_exempts_neither_end() {
         let classes = [class("a", &[("b", "")]), class("b", &[("c", "out")])];
         assert!(source_classes(&classes).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod parse_class_tests {
+    use super::*;
+
+    /// The stem governs against a declared `class:`, not only in its absence (#1636).
+    #[test]
+    fn the_stem_names_the_class_when_the_field_disagrees() {
+        let class = parse_class("thread", "class: strand\nlabel: Thread\n").unwrap();
+        assert_eq!(class.name, "thread");
+        assert_eq!(class.label, "Thread");
+    }
+
+    /// Not YAML, or YAML whose top level is not a mapping, is refused rather than read as a
+    /// class that declares nothing.
+    #[test]
+    fn a_document_that_does_not_parse_is_an_error() {
+        assert!(parse_class("thread", "label: \"unclosed\nedges: []\n").is_err());
+        assert!(parse_class("thread", "- a\n- b\n").is_err());
+        assert!(parse_class("thread", "just words\n").is_err());
+    }
+
+    /// An empty document has declared nothing, which is not the same as being unreadable.
+    #[test]
+    fn an_empty_document_is_a_class_declaring_nothing() {
+        for content in ["", "# a comment\n", "~\n"] {
+            let class = parse_class("thread", content).unwrap();
+            assert_eq!(class.name, "thread");
+            assert!(class.properties.is_empty() && class.edges.is_empty());
+        }
+    }
+
+    /// One wrongly shaped key costs the class that key, and nothing else.
+    #[test]
+    fn a_wrongly_shaped_key_reads_as_absent() {
+        let class = parse_class(
+            "thread",
+            "label: 7\nproperties:\n  - name: gauge\n    type: [number]\n    required: \"yes\"\n  \
+             - loose\n  - name: colour\n    type: string\nedges:\n  - relationship: ties\n    \
+             target: knot\n    direction: ~\n",
+        )
+        .unwrap();
+        assert_eq!(class.label, "");
+        let names: Vec<&str> = class.properties.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["gauge", "colour"]);
+        assert_eq!(class.properties[0].property_type, "");
+        assert!(!class.properties[0].required);
+        assert_eq!(class.edges[0].target, "knot");
+        assert_eq!(class.edges[0].direction, "");
     }
 }

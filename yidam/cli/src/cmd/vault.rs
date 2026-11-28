@@ -473,8 +473,6 @@ enum PushStep {
 /// What a catalog push walk did.
 #[derive(Debug, Default)]
 struct PushOutcome {
-    /// How many of the plan's vaults the walk reached. Their refusals are the ones reported.
-    reached: usize,
     steps: Vec<PushStep>,
     /// The error that ended the walk early, if one did.
     stopped: Option<anyhow::Error>,
@@ -516,10 +514,8 @@ fn walk_push(
     act: Act<'_>,
 ) -> PushOutcome {
     let mut log = Log::new(emit);
-    let mut reached = 0usize;
     let walked = (|| -> Result<()> {
         for v in &plan.vaults {
-            reached += 1;
             // Only what the licence and the private paths allow is worth opening a store for. A
             // run in which every artifact is refused must not ask for credentials it will not use.
             if v.allowed.is_empty() {
@@ -532,22 +528,31 @@ fn walk_push(
                 heading: v.heading.clone(),
                 store: store.describe(),
             });
+            let mut section = Ok(());
             for a in &v.allowed {
                 // Nothing to send. Not an error: a clone that has never fetched an artifact is a
                 // normal state, and reporting it as a failure would make `push` red on every
                 // fresh checkout.
                 let step = match cache.contains(&a.hash) {
                     false => PushStep::Uncached(a.clone()),
-                    true => act(store.as_ref(), a)?,
+                    true => match act(store.as_ref(), a) {
+                        Ok(step) => step,
+                        Err(e) => {
+                            section = Err(e);
+                            break;
+                        }
+                    },
                 };
                 log.push(step);
             }
+            // A section that stopped is closed like one that finished, so whatever is printed
+            // next is set off from it by the same blank line.
             log.push(PushStep::Closed);
+            section?;
         }
         Ok(())
     })();
     PushOutcome {
-        reached,
         steps: log.steps,
         stopped: walked.err(),
     }
@@ -606,8 +611,9 @@ fn render_push_step(step: &PushStep) {
 
 /// The lines after the walk: the counts, then every refusal under the store it was headed for.
 ///
-/// Refusals are reported for the vaults the walk reached, which is all of them unless it
-/// stopped early.
+/// Every refusal is reported, whether or not the walk got as far as the vault it was headed
+/// for: a refusal is settled in the plan before any store is opened, so it does not depend on
+/// how far the sends went.
 fn push_summary(
     plan: &PushPlan<'_>,
     outcome: &PushOutcome,
@@ -618,7 +624,7 @@ fn push_summary(
     for (heading, line) in &plan.aside {
         refused.entry(heading).or_default().push(line);
     }
-    for v in plan.vaults.iter().take(outcome.reached) {
+    for v in &plan.vaults {
         for line in &v.refused {
             refused.entry(&v.heading).or_default().push(line);
         }
@@ -2422,8 +2428,67 @@ mod tests {
         assert_eq!(puts, 1, "{:?}", fake.calls());
     }
 
+    /// Two vaults, the first holding two artifacts of which the second fails to send, the
+    /// second holding one the guard refuses.
+    fn aborting_corpus(tmp: &Path, cache: &Cache) -> (Vaults, Vec<Routed>, Fake) {
+        let v = vaults(&[
+            ("default", "anyone", &["catalog"]),
+            ("sources", "the sangha", &["index"]),
+        ]);
+        let planned = vec![
+            named(cache, tmp, "a-lands", None, true),
+            named(cache, tmp, "b-fails", None, true),
+            named(cache, tmp, "secret", Some("sources"), true),
+        ];
+        let fake = Fake {
+            refuse: Some(planned[1].a.hash.clone()),
+            ..Fake::default()
+        };
+        (v, planned, fake)
+    }
+
     #[test]
-    fn an_aborted_push_keeps_what_it_sent_and_reports_only_the_vaults_it_reached() {
+    fn an_aborted_push_keeps_what_it_sent_and_reports_the_refusals_the_dry_run_reports() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cache = Cache::at(tmp.path().join("cache"));
+        let (v, planned, fake) = aborting_corpus(tmp.path(), &cache);
+        let plan = plan_push(&v, planned, refusing("secret")).unwrap();
+        let outcome = send_push(&plan, &fake, &cache, &mut quiet);
+
+        assert!(outcome.stopped.is_some());
+        assert_eq!(outcome.sent(), 1);
+        assert_eq!(fake.held.borrow().len(), 1);
+        // The refusal headed for `sources` is reported although the walk never got there: it
+        // was settled in the plan, and the dry run over the same plan reports it too.
+        let summary = push_summary(&plan, &outcome, false, None);
+        assert!(
+            summary.contains("; 1 sent; 0 already stored; 0 not cached; 1 refused\n"),
+            "{summary}"
+        );
+        let rehearsed = rehearse_push(&plan, &Fake::default(), &cache, &mut quiet);
+        let dry = push_summary(&plan, &rehearsed, true, None);
+        assert!(dry.contains("; 1 refused\n"), "{dry}");
+        let block = |s: &str| s[s.find("\nRefused:").unwrap()..].to_string();
+        assert_eq!(block(&summary), block(&dry));
+    }
+
+    #[test]
+    fn an_aborted_push_closes_the_section_it_stopped_in() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cache = Cache::at(tmp.path().join("cache"));
+        let (v, planned, fake) = aborting_corpus(tmp.path(), &cache);
+        let plan = plan_push(&v, planned, refusing("secret")).unwrap();
+        let outcome = send_push(&plan, &fake, &cache, &mut quiet);
+
+        assert!(outcome.stopped.is_some());
+        assert!(matches!(outcome.steps[0], PushStep::Opened { .. }));
+        assert!(matches!(outcome.steps[1], PushStep::Sent(_)));
+        assert_eq!(outcome.steps[2], PushStep::Closed);
+        assert_eq!(outcome.steps.len(), 3);
+    }
+
+    #[test]
+    fn an_aborted_push_asks_the_store_nothing_after_the_artifact_that_failed() {
         let tmp = tempfile::TempDir::new().unwrap();
         let cache = Cache::at(tmp.path().join("cache"));
         let v = vaults(&[
@@ -2433,25 +2498,33 @@ mod tests {
         let planned = vec![
             named(&cache, tmp.path(), "a-lands", None, true),
             named(&cache, tmp.path(), "b-fails", None, true),
-            named(&cache, tmp.path(), "secret", Some("sources"), true),
+            named(&cache, tmp.path(), "c-after", None, true),
+            named(&cache, tmp.path(), "d-later-vault", Some("sources"), true),
+        ];
+        let after = [
+            planned[2].a.hash.as_str()[..8].to_string(),
+            planned[3].a.hash.as_str()[..8].to_string(),
         ];
         let fake = Fake {
             refuse: Some(planned[1].a.hash.clone()),
             ..Fake::default()
         };
-        let plan = plan_push(&v, planned, refusing("secret")).unwrap();
+        let plan = plan_push(&v, planned, refusing("nothing")).unwrap();
         let outcome = send_push(&plan, &fake, &cache, &mut quiet);
 
         assert!(outcome.stopped.is_some());
-        assert_eq!(outcome.reached, 1);
-        assert_eq!(outcome.sent(), 1);
-        assert_eq!(fake.held.borrow().len(), 1);
-        // The refusal headed for `sources` is not reported: the walk never got there. Today's
-        // output, kept as it is; the dry run over the same plan reports it.
-        let summary = push_summary(&plan, &outcome, false, None);
-        assert!(summary.contains("; 1 sent; 0 already stored; 0 not cached; 0 refused\n"));
-        let rehearsed = rehearse_push(&plan, &Fake::default(), &cache, &mut quiet);
-        assert!(push_summary(&plan, &rehearsed, true, None).contains("; 1 refused\n"));
+        let calls = fake.calls();
+        for hash in &after {
+            assert!(
+                calls.iter().all(|c| !c.ends_with(hash.as_str())),
+                "nothing is asked about {hash} after the failure: {calls:?}"
+            );
+        }
+        assert!(
+            calls.iter().all(|c| c != "open sources"),
+            "no later vault is opened: {calls:?}"
+        );
+        assert_eq!(outcome.steps.len(), 3, "{:?}", outcome.steps);
     }
 
     /// A repository with a bundle and nothing else, and one vault that takes everything.
