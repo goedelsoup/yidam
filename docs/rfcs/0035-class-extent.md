@@ -33,13 +33,13 @@ re-derived from scratch each time one of those conditions is examined.
 `<class>.ont.yml` carries `properties:` and `edges:`, and `lint` holds every instance against
 both:
 
-| Check | `checks.rs` | Asks |
-|---|---|---|
-| `undeclared-property` | [`checks.rs:1490`](../../yidam/cli/src/cmd/lint/checks/properties.rs) | a property the class never declared |
-| `missing-property` | [`checks.rs:1663`](../../yidam/cli/src/cmd/lint/checks/properties.rs) | a declared property the instance omits |
-| `property-type` | [`checks.rs:1917`](../../yidam/cli/src/cmd/lint/checks/properties.rs) | a value contradicting the declared `type` |
-| `unlicensed-edge` | [`checks.rs:1983`](../../yidam/cli/src/cmd/lint/checks/edges.rs) | a relationship the class does not declare |
-| `edge-target-class` | [`checks.rs:2049`](../../yidam/cli/src/cmd/lint/checks/edges.rs) | an edge resolving to a node of the wrong class |
+| Check | Asks |
+|---|---|
+| [`undeclared-property`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L42) | a property the class never declared |
+| [`missing-property`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L269) | a declared property the instance omits |
+| [`property-type`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L787) | a value contradicting the declared `type` |
+| [`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks/edges.rs#L51) | a relationship the class does not declare |
+| [`edge-target-class`](../../yidam/cli/src/cmd/lint/checks/edges.rs#L130) | an edge resolving to a node of the wrong class |
 
 Every one of them takes an instance and asks whether that instance is well-formed. The set of
 instances is never the subject. So a corpus whose classes are enumerable over a known domain —
@@ -223,8 +223,8 @@ rather than the corpus.
 
 ### Silence stays silence, read one field at a time
 
-The rule `GRAPH.md` states for `properties:` and `edges:`, and which `max_lines`
-([`checks.rs:173`](../../yidam/cli/src/cmd/lint/checks/properties.rs)) is the closest precedent for, holds
+The rule `GRAPH.md` states for `properties:` and `edges:`, and which
+[`max_lines`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L181-L183) is the closest precedent for, holds
 here without amendment:
 
 - A class with no `coverage:` has said nothing about extent, and neither check runs.
