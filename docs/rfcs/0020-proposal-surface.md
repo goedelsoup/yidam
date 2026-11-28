@@ -142,10 +142,10 @@ catalog's own bookkeeping against the corpus's citations. None of them looks ups
 
 **And the built machinery for this exact case deliberately does not retag.** E3 shipped it one
 epic ago for dependency citations: `citations::moved` compares two surveys and emits a
-`Movement` whose payload is a *question* — `/// Phrased as a question, deliberately. The answer
-is a person's.` ([`citations.rs:867-877`](../../yidam/cli/src/cmd/lint/citations.rs#L867-L877)).
+`Movement` whose payload is a *question* —
+`/// Phrased as a question, deliberately. The answer is a person's.` ([`Movement`](../../yidam/cli/src/cmd/lint/citations.rs#L874-L886)).
 The renderer is explicit about the temptation it is refusing
-([`citations.rs:987-1000`](../../yidam/cli/src/cmd/lint/citations.rs#L987-L1000)):
+([`render_movements`](../../yidam/cli/src/cmd/lint/citations.rs#L996-L1002)):
 
 ```text
 3 question(s) opened by this update — nothing was changed, and no claim was re-tagged:
