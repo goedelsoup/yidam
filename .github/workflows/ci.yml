@@ -91,7 +91,7 @@ jobs:
       # What it did do was hold the repository at 9.48GB of a 10GB budget, where eviction
       # by last use takes main's trees as readily as anything. Restoring still works: a PR
       # reads main's scope. `ci_reporting.rs` requires the condition on every step.
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       # When the mise cache hits, `mise install` is a no-op and the rust
@@ -173,7 +173,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure rustfmt for the pinned toolchain
@@ -200,7 +200,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
@@ -254,7 +254,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       # No `npm install` step: every npm-backed mise task installs when `node_modules`
@@ -298,7 +298,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
@@ -347,7 +347,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       # elan only. Every `build`/`test`/`lint` input is off because `mise run verify` does
@@ -379,7 +379,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run design-lint
@@ -404,7 +404,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run supply-chain
@@ -421,7 +421,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run ts-typecheck
@@ -452,7 +452,7 @@ jobs:
       # it — so the reason release.yml was pinned does not reach it. `toolchain_pins.rs`
       # requires every `@stable` to carry a reason, and this is that reason.
       - uses: dtolnay/rust-toolchain@stable
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
@@ -474,7 +474,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
@@ -571,7 +571,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
@@ -655,7 +655,7 @@ jobs:
           # nothing — and this job was red on main while `ci (cli)` was green on the same
           # commit, because that one already fetches depth 0.
           fetch-depth: 0
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure rustfmt and clippy for the pinned toolchain
@@ -733,7 +733,7 @@ jobs:
           # nothing — and this job was red on main while `ci (cli)` was green on the same
           # commit, because that one already fetches depth 0.
           fetch-depth: 0
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure rustfmt and clippy for the pinned toolchain
@@ -855,7 +855,7 @@ jobs:
           # every such job to fetch tags and history. None of the selected tests reads them
           # today; a test that does, gated by a feature, would be selected without warning.
           fetch-depth: 0
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - name: Ensure clippy for the pinned toolchain
@@ -936,7 +936,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
@@ -1058,7 +1058,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
@@ -1159,7 +1159,7 @@ jobs:
           # a baseline that fails aborts the run. A bare checkout would end this job before it
           # applied a single mutation.
           fetch-depth: 0
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - uses: Swatinem/rust-cache@v2
