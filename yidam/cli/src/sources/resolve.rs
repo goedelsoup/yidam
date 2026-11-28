@@ -388,11 +388,12 @@ impl Enabled {
         let sp = self.split(identifier)?;
         let d = sp.d;
         let url = match sp.form {
-            Form::Template(template) => crate::cmd::catalog::location::bind(template, &sp.bindings)
-                .map_err(|slots| Refusal::Unbound {
+            Form::Template(template) => {
+                super::template::bind(template, &sp.bindings).map_err(|slots| Refusal::Unbound {
                     pack: d.pack.clone(),
                     slots,
-                })?,
+                })?
+            }
             _ => {
                 let l = self.lookup_of(&sp)?;
                 let Some(pin) = sp.pin else {
@@ -453,12 +454,12 @@ impl Enabled {
                 matches,
                 pick,
             } => {
-                let url = crate::cmd::catalog::location::bind(listing, &sp.bindings).map_err(
-                    |slots| Refusal::Unbound {
+                let url = super::template::bind(listing, &sp.bindings).map_err(|slots| {
+                    Refusal::Unbound {
                         pack: d.pack.clone(),
                         slots,
-                    },
-                )?;
+                    }
+                })?;
                 (Page::Listing, url, Some(matches), pick, None)
             }
             Form::Dcat {

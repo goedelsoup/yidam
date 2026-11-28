@@ -15,7 +15,7 @@ use std::fmt::Write as _;
 
 use super::manifest::PinRead;
 use super::search;
-use crate::cmd::catalog::location::bind;
+use super::template::bind;
 
 /// What a mutable identifier's pin read asks, and how its answer becomes the pinned identifier.
 #[derive(Debug, Clone)]

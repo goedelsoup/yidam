@@ -28,6 +28,7 @@ mod capability_discovery;
 mod ci_reporting;
 mod class_schemas;
 mod cluster_image;
+mod command_layer_imports;
 mod coverage_reporting;
 mod degraded_reason_freeze;
 mod deny_policy;
