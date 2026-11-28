@@ -557,7 +557,7 @@ fn licence(class: &Class, relationship: &str) -> Licence {
         return Licence::Declared(targets);
     }
     // The row that is easy to omit. `unlicensed_edge` short-circuits on an empty edge list
-    // *before* it consults the policy (checks.rs:897), pinned by
+    // *before* it consults the policy (`class.edges.is_empty()`, checks/edges.rs), pinned by
     // `a_policy_without_edges_still_licenses_everything`. A table that consulted only the
     // policy would reject every hop out of a class that wrote `edge_policy: exhaustive` and
     // no `edges:` — a query engine stricter than the gate.
@@ -750,8 +750,8 @@ pub fn check(query: &Query, schema: &Schema) -> Result<Checked, Rejection> {
     let mut narrowed = Vec::new();
     let mut declared = std::collections::BTreeMap::new();
 
-    // A corpus with no `.ont.yml` at all has no schema layer, which is a different problem
-    // from a misspelling — the carve-out `unknown_class` itself makes (checks.rs:383).
+    // A corpus with no `.ont.yml` has no schema layer, a different problem from a misspelling —
+    // the carve-out `unknown_class` makes (`defined.is_empty()`, checks/instances.rs).
     let unschematised = schema.classes.is_empty();
 
     for (index, step) in query.steps.iter().enumerate() {
