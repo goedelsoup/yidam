@@ -51,7 +51,6 @@ use crate::common;
 /// `cmd::catalog`. A new entry is a new upward edge, and the place to argue for one is the
 /// pull request that adds it, not this list.
 const REACHES_UP: &[(&str, usize)] = &[
-    ("src/claims.rs", 2),
     ("src/computed.rs", 2),
     ("src/coupling.rs", 2),
     ("src/derive.rs", 3),
@@ -62,8 +61,7 @@ const REACHES_UP: &[(&str, usize)] = &[
     ("src/sources/draft.rs", 1),
     ("src/sources/manifest.rs", 1),
     ("src/sources/mod.rs", 2),
-    ("src/table.rs", 4),
-    ("src/warehouse/corpus.rs", 1),
+    ("src/table.rs", 2),
 ];
 
 /// The path this file looks for.

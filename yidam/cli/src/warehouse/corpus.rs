@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::contract::{ColumnType, Contract, Table, TableKind, PRECISION_SUFFIX};
 use super::feeds::CORPUS_ORIGIN;
-use crate::cmd::lint::checks::{
+use crate::corpus::value::{
     declared_value_violation, iso_date_parts, numeric_value, property_type_violation,
 };
 use crate::corpus::{Class, ClassProperty};

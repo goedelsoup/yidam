@@ -37,7 +37,7 @@ both:
 |---|---|
 | [`undeclared-property`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L42) | a property the class never declared |
 | [`missing-property`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L269) | a declared property the instance omits |
-| [`property-type`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L787) | a value contradicting the declared `type` |
+| [`property-type`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L430) | a value contradicting the declared `type` |
 | [`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks/edges.rs#L51) | a relationship the class does not declare |
 | [`edge-target-class`](../../yidam/cli/src/cmd/lint/checks/edges.rs#L130) | an edge resolving to a node of the wrong class |
 

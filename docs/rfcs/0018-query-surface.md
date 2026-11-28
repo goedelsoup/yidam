@@ -71,7 +71,7 @@ at depth 2 and all of it at depth 3.
 ([`unknown-class`](../../yidam/cli/src/cmd/lint/checks/instances.rs#L22), Error), the properties it may
 and must carry ([`undeclared-property`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L42),
 [`missing-property`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L269)), the type of each value
-([`property-type`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L820)), which relationships a class
+([`property-type`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L463)), which relationships a class
 licenses ([`unlicensed-edge`](../../yidam/cli/src/cmd/lint/checks/edges.rs#L84)), and which class
 each relationship may land on
 ([`edge-target-class`](../../yidam/cli/src/cmd/lint/checks/edges.rs#L144), Error).
@@ -357,7 +357,7 @@ so `seeded_because` and `fy2024_profile` are queryable without being declared on
 classes. An undeclared name is **rejected** with the class's declared list.
 
 Predicate *values* are a separate question from predicate *names*, and the operator decides it.
-[`property_type_violation`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L430)
+[`property_type_violation`](../../yidam/cli/src/corpus/value.rs#L18)
 takes a declared type and a value and no operator — it answers *may the corpus store this*, not
 *may someone ask about this*. Using it operator-blind rejects satisfiable predicates:
 `reach[claim_tag!=maybe]` is satisfied by every reach in `examples/streamflow`, and
@@ -379,7 +379,7 @@ Three further rules the naive version leaves undefined:
   rule stands as the default and `?` after the operator opts one predicate out of it.
 - **A list value matches if any element matches.** `claim_tag: [open]` is legal YAML that the
   claim counter reads as one claim, and `property_type_violation` accepts it
-  ([`property_type_violation`](../../yidam/cli/src/cmd/lint/checks/properties.rs#L430-L459)); a predicate must read the
+  ([`property_type_violation`](../../yidam/cli/src/corpus/value.rs#L18-L47)); a predicate must read the
   same bytes the same way.
 - **`=` on a `date` compares at the precision written**, so `observed_on=2026-08` matches every
   day in that month. Ordering compares at the precision the two sides *share*, which is a

@@ -193,8 +193,8 @@ pub(crate) fn declared_claim_fields(class: &crate::corpus::Class) -> Vec<String>
     out.extend(class.properties.iter().flat_map(|p| {
         // Only a declaration the gate can hold an instance to: under one it reports, the
         // record has no reading, and its fields are no more a standing than a coined type's.
-        let readable = p.r#type == crate::cmd::lint::checks::LIST_PROPERTY_TYPE
-            && crate::cmd::lint::checks::list_declaration_problem(p).is_none();
+        let readable = p.r#type == crate::corpus::value::LIST_PROPERTY_TYPE
+            && crate::corpus::value::list_declaration_problem(p).is_none();
         p.fields
             .iter()
             .filter(move |f| readable && f.r#type == CLAIM_PROPERTY_TYPE)
