@@ -21,35 +21,22 @@
  * No `vscode` import.
  */
 
-import type { Envelope } from './reports.ts'
+import type { YidamReportEnvelope } from './report-schema.generated.d.ts'
+import type { Envelope, Present, Row } from './reports.ts'
 
-export interface Verb {
-  verb: string
-  kind: 'epistemic' | 'operational'
-  /** The **When** column, or empty when no GRAPH.md was found. */
-  when: string
-}
+// The shapes are `report.schema.json`'s, by way of `reports.ts` (#1645).
 
-export interface SubjectViolation {
-  rule: 'scope-suffix' | 'unrecognized-verb' | 'no-verb'
-  severity: 'error' | 'warn' | 'info'
-  message: string
-}
+/** One verb. `when` is the **When** column, or empty when no GRAPH.md was found. */
+export type Verb = Row<'verbs'>
 
-export interface SubjectCheck {
-  text: string
-  verb: string
-  kind: 'epistemic' | 'operational'
-  recognized: boolean
-  violations: SubjectViolation[]
-}
+export type SubjectCheck = Exclude<YidamReportEnvelope['subject'], undefined>
 
-export interface VocabularyReport extends Envelope {
-  source: string
-  verbs: Verb[]
-  drift: string[]
-  subject?: SubjectCheck
-}
+export type SubjectViolation = SubjectCheck['violations'][number]
+
+/** `vocabulary`, and `vocabulary --check`, which adds `subject`. */
+export type VocabularyReport = Envelope &
+  Present<YidamReportEnvelope, 'source' | 'verbs' | 'drift'> &
+  Pick<YidamReportEnvelope, 'subject'>
 
 /**
  * Whether the cursor is in the verb position.
