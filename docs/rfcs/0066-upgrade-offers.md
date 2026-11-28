@@ -144,7 +144,7 @@ when the record was written. Each new offer is a new id, so no decline covers it
 Every other `warn` stays a defect. That covers `binary`, `commit`, `path`, `prelude`,
 `index`, `regen`, `kuten`, `vault`, `corpora` and the rest. None of them can be declined (§2).
 
-The roster lives beside `ROSTER` in `doctor.rs` as a typed list. A gate asserts two things:
+The roster lives beside `ROSTER` in `doctor/` as a typed list. A gate asserts two things:
 
 - every offer id names a check in `ROSTER`;
 - every `since` parses as a `cli/v*` release.

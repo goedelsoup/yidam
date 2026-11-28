@@ -188,7 +188,7 @@ ul.questions {
 }
 
 /* A finding whose severity is not its check's, which is only ever an escalation — every
- * override in `checks.rs` raises or matches, none lowers. Same weight as `.gate-failed`,
+ * override in `checks/` raises or matches, none lowers. Same weight as `.gate-failed`,
  * because it is the same verdict: this finding is what fails the build. Quiet secondary text
  * here would restate the heading it exists to contradict. */
 .severity.escalated {
