@@ -55,9 +55,12 @@ permissions:
   contents: write
 
 jobs:
+  # Each job carries a `timeout-minutes` (#1740): about twice its slowest successful run up to
+  # November 2026, never under 10, and more where a cold cache or a release is at stake.
   build:
     name: build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       # fail-fast: false so one broken target still reports the others — a
       # release missing one platform is worth knowing precisely, not as
@@ -233,6 +236,7 @@ jobs:
   spec:
     name: spec asset
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - name: Pack the spec asset
@@ -245,6 +249,7 @@ jobs:
     name: publish
     needs: [build, spec]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     # Only a tag publishes. workflow_dispatch builds the matrix and packs the
     # spec asset, then stops, which is what makes it usable as a pre-tag check.
     if: startsWith(github.ref, 'refs/tags/cli/v')

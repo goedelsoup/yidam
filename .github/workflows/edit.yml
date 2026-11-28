@@ -59,9 +59,12 @@ permissions:
   contents: read
 
 jobs:
+  # Each job carries a `timeout-minutes` (#1740): about twice its slowest successful run up to
+  # November 2026, never under 10, and more where a cold cache or a release is at stake.
   package:
     name: package and gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v4
@@ -88,6 +91,7 @@ jobs:
     name: publish
     needs: package
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Only a tag publishes. `workflow_dispatch` packs, runs the tarball, and stops — which is
     # what makes it usable as a pre-tag check, exactly as in release.yml and editor.yml.
     if: startsWith(github.ref, 'refs/tags/edit/v')

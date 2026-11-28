@@ -75,6 +75,8 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/yidam-cluster
 
 jobs:
+  # Each job carries a `timeout-minutes` (#1740): about twice its slowest successful run up to
+  # November 2026, never under 10, and more where a cold cache or a release is at stake.
   build:
     name: build (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
@@ -151,6 +153,7 @@ jobs:
     needs: build
     if: inputs.tag != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write

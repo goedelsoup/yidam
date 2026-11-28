@@ -34,9 +34,12 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Each job carries a `timeout-minutes` (#1740): about twice its slowest successful run up to
+  # November 2026, never under 10, and more where a cold cache or a release is at stake.
   publish:
     name: publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       # `@stable` is installed only so `cargo +stable` resolves for the semver check further
