@@ -78,11 +78,7 @@ fn targets_of(path: &str, content: &str) -> HashSet<String> {
         .unwrap_or_default()
         .iter()
         .filter_map(|l| l.target.as_ref())
-        .map(|t| {
-            resolve_target(Path::new(path), t)
-                .to_string_lossy()
-                .replace('\\', "/")
-        })
+        .map(|t| crate::paths::slash(&resolve_target(Path::new(path), t)))
         .collect()
 }
 
@@ -573,11 +569,7 @@ pub fn open_question_age(root: &Path) -> HashMap<String, Age> {
 fn moved_from(path: &str, content: &str) -> Option<String> {
     let inst: crate::parse::CorpusInstance = serde_yaml::from_str(content).ok()?;
     let from = inst.extra.get("moved-from")?.as_str()?;
-    Some(
-        resolve_target(Path::new(path), from)
-            .to_string_lossy()
-            .replace('\\', "/"),
-    )
+    Some(crate::paths::slash(&resolve_target(Path::new(path), from)))
 }
 
 /// For every node present at HEAD, how long `holds` has been true of it, carried across a

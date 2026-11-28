@@ -314,9 +314,7 @@ fn links_of(path: &str, text: &str) -> BTreeSet<(String, String)> {
         .iter()
         .filter_map(|l| {
             let target = l.target.as_ref()?;
-            let resolved = resolve_target(Path::new(path), target)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let resolved = crate::paths::slash(&resolve_target(Path::new(path), target));
             Some((
                 l.relationship.clone().unwrap_or_else(|| "link".to_string()),
                 node_id(&resolved),

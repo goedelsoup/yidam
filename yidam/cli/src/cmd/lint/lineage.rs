@@ -253,12 +253,12 @@ pub(crate) fn standings(root: &Path, records: &[Resolution]) -> Vec<Standing> {
         .filter_map(|r| Some((r.evolution.clone(), adds.get(&r.file)?.clone())))
         .collect();
     let base = crate::git::base_branch(root).unwrap_or_else(|| "HEAD".to_string());
-    let electors_md = crate::paths::yidam_sangha_dir(root)
-        .strip_prefix(root)
-        .unwrap_or(Path::new(".yidam/sangha"))
-        .join("electors.md")
-        .to_string_lossy()
-        .replace('\\', "/");
+    let electors_md = crate::paths::slash(
+        &crate::paths::yidam_sangha_dir(root)
+            .strip_prefix(root)
+            .unwrap_or(Path::new(".yidam/sangha"))
+            .join("electors.md"),
+    );
     let rank: HashMap<String, usize> = git(root, &["rev-list", "--topo-order", "--reverse", &base])
         .lines()
         .enumerate()

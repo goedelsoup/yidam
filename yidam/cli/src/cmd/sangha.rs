@@ -383,10 +383,7 @@ fn md_files(dir: &Path) -> Vec<std::path::PathBuf> {
 }
 
 fn rel(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    crate::paths::slash(path.strip_prefix(root).unwrap_or(path))
 }
 
 pub(crate) fn sangha_data(root: &Path) -> SanghaReport {

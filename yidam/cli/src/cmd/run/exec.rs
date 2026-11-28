@@ -508,12 +508,12 @@ fn process(
         if !entry.file_type().is_file() {
             continue;
         }
-        let rel = entry
-            .path()
-            .strip_prefix(out.path())
-            .context("a file the step wrote is not under the directory it was given")?
-            .to_string_lossy()
-            .replace('\\', "/");
+        let rel = crate::paths::slash(
+            entry
+                .path()
+                .strip_prefix(out.path())
+                .context("a file the step wrote is not under the directory it was given")?,
+        );
         let bytes = std::fs::read(entry.path())
             .with_context(|| format!("reading the step's output {rel}"))?;
         outputs.insert(rel, bytes);

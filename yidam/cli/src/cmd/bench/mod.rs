@@ -206,7 +206,7 @@ pub fn parse_goals(text: &str) -> Result<GoalSet> {
 /// correct rather than unfortunate: the flat arm searches a wider set than the corpus, and
 /// hiding the difference would flatter it.
 pub fn node_id(path: &str) -> String {
-    let path = path.replace('\\', "/");
+    let path = crate::paths::slash_str(path);
     match path.split_once(".yidam/corpus/") {
         Some((_, rest)) => rest.to_string(),
         None => path,

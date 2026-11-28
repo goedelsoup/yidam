@@ -131,7 +131,7 @@ pub(crate) fn build_report(
     };
 
     VerifyReport {
-        index: index.to_string_lossy().replace('\\', "/"),
+        index: crate::paths::slash(index),
         verdict,
         passed: outcome.passed(),
         model_id: config.model_id.clone(),

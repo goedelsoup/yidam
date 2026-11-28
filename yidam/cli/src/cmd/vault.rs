@@ -1607,10 +1607,7 @@ const WHO: crate::cmd::operational::Who<'static> = ("yidam vault", "vault@yidam"
 /// The lock's path relative to `root`, as a pathspec.
 fn lock_rel(root: &Path) -> String {
     let path = vault::lock_path(root);
-    path.strip_prefix(root)
-        .unwrap_or(&path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    crate::paths::slash(path.strip_prefix(root).unwrap_or(&path))
 }
 
 /// The subject an artifact's commit carries.

@@ -227,7 +227,7 @@ pub(crate) fn walk_neighbors(
 }
 
 fn slash(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/")
+    crate::paths::slash(p)
 }
 
 /// The whole corpus as a graph, for a consumer that will not re-derive it.

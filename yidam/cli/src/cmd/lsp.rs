@@ -218,7 +218,7 @@ impl Server {
     fn node_id(&self, uri: &str) -> Option<String> {
         let path = uri_to_path(uri)?;
         let rel = path.strip_prefix(&self.corpus).ok()?;
-        Some(rel.to_string_lossy().replace('\\', "/"))
+        Some(crate::paths::slash(rel))
     }
 
     #[expect(
@@ -246,9 +246,7 @@ impl Server {
         if character < start || character > end {
             return None;
         }
-        let resolved = crate::corpus::resolve_target(Path::new(&id), &value)
-            .to_string_lossy()
-            .replace('\\', "/");
+        let resolved = crate::paths::slash(&crate::corpus::resolve_target(Path::new(&id), &value));
         (!resolved.is_empty()).then_some((resolved, start, end))
     }
 

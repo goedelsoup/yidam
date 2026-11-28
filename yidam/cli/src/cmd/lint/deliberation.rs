@@ -41,12 +41,7 @@ pub(crate) fn asked(root: &Path, records: &[Resolution]) -> BTreeSet<String> {
         return BTreeSet::new();
     }
     let sangha = crate::paths::yidam_sangha_dir(root);
-    let rel = |p: &Path| {
-        p.strip_prefix(root)
-            .unwrap_or(p)
-            .to_string_lossy()
-            .replace('\\', "/")
-    };
+    let rel = |p: &Path| crate::paths::slash(p.strip_prefix(root).unwrap_or(p));
     let protocol = rel(&sangha.join("PROTOCOL.md"));
     let resolutions = rel(&sangha.join("resolutions"));
 

@@ -127,11 +127,7 @@ impl Graph {
         let read = crate::corpus::Corpus::open(root);
         let corpus_dir = read.dir().to_path_buf();
         let (nodes, classes, edges) = read.into_parts();
-        let rel = corpus_dir
-            .strip_prefix(root)
-            .unwrap_or(&corpus_dir)
-            .to_string_lossy()
-            .replace('\\', "/");
+        let rel = crate::paths::slash(corpus_dir.strip_prefix(root).unwrap_or(&corpus_dir));
         Self {
             nodes,
             edges,

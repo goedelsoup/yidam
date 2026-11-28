@@ -165,7 +165,7 @@ impl RenameReport {
 }
 
 fn slash(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/")
+    crate::paths::slash(p)
 }
 
 /// Accept `concept/old.yml`, `concept/old`, or a repository-relative path.

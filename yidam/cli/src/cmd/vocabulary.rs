@@ -473,12 +473,7 @@ fn vocabulary_data(root: &Path, check: Option<&str>, writing: Writing) -> Vocabu
 
     VocabularyReport {
         source: path
-            .map(|p| {
-                p.strip_prefix(root)
-                    .unwrap_or(&p)
-                    .to_string_lossy()
-                    .replace('\\', "/")
-            })
+            .map(|p| crate::paths::slash(p.strip_prefix(root).unwrap_or(&p)))
             .unwrap_or_default(),
         verbs,
         // No document means no comparison, not a table full of missing rows.

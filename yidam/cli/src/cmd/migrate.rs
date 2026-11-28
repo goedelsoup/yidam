@@ -293,7 +293,7 @@ fn is_zero(n: &usize) -> bool {
 }
 
 fn slash(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/")
+    crate::paths::slash(p)
 }
 
 impl MigrateReport {

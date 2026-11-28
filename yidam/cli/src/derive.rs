@@ -304,7 +304,7 @@ pub(crate) fn files_under(root: &Path, globs: &[String], extensions: &[&str]) ->
             let Ok(rel) = entry.path().strip_prefix(root) else {
                 continue;
             };
-            let rel = rel.to_string_lossy().replace('\\', "/");
+            let rel = crate::paths::slash(rel);
             let artifact = extensions.iter().any(|x| rel.ends_with(x));
             if artifact && crate::kuten::glob_covers(glob, &rel) {
                 found.insert(rel);
@@ -390,7 +390,7 @@ impl<'a> Cited<'a> {
         let nodes = nodes
             .iter()
             .filter_map(|n| {
-                let rel = n.rel.replace('\\', "/");
+                let rel = crate::paths::slash_str(&n.rel);
                 let key = rel
                     .strip_prefix(".yidam/corpus/")?
                     .strip_suffix(".yml")?

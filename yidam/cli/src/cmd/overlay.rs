@@ -313,12 +313,7 @@ mod tests {
         walk(&dir.to_path_buf(), &mut found);
         found
             .iter()
-            .map(|p| {
-                p.strip_prefix(root)
-                    .unwrap_or(p)
-                    .to_string_lossy()
-                    .replace('\\', "/")
-            })
+            .map(|p| crate::paths::slash(p.strip_prefix(root).unwrap_or(p)))
             .collect()
     }
 

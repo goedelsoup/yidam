@@ -489,11 +489,7 @@ fn nodes(root: &Path, corpus: &Path) -> Vec<(std::path::PathBuf, String, String)
         .into_iter()
         .filter_map(|p| {
             let text = std::fs::read_to_string(&p).ok()?;
-            let file = p
-                .strip_prefix(root)
-                .unwrap_or(&p)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let file = crate::paths::slash(p.strip_prefix(root).unwrap_or(&p));
             Some((p, file, text))
         })
         .collect()

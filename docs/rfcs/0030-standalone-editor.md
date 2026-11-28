@@ -375,7 +375,7 @@ most expensive thing in the document. The original said so, about this design, a
 That bridge is now the plan. [`Overlay`](../../yidam/cli/src/corpus/overlay.rs#L15) is a
 `pub struct` in the lint module, and
 [`run_checks_with`](../../yidam/cli/src/cmd/lint/mod.rs#L137) is the entry point the language
-server calls on every change ([`lsp.rs:257`](../../yidam/cli/src/cmd/lsp.rs#L257)) — but it is
+server calls on every change ([`lsp.rs:255`](../../yidam/cli/src/cmd/lsp.rs#L255): *"run_checks_with"*) — but it is
 reachable only through `serve --lsp`. `yidam lint` has no overlay flag, and the extension is no
 prior art here: it carries no LSP client and no dependencies at all, running `lint --format json`
 against the tree and building diagnostics itself.
@@ -470,13 +470,13 @@ being built:
   [`Overlay::unsaved_instances`](../../yidam/cli/src/corpus/overlay.rs#L57) adds the buffers
   the walker would have accepted, and the server declares it —
   `experimental.yidam.unsavedInstances` in the `initialize` result
-  ([`lsp.rs:454`](../../yidam/cli/src/cmd/lsp.rs#L454)) — so a bridge on an older binary can say
+  ([`lsp.rs:452`](../../yidam/cli/src/cmd/lsp.rs#L452): *"unsavedInstances": true*) — so a bridge on an older binary can say
   *saved nodes only* rather than show a clean verdict it did not earn.
 - **The barrier is an unknown request.** `publishDiagnostics` is a notification, and a clean
   buffer publishes nothing new, so a page cannot tell *clean* from *not judged yet*. The server
   answers any request it does not know with `null`, and does so **after** the publishes a
   preceding change produced —
-  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L961)
+  [`a_request_after_a_change_is_answered_after_its_diagnostics`](../../yidam/cli/src/cmd/lsp.rs#L959)
   pins the order. The bridge sends `$/yidam/barrier` after every `didChange` and treats the
   reply as the verdict's edge
   ([`overlay.ts:396`](../../yidam/editors/web/src/lib/overlay.ts#L396)). No protocol extension,

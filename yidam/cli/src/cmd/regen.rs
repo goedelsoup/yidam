@@ -637,7 +637,7 @@ fn repository_paths(root: &std::path::Path, stale: &[crate::regen::Stale]) -> Re
                 base.display()
             )
         })?;
-        let rel = rel.to_string_lossy().replace('\\', "/");
+        let rel = crate::paths::slash(rel);
         if !out.contains(&rel) {
             out.push(rel);
         }

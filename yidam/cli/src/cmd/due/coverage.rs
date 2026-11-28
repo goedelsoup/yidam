@@ -604,11 +604,7 @@ pub(crate) fn read_universe(
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    let rel = path
-        .strip_prefix(root)
-        .unwrap_or(&path)
-        .to_string_lossy()
-        .replace('\\', "/");
+    let rel = crate::paths::slash(path.strip_prefix(root).unwrap_or(&path));
 
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     let fm = parse_frontmatter(&text);
@@ -696,7 +692,7 @@ pub(crate) fn read_universe(
                     kept += 1;
                     continue;
                 }
-                let at = n.rel.replace('\\', "/");
+                let at = crate::paths::slash_str(&n.rel);
                 let at = at.strip_prefix(".yidam/corpus/").unwrap_or(&at).to_string();
                 nodes.push(format!(
                     "{at} — its `{property}` `{}` is no member of {entry}",

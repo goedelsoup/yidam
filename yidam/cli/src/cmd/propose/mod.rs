@@ -91,10 +91,7 @@ fn read(root: &Path, rel: &str) -> String {
 }
 
 fn rel(root: &Path, p: &Path) -> String {
-    p.strip_prefix(root)
-        .unwrap_or(p)
-        .to_string_lossy()
-        .replace('\\', "/")
+    crate::paths::slash(p.strip_prefix(root).unwrap_or(p))
 }
 
 /// The `(check, node)` pairs the gate is failing on right now.
