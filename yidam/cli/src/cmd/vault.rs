@@ -1773,6 +1773,8 @@ enum DerivedItem<'a> {
     Local(vault::Derived),
     /// No vault takes it, and why.
     Unroutable(vault::Derived, String),
+    /// Routed to this vault, which `--vault` leaves out (#1731).
+    Elsewhere(vault::Derived, &'a str),
     /// The guard refuses it, with every reason.
     Refused(Vec<String>),
     /// To be packed and sent to this vault.
@@ -1790,8 +1792,10 @@ enum DerivedItem<'a> {
 /// what the artifact *encodes*, not about where it is going, so it costs nothing to ask first
 /// and avoids compressing a few hundred megabytes that were never going to be sent.
 ///
-/// An artifact `--vault` excludes is left out of the plan silently; one with no route is kept
-/// in it, because saying so is the only thing a push does about it.
+/// An artifact `--vault` excludes stays in the plan, naming the vault it routes to, and so does
+/// one with no route: saying so is the only thing a push does about either. A push that printed
+/// nothing for an index routed elsewhere read as one that had nothing new to send (#1731). The
+/// guard is not asked about an artifact `--vault` excludes, because it is not going anywhere.
 fn plan_push_derived<'a>(
     vaults: &'a Vaults,
     picked: &[vault::Derived],
@@ -1803,7 +1807,9 @@ fn plan_push_derived<'a>(
         let item = match vaults.route(d.kind(), None) {
             Route::Local => DerivedItem::Local(d),
             Route::Unroutable(why) => DerivedItem::Unroutable(d, why),
-            Route::To(name, _) if only.is_some_and(|o| o != name) => continue,
+            Route::To(name, _) if only.is_some_and(|o| o != name) => {
+                DerivedItem::Elsewhere(d, name)
+            }
             Route::To(name, cfg) => match refusal(d)? {
                 Some(why) => DerivedItem::Refused(why),
                 None => DerivedItem::Send { d, name, cfg },
@@ -1819,6 +1825,8 @@ fn plan_push_derived<'a>(
 enum DerivedStep {
     Local(vault::Derived),
     Unroutable(vault::Derived, String),
+    /// Routed to this vault, which `--vault` leaves out.
+    Elsewhere(vault::Derived, String),
     Refused(Vec<String>),
     /// A dry run's answer, and whether `.yidam/index.lock` already records these bytes.
     WouldSend {
@@ -1870,6 +1878,7 @@ fn settled(item: &DerivedItem<'_>) -> Option<DerivedStep> {
     match item {
         DerivedItem::Local(d) => Some(DerivedStep::Local(*d)),
         DerivedItem::Unroutable(d, why) => Some(DerivedStep::Unroutable(*d, why.clone())),
+        DerivedItem::Elsewhere(d, name) => Some(DerivedStep::Elsewhere(*d, name.to_string())),
         DerivedItem::Refused(why) => Some(DerivedStep::Refused(why.clone())),
         DerivedItem::Send { .. } => None,
     }
@@ -1878,9 +1887,10 @@ fn settled(item: &DerivedItem<'_>) -> Option<DerivedStep> {
 /// Report every artifact behind the one a walk stopped at that the plan settled without
 /// sending.
 ///
-/// A refusal, a local route and an unroutable kind are settled before the walk begins, so they
-/// do not depend on how far the sends went: an aborted push says about each of them what its
-/// dry run says (#1734). Nothing behind the failure is packed or sent.
+/// A refusal, a local route, an unroutable kind and a route `--vault` leaves out are settled
+/// before the walk begins, so they do not depend on how far the sends went: an aborted push
+/// says about each of them what its dry run says (#1734). Nothing behind the failure is packed
+/// or sent.
 fn settled_behind(rest: &[DerivedItem<'_>], log: &mut Log<'_, DerivedStep>) {
     for step in rest.iter().filter_map(settled) {
         log.push(step);
@@ -2060,6 +2070,10 @@ fn render_derived_step(step: &DerivedStep) {
             eprintln!("{}: routed to the local cache; nothing to send", d.kind());
         }
         DerivedStep::Unroutable(d, why) => eprintln!("{}: {why}", d.kind()),
+        DerivedStep::Elsewhere(d, name) => eprintln!(
+            "{}: routed to `{name}`, which `--vault` leaves out; nothing to send",
+            d.kind()
+        ),
         // Every reason, not the first. `derived_may_push` could name only one overlapping
         // path, and somebody about to fix this wants all of them.
         DerivedStep::Refused(why) => {
@@ -2591,7 +2605,7 @@ mod tests {
             DerivedItem::Unroutable(vault::Derived::Bundle, _)
         ));
 
-        // `--vault` leaves out what it excludes, before the guard is asked about it.
+        // `--vault` settles what it excludes, before the guard is asked about it.
         let mut asked = 0;
         let plan = plan_push_derived(&v, &picked, Some("default"), |_| {
             asked += 1;
@@ -2599,7 +2613,44 @@ mod tests {
         })
         .unwrap();
         assert_eq!(asked, 0);
-        assert_eq!(plan.len(), 1, "the unroutable bundle is still said");
+        assert_eq!(plan.len(), 2, "the unroutable bundle is still said");
+    }
+
+    /// **An artifact `--vault` excludes is said, naming where it goes (#1731).** Before, it was
+    /// dropped from the plan, so `--index --vault default` printed nothing and exited 0.
+    #[test]
+    fn a_derived_plan_names_the_vault_of_each_artifact_the_vault_flag_leaves_out() {
+        let v = vaults(&[
+            ("default", "anyone", &["catalog", "bundle"]),
+            ("sources", "the sangha", &["index"]),
+        ]);
+        let plan =
+            plan_push_derived(&v, &[vault::Derived::Index], Some("default"), |_| Ok(None)).unwrap();
+        assert!(
+            matches!(
+                &plan[..],
+                [DerivedItem::Elsewhere(vault::Derived::Index, "sources")]
+            ),
+            "{plan:?}"
+        );
+
+        // One asked-for artifact in the named vault, one not: the one is sent, the other said.
+        let picked = [vault::Derived::Index, vault::Derived::Bundle];
+        let plan = plan_push_derived(&v, &picked, Some("default"), |_| Ok(None)).unwrap();
+        assert!(
+            matches!(
+                &plan[..],
+                [
+                    DerivedItem::Elsewhere(vault::Derived::Index, "sources"),
+                    DerivedItem::Send {
+                        d: vault::Derived::Bundle,
+                        name: "default",
+                        ..
+                    },
+                ]
+            ),
+            "{plan:?}"
+        );
     }
 
     #[test]
@@ -2673,7 +2724,7 @@ mod tests {
     }
 
     /// A plan with one artifact to send between settled ones: an unroutable kind ahead of it,
-    /// and a refusal and a local route behind it.
+    /// and a refusal, a local route and a route `--vault` leaves out behind it.
     fn settled_around_a_send(cfg: &vault::VaultConfig) -> Vec<DerivedItem<'_>> {
         vec![
             DerivedItem::Unroutable(vault::Derived::Embeddings, "no vault holds it".to_string()),
@@ -2684,6 +2735,7 @@ mod tests {
             },
             DerivedItem::Refused(vec!["one".to_string(), "two".to_string()]),
             DerivedItem::Local(vault::Derived::Index),
+            DerivedItem::Elsewhere(vault::Derived::Index, "sources"),
         ]
     }
 
@@ -2693,6 +2745,7 @@ mod tests {
             DerivedStep::Unroutable(vault::Derived::Embeddings, "no vault holds it".to_string()),
             DerivedStep::Refused(vec!["one".to_string(), "two".to_string()]),
             DerivedStep::Local(vault::Derived::Index),
+            DerivedStep::Elsewhere(vault::Derived::Index, "sources".to_string()),
         ]
     }
 
@@ -2727,7 +2780,7 @@ mod tests {
 
         assert!(outcome.stopped.is_some());
         // Each settled artifact is reported once, the one ahead of the failure where the walk
-        // reached it and the two behind it after the walk stopped, as the dry run reports them.
+        // reached it and the three behind it after the walk stopped, as the dry run reports them.
         assert_eq!(outcome.steps, dry);
         let puts = fake.calls().iter().filter(|c| c.starts_with("put")).count();
         assert_eq!(puts, 1, "nothing more is sent: {:?}", fake.calls());
