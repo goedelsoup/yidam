@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
-from yidam_domain_set_theory import union, intersection, difference, is_subset
+
+from yidam_domain_set_theory import difference, intersection, is_subset, union
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 

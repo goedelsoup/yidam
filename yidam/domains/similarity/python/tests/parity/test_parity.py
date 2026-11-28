@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
-from yidam_domain_similarity import cosine, jaccard, edit_distance
+
+from yidam_domain_similarity import cosine, edit_distance, jaccard
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 

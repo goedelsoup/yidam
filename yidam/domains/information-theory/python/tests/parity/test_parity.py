@@ -1,5 +1,6 @@
 import tomllib
 from pathlib import Path
+
 from yidam_domain_information_theory import entropy, kl_divergence
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"

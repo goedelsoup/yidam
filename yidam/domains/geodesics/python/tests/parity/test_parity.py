@@ -1,7 +1,7 @@
-import math
 import tomllib
 from pathlib import Path
-from yidam_domain_geodesics import haversine_km, bearing_deg, central_angle_deg
+
+from yidam_domain_geodesics import bearing_deg, central_angle_deg, haversine_km
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 # Absolute, in km on distance, degrees on angles. Why this domain is not exact: geodesics/README.md#parity-tolerance

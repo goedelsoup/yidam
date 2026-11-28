@@ -1,5 +1,6 @@
 from math import log2
 
+
 def entropy(probs: list[float]) -> float:
     return sum(-p * log2(p) for p in probs if p > 0.0)
 

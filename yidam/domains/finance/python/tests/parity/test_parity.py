@@ -1,7 +1,13 @@
 import math
 import tomllib
 from pathlib import Path
-from yidam_domain_finance import present_value, future_value, simple_interest, sharpe_ratio
+
+from yidam_domain_finance import (
+    future_value,
+    present_value,
+    sharpe_ratio,
+    simple_interest,
+)
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 # Relative, with an absolute floor in the input's currency.

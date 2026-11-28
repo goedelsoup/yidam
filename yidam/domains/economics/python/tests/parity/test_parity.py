@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
-from yidam_domain_economics import gdp_expenditure, price_elasticity, opportunity_cost
+
+from yidam_domain_economics import gdp_expenditure, opportunity_cost, price_elasticity
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 

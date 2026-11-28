@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
-from yidam_domain_statistics import mean, variance, z_score, pearson_correlation
+
+from yidam_domain_statistics import mean, pearson_correlation, variance, z_score
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 

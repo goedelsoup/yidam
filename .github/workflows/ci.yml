@@ -425,6 +425,8 @@ jobs:
         with:
           cache_save: ${{ github.ref == 'refs/heads/main' }}
       - run: mise run ts-typecheck
+      - run: mise run py-lint
+        if: ${{ !cancelled() }}
 
   semver:
     # What a release of `yidam-core` would break, asked while it is still a question.

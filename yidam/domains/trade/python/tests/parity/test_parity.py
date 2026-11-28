@@ -1,6 +1,12 @@
 import tomllib
 from pathlib import Path
-from yidam_domain_trade import trade_balance, terms_of_trade, tariff_revenue, revealed_comparative_advantage
+
+from yidam_domain_trade import (
+    revealed_comparative_advantage,
+    tariff_revenue,
+    terms_of_trade,
+    trade_balance,
+)
 
 FIXTURES_DIR = Path(__file__).parent.parent.parent.parent.parent / "parity" / "fixtures"
 

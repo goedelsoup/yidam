@@ -481,6 +481,35 @@ if [ "$count" -eq 0 ]; then
 fi
 echo "ts-typecheck: the SDK and $count domain packages type-check"
 """
+
+# Ruff with its defaults over the Python SDK and every domain package, each from inside its
+# own directory so first-party imports sort as first-party; then pyright, basic mode, over the
+# SDK. `ruff format --check` is not here: it would rewrite 35 of the 73 files at once, which
+# is a change of its own rather than a finding of this one (#1646).
+[tasks.py-lint]
+description = "Lint the Python SDK and domain packages with ruff; type-check the SDK with pyright."
+tools = { "aqua:astral-sh/ruff" = "0.17.5", "npm:pyright" = "1.1.414" }
+run = """
+set -eu
+root=$(pwd)
+count=0
+for manifest in yidam/sdks/python/pyproject.toml yidam/domains/*/python/pyproject.toml; do
+  [ -f "$manifest" ] || continue
+  dir=$(dirname "$manifest")
+  (cd "$root/$dir" && ruff check --no-cache .)
+  count=$((count + 1))
+done
+# The SDK alone would pass this guard with every domain glob matching nothing.
+if [ "$count" -lt 2 ]; then
+  echo "ERROR: ruff checked $count Python package(s); the domain glob matched nothing"
+  exit 1
+fi
+echo "py-lint: ruff passes over $count packages"
+
+cd yidam/sdks/python
+uv sync --locked --extra dev --quiet
+pyright
+"""
 # ── design system (#465) ──────────────────────────────────────────────────
 #
 # `_adherence.oxlintrc.json` forbids raw hex, raw px, off-system fonts and undeclared
@@ -1334,6 +1363,7 @@ depends = [
   "lint-selftest",
   "parity",
   "ts-typecheck",
+  "py-lint",
   "design-lint",
   "supply-chain",
   "bench-scaling",
