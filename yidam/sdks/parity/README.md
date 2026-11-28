@@ -341,6 +341,12 @@ the repository through `basic/stage.toml` rather than each building its own — 
 `basic/README.md` for what the corpus is deliberately built to reach, and for why there were
 once seven copies of that staging.
 
+**A lint check's rationale is not in `expected/lint.json`.** Every check there reads
+`"rationale": "<RATIONALE>"`, because the text belongs to the check registry rather than to the
+fixture (#1634). It is pinned once, in `reports/checks.json`, which
+`every_rationale_matches_the_registry_golden` in `yidam/cli/src/cmd/lint/mod.rs` writes from the
+roster under `UPDATE_GOLDENS=1`. The binary still emits the full text.
+
 **The extension's runners need `YIDAM_BIN`, and skip silently without it.** They are the only
 readers here that go through a real binary, so `npm run test:unit` in `yidam/editors/vscode`
 reports a clean pass while checking nothing about a fixture change. Build the CLI and export
