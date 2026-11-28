@@ -18,7 +18,7 @@
 use std::collections::BTreeSet;
 
 use crate::cmd::lint::citations::{flatten, truncate};
-use crate::cmd::lint::model::{Check, Severity, Violation};
+use crate::cmd::lint::model::{Check, CheckSpec, Severity, Violation};
 use crate::corpus::Node;
 use crate::derive::{
     in_prose, not_refusal_spans, paragraphs_holding, proposes_refusal, prose_fields, refusal_spans,
@@ -26,8 +26,36 @@ use crate::derive::{
 };
 use crate::universal::Universal;
 
-pub const SPAN_DRIFT: &str = "refusal-span-drift";
-pub const UNDECLARED: &str = "refusal-undeclared";
+pub const SPAN_DRIFT: CheckSpec = CheckSpec {
+    id: "refusal-span-drift",
+    title: "A declared refusal or non-refusal quotes text its own node no longer holds",
+    severity: Severity::Error,
+    rationale: "`agent-conduct.md`: an outbound claim does not route around a refusal in the block it \
+         cites. `derive check` can only hold an argument to that when the refusal is declared, \
+         and it finds the paragraph a refusal governs by the `refuses:` span — so a span the \
+         prose no longer contains governs nothing, and every argument resting on that paragraph \
+         is released from it with no finding anywhere. A `not_refusals:` span is held the same \
+         way, because a ruling that quotes nothing silences nothing and the paragraph is proposed \
+         again. A ruling is per paragraph, so a span across a blank line, a span found in more \
+         than one paragraph, or one paragraph ruled both ways, is reported too (RFC-0057). Error, under the baseline ratchet: the repair is \
+         in this corpus and is one edit. Whitespace is normalized and nothing else is, which is \
+         `local-citation-span-drift`'s comparison. The population is empty in a corpus that \
+         declares neither list, so this cannot fail a repository that predates it.",
+};
+pub const UNDECLARED: CheckSpec = CheckSpec {
+    id: "refusal-undeclared",
+    title: "A paragraph reads like a refusal and no span rules on it",
+    severity: Severity::Info,
+    rationale:
+        "`agent-conduct.md`: a refusal is declared where it is written, or `derive check` cannot \
+         hold an argument to it. `derive check` proposes refusals only over paragraphs an artifact \
+         cites, so a corpus with no artifacts is never asked. This runs the same proposer, \
+         `proposes_refusal`, over every paragraph. Info and never more: the proposer's precision \
+         is 0.593 against 62 human rulings, and deciding which paragraphs refuse is a person's \
+         ruling. Opt-in through `universal.yml`'s `refusals: propose: true`, because the default \
+         cannot be otherwise — across 20 corpora it flags 8,780 of 135,200 paragraphs, and that \
+         is a gate arriving in a corpus that never agreed to it (RFC-0057).",
+};
 
 /// What one declared span says about the prose it quotes, or `None` when it sits in one paragraph.
 fn span_problem(fields: &[Field], span: Option<&str>, list: &str) -> Option<String> {
@@ -121,23 +149,7 @@ pub fn refusal_span_drift(nodes: &[Node]) -> Check {
             out
         })
         .collect();
-    Check::new(
-        SPAN_DRIFT,
-        "A declared refusal or non-refusal quotes text its own node no longer holds",
-        Severity::Error,
-        "`agent-conduct.md`: an outbound claim does not route around a refusal in the block it \
-         cites. `derive check` can only hold an argument to that when the refusal is declared, \
-         and it finds the paragraph a refusal governs by the `refuses:` span — so a span the \
-         prose no longer contains governs nothing, and every argument resting on that paragraph \
-         is released from it with no finding anywhere. A `not_refusals:` span is held the same \
-         way, because a ruling that quotes nothing silences nothing and the paragraph is proposed \
-         again. A ruling is per paragraph, so a span across a blank line, a span found in more \
-         than one paragraph, or one paragraph ruled both ways, is reported too (RFC-0057). Error, under the baseline ratchet: the repair is \
-         in this corpus and is one edit. Whitespace is normalized and nothing else is, which is \
-         `local-citation-span-drift`'s comparison. The population is empty in a corpus that \
-         declares neither list, so this cannot fail a repository that predates it.",
-        violations,
-    )
+    Check::new(&SPAN_DRIFT, violations)
 }
 
 /// Every paragraph the proposer flags that no `refuses:` or `not_refusals:` span rules on — only
@@ -181,20 +193,7 @@ pub fn refusal_undeclared(nodes: &[Node], universal: &Universal) -> Check {
     } else {
         Vec::new()
     };
-    Check::new(
-        UNDECLARED,
-        "A paragraph reads like a refusal and no span rules on it",
-        Severity::Info,
-        "`agent-conduct.md`: a refusal is declared where it is written, or `derive check` cannot \
-         hold an argument to it. `derive check` proposes refusals only over paragraphs an artifact \
-         cites, so a corpus with no artifacts is never asked. This runs the same proposer, \
-         `proposes_refusal`, over every paragraph. Info and never more: the proposer's precision \
-         is 0.593 against 62 human rulings, and deciding which paragraphs refuse is a person's \
-         ruling. Opt-in through `universal.yml`'s `refusals: propose: true`, because the default \
-         cannot be otherwise — across 20 corpora it flags 8,780 of 135,200 paragraphs, and that \
-         is a gate arriving in a corpus that never agreed to it (RFC-0057).",
-        violations,
-    )
+    Check::new(&UNDECLARED, violations)
 }
 
 #[cfg(test)]

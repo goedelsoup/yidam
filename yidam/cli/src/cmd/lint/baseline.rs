@@ -677,7 +677,7 @@ mod tests {
     use crate::cmd::lint::model::Violation;
 
     fn err_check(id: &'static str, nodes: &[&str]) -> Check {
-        Check::new(
+        Check::unregistered(
             id,
             "t",
             Severity::Error,
@@ -830,7 +830,7 @@ mod tests {
 
     #[test]
     fn detail_is_not_part_of_identity() {
-        let checks = vec![Check::new(
+        let checks = vec![Check::unregistered(
             "dangling-edge",
             "t",
             Severity::Error,
@@ -848,7 +848,7 @@ mod tests {
 
     #[test]
     fn warn_severity_never_reaches_the_baseline() {
-        let checks = vec![Check::new(
+        let checks = vec![Check::unregistered(
             "orphan-in",
             "t",
             Severity::Warn,

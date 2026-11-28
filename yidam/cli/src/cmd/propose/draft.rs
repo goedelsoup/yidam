@@ -552,7 +552,7 @@ mod tests {
     }
 
     fn check(id: &'static str, violations: Vec<Violation>) -> Check {
-        Check::new(id, "T", Severity::Error, "r", violations)
+        Check::unregistered(id, "T", Severity::Error, "r", violations)
     }
 
     const NODE: &str = "class: concept\nlabel: Low flow\ndescription: |\n  \

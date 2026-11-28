@@ -7,13 +7,37 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::corpus::{Node, Source};
 use crate::table::{self, Declaration, Rows};
 
-pub(crate) const DECLARATION_INVALID: &str = "table-declaration-invalid";
-pub(crate) const SHAPE: &str = "table-shape";
-pub(crate) const REF_UNRESOLVED: &str = "table-ref-unresolved";
+pub(crate) const DECLARATION_INVALID: CheckSpec = CheckSpec {
+    id: "table-declaration-invalid",
+    title: "A dataset entry's `columns:` declares a table it can be held to",
+    severity: Severity::Error,
+    rationale: "An entry that carries `columns:` either declares a table or is reported. A \
+             declaration with a refused column type, a duplicate column, a key naming no column, \
+             or a file that is not one tracked `.tsv` or `.csv` cannot be checked against, so it \
+             is reported here and its file is not read against it (RFC-0059 §2.2).",
+};
+pub(crate) const SHAPE: CheckSpec = CheckSpec {
+    id: "table-shape",
+    title: "A declared table holds the rows its declaration describes",
+    severity: Severity::Error,
+    rationale:
+        "A table its declaration does not describe is read by a calculator as if it did. The \
+             header, each row's width, each required cell, each cell's type, each closed value \
+             and each key are held to the declaration, by the reader `yidam run` and the `#row=` \
+             citation share. One file reports twenty findings, then a count (RFC-0059 §2.2).",
+};
+pub(crate) const REF_UNRESOLVED: CheckSpec = CheckSpec {
+    id: "table-ref-unresolved",
+    title: "A table's `ref` cell names a node the corpus holds",
+    severity: Severity::Warn,
+    rationale: "A `ref` cell names a node in RFC-0032's reference grammar. A warning and not an \
+             error, because an extract may run ahead of the corpus and the cell is still a fact \
+             about the source (RFC-0059 §2.2).",
+};
 
 /// Every tracked path under `root`, or `None` when git could not say.
 pub(crate) fn tracked(root: &Path) -> Option<HashSet<String>> {
@@ -118,8 +142,16 @@ pub(crate) fn declared(
         .collect()
 }
 
-/// The three checks, in roster order: declaration, shape, refs.
-pub(crate) fn checks(tables: &[Table], nodes: &[Node]) -> [Check; 3] {
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) declaration_invalid: Check,
+    pub(crate) shape: Check,
+    pub(crate) ref_unresolved: Check,
+}
+
+/// The three checks, one field each: declaration, shape, refs.
+pub(crate) fn checks(tables: &[Table], nodes: &[Node]) -> Checks {
     let mut invalid = Vec::new();
     let mut shape = Vec::new();
     let mut refs = Vec::new();
@@ -165,37 +197,11 @@ pub(crate) fn checks(tables: &[Table], nodes: &[Node]) -> [Check; 3] {
             }
         }
     }
-    [
-        Check::new(
-            DECLARATION_INVALID,
-            "A dataset entry's `columns:` declares a table it can be held to",
-            Severity::Error,
-            "An entry that carries `columns:` either declares a table or is reported. A \
-             declaration with a refused column type, a duplicate column, a key naming no column, \
-             or a file that is not one tracked `.tsv` or `.csv` cannot be checked against, so it \
-             is reported here and its file is not read against it (RFC-0059 §2.2).",
-            invalid,
-        ),
-        Check::new(
-            SHAPE,
-            "A declared table holds the rows its declaration describes",
-            Severity::Error,
-            "A table its declaration does not describe is read by a calculator as if it did. The \
-             header, each row's width, each required cell, each cell's type, each closed value \
-             and each key are held to the declaration, by the reader `yidam run` and the `#row=` \
-             citation share. One file reports twenty findings, then a count (RFC-0059 §2.2).",
-            shape,
-        ),
-        Check::new(
-            REF_UNRESOLVED,
-            "A table's `ref` cell names a node the corpus holds",
-            Severity::Warn,
-            "A `ref` cell names a node in RFC-0032's reference grammar. A warning and not an \
-             error, because an extract may run ahead of the corpus and the cell is still a fact \
-             about the source (RFC-0059 §2.2).",
-            refs,
-        ),
-    ]
+    Checks {
+        declaration_invalid: Check::new(&DECLARATION_INVALID, invalid),
+        shape: Check::new(&SHAPE, shape),
+        ref_unresolved: Check::new(&REF_UNRESOLVED, refs),
+    }
 }
 
 #[cfg(test)]
@@ -238,7 +244,7 @@ mod tests {
         let rows = table::read(&text, table::Format::Tsv).unwrap();
         let departures = table::shape(&decl, &rows);
         assert_eq!(departures.len(), 25);
-        let [_, shape, _] = checks(
+        let Checks { shape, .. } = checks(
             &[Table::Read {
                 decl,
                 rows,
@@ -254,7 +260,10 @@ mod tests {
     fn an_unresolved_ref_is_a_warning_on_the_table_file() {
         let decl = decl_with_ref();
         let rows = table::read("id\twho\nA\tcommittee/nobody\nB\t\n", table::Format::Tsv).unwrap();
-        let [_, _, refs] = checks(
+        let Checks {
+            ref_unresolved: refs,
+            ..
+        } = checks(
             &[Table::Read {
                 decl,
                 rows,

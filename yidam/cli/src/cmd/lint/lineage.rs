@@ -39,7 +39,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::cmd::sangha::Resolution;
 use crate::git::RefKind;
 
@@ -66,6 +66,19 @@ pub(crate) struct Standing {
 
 // ── the checks ────────────────────────────────────────────────────────────────
 
+pub const ELECTOR_BASELINE_UNMET: CheckSpec = CheckSpec {
+    id: "elector-baseline-unmet",
+    title: "Elector branch declares a baseline it does not stand on",
+    severity: Severity::Error,
+    rationale: "A declared baseline is a claim — *this position is measured against that evolution* — and \
+         a claim about the branch's own history is one the branch either satisfies or does not. \
+         There is no state of the world in which an elector is measured against a settlement their \
+         branch has never seen, so this gates. What it deliberately does not gate on is a baseline \
+         that is merely *old*: divergence from the baseline is what an elector's branch is for, and \
+         Article VI says so in as many words, so a position several resolutions behind is a \
+         position doing its job.",
+};
+
 pub(crate) fn baseline_unmet(standings: &[Standing]) -> Check {
     let violations = standings
         .iter()
@@ -88,20 +101,22 @@ pub(crate) fn baseline_unmet(standings: &[Standing]) -> Check {
             ))
         })
         .collect();
-    Check::new(
-        "elector-baseline-unmet",
-        "Elector branch declares a baseline it does not stand on",
-        Severity::Error,
-        "A declared baseline is a claim — *this position is measured against that evolution* — and \
-         a claim about the branch's own history is one the branch either satisfies or does not. \
-         There is no state of the world in which an elector is measured against a settlement their \
-         branch has never seen, so this gates. What it deliberately does not gate on is a baseline \
-         that is merely *old*: divergence from the baseline is what an elector's branch is for, and \
-         Article VI says so in as many words, so a position several resolutions behind is a \
-         position doing its job.",
-        violations,
-    )
+    Check::new(&ELECTOR_BASELINE_UNMET, violations)
 }
+
+pub const ELECTOR_BASELINE_UNDECLARED: CheckSpec = CheckSpec {
+    id: "elector-baseline-undeclared",
+    title: "Elector branch does not say which evolution it is measured against",
+    severity: Severity::Info,
+    rationale: "Info, and it carries the answer rather than only the complaint: every branch is \
+         undeclared until somebody starts writing the trailer, so a finding that merely said \
+         *missing* would be one line of noise per elector forever. What the branch holds through \
+         is derivable from the settlements, so this reports it — which is both the useful half \
+         today and, exactly, the thing to write down. It is deliberately not the same fact: \
+         holding a settlement is what a `merge main` brings you, and being measured against one is \
+         a choice. An elector who has absorbed a resolution they abstained from holds it and may \
+         well not mean to stand on it.",
+};
 
 pub(crate) fn baseline_undeclared(standings: &[Standing]) -> Check {
     let violations = standings
@@ -120,21 +135,15 @@ pub(crate) fn baseline_undeclared(standings: &[Standing]) -> Check {
             Violation::new(s.branch.clone(), detail)
         })
         .collect();
-    Check::new(
-        "elector-baseline-undeclared",
-        "Elector branch does not say which evolution it is measured against",
-        Severity::Info,
-        "Info, and it carries the answer rather than only the complaint: every branch is \
-         undeclared until somebody starts writing the trailer, so a finding that merely said \
-         *missing* would be one line of noise per elector forever. What the branch holds through \
-         is derivable from the settlements, so this reports it — which is both the useful half \
-         today and, exactly, the thing to write down. It is deliberately not the same fact: \
-         holding a settlement is what a `merge main` brings you, and being measured against one is \
-         a choice. An elector who has absorbed a resolution they abstained from holds it and may \
-         well not mean to stand on it.",
-        violations,
-    )
+    Check::new(&ELECTOR_BASELINE_UNDECLARED, violations)
 }
+
+pub const ELECTOR_HOLDS_UNADOPTED: CheckSpec = CheckSpec {
+    id: "elector-holds-unadopted",
+    title: "Elector branch holds a resolution it took no part in and has not adopted",
+    severity: Severity::Info,
+    rationale: "A resolution binds the electors whose tips it read. Everyone else may read it, cite it,          adopt it or build on it, and until they declare it as their baseline it is not what          their position is measured against — Article VI, which says the sangha exercises the          minimum authority needed and that divergence is not a violation. Merging `main` cannot          be what binds: it is how the corpus stays shared, and the protocol requires it mid-loop.          So this reports the gap between what a branch has absorbed and what it says it stands          on, at Info, because the gap is a legitimate state rather than a defect. What it is not          is invisible, which is what it was: nine of nine abstainers were bound in practice with          nothing recording it.",
+};
 
 /// Holding a resolution you did not take part in and have not adopted.
 ///
@@ -172,21 +181,23 @@ pub(crate) fn holds_unadopted(standings: &[Standing]) -> Check {
             )
         })
         .collect();
-    Check::new(
-        "elector-holds-unadopted",
-        "Elector branch holds a resolution it took no part in and has not adopted",
-        Severity::Info,
-        "A resolution binds the electors whose tips it read. Everyone else may read it, cite it,          adopt it or build on it, and until they declare it as their baseline it is not what          their position is measured against — Article VI, which says the sangha exercises the          minimum authority needed and that divergence is not a violation. Merging `main` cannot          be what binds: it is how the corpus stays shared, and the protocol requires it mid-loop.          So this reports the gap between what a branch has absorbed and what it says it stands          on, at Info, because the gap is a legitimate state rather than a defect. What it is not          is invisible, which is what it was: nine of nine abstainers were bound in practice with          nothing recording it.",
-        violations,
-    )
+    Check::new(&ELECTOR_HOLDS_UNADOPTED, violations)
 }
 
-pub(crate) fn checks(standings: &[Standing]) -> [Check; 3] {
-    [
-        baseline_unmet(standings),
-        baseline_undeclared(standings),
-        holds_unadopted(standings),
-    ]
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) elector_baseline_unmet: Check,
+    pub(crate) elector_baseline_undeclared: Check,
+    pub(crate) elector_holds_unadopted: Check,
+}
+
+pub(crate) fn checks(standings: &[Standing]) -> Checks {
+    Checks {
+        elector_baseline_unmet: baseline_unmet(standings),
+        elector_baseline_undeclared: baseline_undeclared(standings),
+        elector_holds_unadopted: holds_unadopted(standings),
+    }
 }
 
 // ── reading the repository ────────────────────────────────────────────────────
@@ -525,7 +536,7 @@ mod tests {
         tmp
     }
 
-    fn run(root: &Path) -> [Check; 3] {
+    fn run(root: &Path) -> Checks {
         let data = crate::cmd::sangha::sangha_data(root);
         checks(&standings(root, &data.resolutions))
     }
@@ -537,7 +548,11 @@ mod tests {
     #[test]
     fn an_undeclared_branch_is_told_the_settlement_it_stands_on() {
         let tmp = repo();
-        let [unmet, undeclared, _] = run(tmp.path());
+        let Checks {
+            elector_baseline_unmet: unmet,
+            elector_baseline_undeclared: undeclared,
+            ..
+        } = run(tmp.path());
         assert!(unmet.passed(), "{unmet:?}");
         assert_eq!(undeclared.violations.len(), 1, "{undeclared:?}");
         let d = &undeclared.violations[0].detail;
@@ -556,7 +571,11 @@ mod tests {
         commit(root, "revise: my position\n\nBaseline: rigpa/first@0000000");
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, undeclared, _] = run(root);
+        let Checks {
+            elector_baseline_unmet: unmet,
+            elector_baseline_undeclared: undeclared,
+            ..
+        } = run(root);
         assert!(unmet.passed(), "{unmet:?}");
         assert!(undeclared.passed(), "{undeclared:?}");
     }
@@ -571,7 +590,10 @@ mod tests {
         commit(root, "revise: my position\n\nBaseline: rigpa/third@0000000");
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, _, _] = run(root);
+        let Checks {
+            elector_baseline_unmet: unmet,
+            ..
+        } = run(root);
         assert_eq!(unmet.violations.len(), 1, "{unmet:?}");
         assert!(
             unmet.violations[0].detail.contains("does not contain"),
@@ -598,7 +620,11 @@ mod tests {
         std::fs::write(dir.join("2026-01-01-first.md"), text).unwrap();
         commit(root, "chore: date-prefix the resolution records");
 
-        let [unmet, undeclared, _] = run(root);
+        let Checks {
+            elector_baseline_unmet: unmet,
+            elector_baseline_undeclared: undeclared,
+            ..
+        } = run(root);
         assert!(unmet.passed(), "{unmet:?}");
         assert!(undeclared.passed(), "{undeclared:?}");
     }
@@ -614,7 +640,10 @@ mod tests {
         );
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, _, _] = run(root);
+        let Checks {
+            elector_baseline_unmet: unmet,
+            ..
+        } = run(root);
         assert_eq!(unmet.violations.len(), 1, "{unmet:?}");
         assert!(
             unmet.violations[0]
@@ -639,7 +668,10 @@ mod tests {
         );
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, _, _] = run(root);
+        let Checks {
+            elector_baseline_unmet: unmet,
+            ..
+        } = run(root);
         assert!(
             unmet.passed(),
             "the superseded declaration still gates: {unmet:?}"
@@ -664,7 +696,10 @@ mod tests {
         );
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, _, _] = run(root);
+        let Checks {
+            elector_baseline_unmet: unmet,
+            ..
+        } = run(root);
         assert_eq!(
             unmet.violations.len(),
             1,
@@ -800,7 +835,10 @@ mod tests {
         git(root, &["merge", "--no-ff", "--no-edit", "-q", "main"]);
         git(root, &["switch", "-q", "main"]);
 
-        let [_, _, unadopted] = run(root);
+        let Checks {
+            elector_holds_unadopted: unadopted,
+            ..
+        } = run(root);
         assert_eq!(unadopted.violations.len(), 1, "{unadopted:?}");
         assert_eq!(unadopted.violations[0].node, "ma/two");
         let d = &unadopted.violations[0].detail;
@@ -826,7 +864,11 @@ mod tests {
         );
         git(root, &["switch", "-q", "main"]);
 
-        let [unmet, _, unadopted] = run(root);
+        let Checks {
+            elector_baseline_unmet: unmet,
+            elector_holds_unadopted: unadopted,
+            ..
+        } = run(root);
         assert!(unmet.passed(), "{unmet:?}");
         assert!(unadopted.passed(), "{unadopted:?}");
     }
@@ -901,7 +943,10 @@ mod tests {
         git(root, &["merge", "--no-ff", "--no-edit", "-q", "main"]);
         git(root, &["switch", "-q", "main"]);
 
-        let [_, _, unadopted] = run(root);
+        let Checks {
+            elector_holds_unadopted: unadopted,
+            ..
+        } = run(root);
         assert_eq!(unadopted.violations.len(), 1, "{unadopted:?}");
         let d = &unadopted.violations[0].detail;
         assert!(d.contains("`after-two`"), "{d}");
@@ -922,7 +967,10 @@ mod tests {
         git(root, &["branch", "rigpa/third"]);
         git(root, &["branch", "phase/a-survey"]);
 
-        let [_, undeclared, _] = run(root);
+        let Checks {
+            elector_baseline_undeclared: undeclared,
+            ..
+        } = run(root);
         let named: Vec<&str> = undeclared
             .violations
             .iter()

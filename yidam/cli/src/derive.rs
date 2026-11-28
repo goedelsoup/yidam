@@ -476,9 +476,9 @@ pub(crate) fn check_artifact(rel: &str, text: &str, cited: &Cited) -> Option<Der
         let mut located = true;
         for f in local_citations::findings(cite, &cited.by_key, cited.fields) {
             let id = match f.check {
-                local_citations::UNRESOLVED => UNRESOLVED,
-                local_citations::SPAN_DRIFT => SPAN_DRIFT,
-                local_citations::TAG_DRIFT => TAG_DRIFT,
+                c if c == local_citations::UNRESOLVED.id => UNRESOLVED,
+                c if c == local_citations::SPAN_DRIFT.id => SPAN_DRIFT,
+                c if c == local_citations::TAG_DRIFT.id => TAG_DRIFT,
                 // No `tag:` is Info in a node and nothing here: the standing is computed, and
                 // an artifact that declared one would only be declaring a copy of it.
                 _ => continue,

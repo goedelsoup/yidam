@@ -30,7 +30,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::corpus::Node;
 use crate::deps::{DependencyKind, ResolvedDependency};
 use crate::parse::ExternalCitation;
@@ -130,10 +130,52 @@ fn node_path(dep: &Installed, node: &str) -> PathBuf {
 
 /// The four check ids, named once. A filter keyed on a literal would drift from the id the
 /// baseline records the moment either was reworded.
-pub const UNRESOLVED: &str = "external-citation-unresolved";
-pub const SPAN_DRIFT: &str = "external-citation-span-drift";
-pub const PIN_MOVED: &str = "external-citation-pin-moved";
-pub const UNPINNED: &str = "external-citation-unpinned";
+pub const UNRESOLVED: CheckSpec = CheckSpec {
+    id: "external-citation-unresolved",
+    title: "Citation into a dependency that is not there",
+    severity: Severity::Error,
+    rationale: "A citation that does not resolve asserts a provenance that is not there, which is \
+         strictly worse than claiming none. The local graph is trustworthy because a link \
+         cannot rot silently; a corpus that cites across a boundary without this check has \
+         inverted that property at exactly the point where it is hardest to recover. \
+         A missing package and a missing node inside a present one are different findings \
+         with different repairs, and the message says which.",
+};
+pub const SPAN_DRIFT: CheckSpec = CheckSpec {
+    id: "external-citation-span-drift",
+    title: "Cited span no longer appears in the dependency",
+    severity: Severity::Error,
+    rationale:
+        "A node reference alone rots invisibly: the node keeps its name while its content is \
+         rewritten, and the citation still resolves. The span is what makes the rot visible, \
+         and it is the only check available across this boundary that needs nothing from the \
+         producer — a bundle carries no sangha, no elector register and no resolution \
+         history, so the text is the whole of the evidence. Re-quoting to clear the finding \
+         is the one repair that is always wrong: the far side changed its mind, and the \
+         question is whether the local claim survives it.",
+};
+pub const PIN_MOVED: CheckSpec = CheckSpec {
+    id: "external-citation-pin-moved",
+    title: "Citation written against a pin that has moved",
+    severity: Severity::Warn,
+    rationale: "A stale dependency is a normal state: it is pinned deliberately, and where its \
+         currency bears on a conclusion the thing to do is say which pin was read. This \
+         reports rather than gates because escalating it would let a producer cutting a \
+         release turn a stranger's CI red without the stranger changing anything — the exact \
+         failure a pin exists to prevent. Where the text this claim rests on actually moved, \
+         `external-citation-span-drift` is the finding that gates.",
+};
+pub const UNPINNED: CheckSpec = CheckSpec {
+    id: "external-citation-unpinned",
+    title: "Citation into a dependency that carries no pin",
+    severity: Severity::Info,
+    rationale: "A path dependency is read where it sits and is not fetched, not hashed and not \
+         locked, because hashing a working tree that changes under you records nothing. It \
+         is also the only dependency form that supports a development loop, so refusing to \
+         cite one would exclude the case people actually work in. Reported rather than \
+         refused, and reported every time: a citation whose pin is silently absent is \
+         indistinguishable from one whose pin is current.",
+};
 
 /// One check's verdict on one citation.
 #[derive(Debug, Clone)]
@@ -182,7 +224,7 @@ pub fn findings(cite: &ExternalCitation, deps: &BTreeMap<String, Installed>) -> 
     match (package, target) {
         (Some(package), Some(target)) => match deps.get(package) {
             None => report(
-                UNRESOLVED,
+                UNRESOLVED.id,
                 Severity::Error,
                 format!(
                     "cites `{package}::{target}` and `{package}` is not installed — \
@@ -190,7 +232,7 @@ pub fn findings(cite: &ExternalCitation, deps: &BTreeMap<String, Installed>) -> 
                 ),
             ),
             Some(dep) if !dep.has(target) => report(
-                UNRESOLVED,
+                UNRESOLVED.id,
                 Severity::Error,
                 format!(
                     "cites `{package}::{target}` and `{package}` has no such node — \
@@ -200,7 +242,7 @@ pub fn findings(cite: &ExternalCitation, deps: &BTreeMap<String, Installed>) -> 
             Some(_) => {}
         },
         _ => report(
-            UNRESOLVED,
+            UNRESOLVED.id,
             Severity::Error,
             format!(
                 "citation with no `package:` or no `node:` — {}",
@@ -221,7 +263,7 @@ pub fn findings(cite: &ExternalCitation, deps: &BTreeMap<String, Installed>) -> 
             .filter(|s| !s.is_empty())
         {
             None => report(
-                SPAN_DRIFT,
+                SPAN_DRIFT.id,
                 Severity::Error,
                 format!(
                     "cites `{package}::{target}` with no `span:` — a node reference alone \
@@ -239,7 +281,7 @@ pub fn findings(cite: &ExternalCitation, deps: &BTreeMap<String, Installed>) -> 
                 // What is *not* normalized is case, punctuation, or wording: those are the
                 // changes a span exists to catch.
                 Some(text) if !flatten(&text).contains(&flatten(span)) => report(
-                    SPAN_DRIFT,
+                    SPAN_DRIFT.id,
                     Severity::Error,
                     format!(
                         "cites `{package}::{target}`{} for a span that is no longer in it — \
@@ -273,7 +315,7 @@ pub fn findings(cite: &ExternalCitation, deps: &BTreeMap<String, Installed>) -> 
             // equality would report a move that did not happen.
             if !pin.starts_with(cited) && !cited.starts_with(pin) {
                 report(
-                    PIN_MOVED,
+                    PIN_MOVED.id,
                     Severity::Warn,
                     format!(
                         "cites `{package}` at {cited} and {package} is installed at {pin} — \
@@ -288,7 +330,7 @@ pub fn findings(cite: &ExternalCitation, deps: &BTreeMap<String, Installed>) -> 
     if let Some((package, dep)) = package.and_then(|name| deps.get(name).map(|dep| (name, dep))) {
         if dep.kind == DependencyKind::Path {
             report(
-                UNPINNED,
+                UNPINNED.id,
                 Severity::Info,
                 format!(
                     "cites `{package}`, a path dependency, which carries no pin — this \
@@ -297,7 +339,7 @@ pub fn findings(cite: &ExternalCitation, deps: &BTreeMap<String, Installed>) -> 
             );
         } else if dep.pin.is_none() {
             report(
-                UNPINNED,
+                UNPINNED.id,
                 Severity::Info,
                 format!("cites `{package}`, whose `manifest.yml` states no commit"),
             );
@@ -324,21 +366,30 @@ fn violations(found: &[(&Node, Vec<Finding>)], id: &str) -> Vec<Violation> {
         .collect()
 }
 
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) unresolved: Check,
+    pub(crate) span_drift: Check,
+    pub(crate) pin_moved: Check,
+    pub(crate) unpinned: Check,
+}
+
 /// The four checks, over one walk of the corpus.
 ///
 /// Returned together and destructured at the call site rather than exposed as four public
 /// functions, because four functions is what made four walks look free.
-pub fn checks(nodes: &[Node], deps: &BTreeMap<String, Installed>) -> [Check; 4] {
+pub fn checks(nodes: &[Node], deps: &BTreeMap<String, Installed>) -> Checks {
     let found: Vec<(&Node, Vec<Finding>)> = all(nodes)
         .into_iter()
         .map(|(node, cite)| (node, findings(cite, deps)))
         .collect();
-    [
-        external_citation_unresolved(violations(&found, UNRESOLVED)),
-        external_citation_span_drift(violations(&found, SPAN_DRIFT)),
-        external_citation_pin_moved(violations(&found, PIN_MOVED)),
-        external_citation_unpinned(violations(&found, UNPINNED)),
-    ]
+    Checks {
+        unresolved: external_citation_unresolved(violations(&found, UNRESOLVED.id)),
+        span_drift: external_citation_span_drift(violations(&found, SPAN_DRIFT.id)),
+        pin_moved: external_citation_pin_moved(violations(&found, PIN_MOVED.id)),
+        unpinned: external_citation_unpinned(violations(&found, UNPINNED.id)),
+    }
 }
 
 /// Every `(node, citation)` pair in the corpus whose citation names a dependency, in corpus
@@ -386,18 +437,7 @@ fn describe(cite: &ExternalCitation) -> String {
 /// keys on `(check id, node)`, and splitting them would let a repository bless the absence of
 /// a whole dependency and inherit a free pass on every node inside it.
 fn external_citation_unresolved(violations: Vec<Violation>) -> Check {
-    Check::new(
-        UNRESOLVED,
-        "Citation into a dependency that is not there",
-        Severity::Error,
-        "A citation that does not resolve asserts a provenance that is not there, which is \
-         strictly worse than claiming none. The local graph is trustworthy because a link \
-         cannot rot silently; a corpus that cites across a boundary without this check has \
-         inverted that property at exactly the point where it is hardest to recover. \
-         A missing package and a missing node inside a present one are different findings \
-         with different repairs, and the message says which.",
-        violations,
-    )
+    Check::new(&UNRESOLVED, violations)
 }
 
 /// A citation naming something that is there and says something else.
@@ -406,19 +446,7 @@ fn external_citation_unresolved(violations: Vec<Violation>) -> Check {
 /// claim**, and it catches it without cooperation from the producer, without history, and
 /// without the sangha a bundle does not carry.
 fn external_citation_span_drift(violations: Vec<Violation>) -> Check {
-    Check::new(
-        SPAN_DRIFT,
-        "Cited span no longer appears in the dependency",
-        Severity::Error,
-        "A node reference alone rots invisibly: the node keeps its name while its content is \
-         rewritten, and the citation still resolves. The span is what makes the rot visible, \
-         and it is the only check available across this boundary that needs nothing from the \
-         producer — a bundle carries no sangha, no elector register and no resolution \
-         history, so the text is the whole of the evidence. Re-quoting to clear the finding \
-         is the one repair that is always wrong: the far side changed its mind, and the \
-         question is whether the local claim survives it.",
-        violations,
-    )
+    Check::new(&SPAN_DRIFT, violations)
 }
 
 /// A citation honest about a state that is no longer the installed one.
@@ -429,34 +457,12 @@ fn external_citation_span_drift(violations: Vec<Violation>) -> Check {
 /// without the stranger changing anything, which is the exact failure a pin exists to
 /// prevent.
 fn external_citation_pin_moved(violations: Vec<Violation>) -> Check {
-    Check::new(
-        PIN_MOVED,
-        "Citation written against a pin that has moved",
-        Severity::Warn,
-        "A stale dependency is a normal state: it is pinned deliberately, and where its \
-         currency bears on a conclusion the thing to do is say which pin was read. This \
-         reports rather than gates because escalating it would let a producer cutting a \
-         release turn a stranger's CI red without the stranger changing anything — the exact \
-         failure a pin exists to prevent. Where the text this claim rests on actually moved, \
-         `external-citation-span-drift` is the finding that gates.",
-        violations,
-    )
+    Check::new(&PIN_MOVED, violations)
 }
 
 /// A citation that cannot be pinned, saying so rather than implying it was.
 fn external_citation_unpinned(violations: Vec<Violation>) -> Check {
-    Check::new(
-        UNPINNED,
-        "Citation into a dependency that carries no pin",
-        Severity::Info,
-        "A path dependency is read where it sits and is not fetched, not hashed and not \
-         locked, because hashing a working tree that changes under you records nothing. It \
-         is also the only dependency form that supports a development loop, so refusing to \
-         cite one would exclude the case people actually work in. Reported rather than \
-         refused, and reported every time: a citation whose pin is silently absent is \
-         indistinguishable from one whose pin is current.",
-        violations,
-    )
+    Check::new(&UNPINNED, violations)
 }
 
 /// Whitespace-flattened, for a containment test that survives YAML folding.
@@ -518,7 +524,12 @@ mod tests {
 
     fn run(dir: &tempfile::TempDir) -> BTreeMap<&'static str, Check> {
         let root = dir.path();
-        let [unresolved, drift, pin, unpinned] = checks(&nodes(root), &installed(root));
+        let Checks {
+            unresolved,
+            span_drift: drift,
+            pin_moved: pin,
+            unpinned,
+        } = checks(&nodes(root), &installed(root));
         [
             ("unresolved", unresolved),
             ("drift", drift),
@@ -668,7 +679,7 @@ mod tests {
         };
         let found = findings(&drifted, &deps);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].check, SPAN_DRIFT);
+        assert_eq!(found[0].check, SPAN_DRIFT.id);
         assert_eq!(found[0].severity, Severity::Error);
     }
 
@@ -696,7 +707,7 @@ mod tests {
 
         let found = findings(&cite, &deps);
         let ids: Vec<&str> = found.iter().map(|f| f.check).collect();
-        assert_eq!(ids, vec![SPAN_DRIFT, PIN_MOVED]);
+        assert_eq!(ids, vec![SPAN_DRIFT.id, PIN_MOVED.id]);
 
         let checks = run(&dir);
         assert_eq!(checks["drift"].violations.len(), 1);
@@ -747,7 +758,7 @@ mod tests {
         };
         let found = findings(&absent, &deps);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].check, UNRESOLVED);
+        assert_eq!(found[0].check, UNRESOLVED.id);
         assert!(found[0].message.contains("no such node"));
     }
 

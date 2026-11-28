@@ -9,9 +9,23 @@
 
 use crate::cmd::registry::SkillStatus;
 
+use super::model::CheckSpec;
 use super::{Check, Severity, Violation};
 
-pub const SKILL_STATUS_UNSTATED: &str = "skill-status-unstated";
+pub const SKILL_STATUS_UNSTATED: CheckSpec = CheckSpec {
+    id: "skill-status-unstated",
+    title: "A domain skill that does not say whether it is built",
+    severity: Severity::Info,
+    rationale:
+        "A skill's frontmatter says `status: built` when an agent can follow it and `status: stub` \
+         when it only names a procedure nobody has written. `yidam skills-index` counts the \
+         three answers so the registry does not read as more capability than it holds, and it \
+         counts a skill that says neither as `unstated` — never as built, because reading \
+         silence as capability is the flattering direction. Info, not a gate: an unstated skill \
+         is not wrong, only unreported, and every skill written before the field existed is \
+         one. A value that is neither word is reported here too, since the index can only \
+         print it back.",
+};
 
 /// Every skill in `.yidam/skills/` whose `status:` is absent, or is neither `built` nor `stub`.
 ///
@@ -35,20 +49,7 @@ pub fn skill_status_unstated(skills: &[(String, String)]) -> Check {
             Some(Violation::new(rel, detail))
         })
         .collect();
-    Check::new(
-        SKILL_STATUS_UNSTATED,
-        "A domain skill that does not say whether it is built",
-        Severity::Info,
-        "A skill's frontmatter says `status: built` when an agent can follow it and `status: stub` \
-         when it only names a procedure nobody has written. `yidam skills-index` counts the \
-         three answers so the registry does not read as more capability than it holds, and it \
-         counts a skill that says neither as `unstated` — never as built, because reading \
-         silence as capability is the flattering direction. Info, not a gate: an unstated skill \
-         is not wrong, only unreported, and every skill written before the field existed is \
-         one. A value that is neither word is reported here too, since the index can only \
-         print it back.",
-        violations,
-    )
+    Check::new(&SKILL_STATUS_UNSTATED, violations)
 }
 
 #[cfg(test)]

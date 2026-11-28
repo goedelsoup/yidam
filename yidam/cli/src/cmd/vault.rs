@@ -329,6 +329,328 @@ fn heading(name: &str, cfg: &vault::VaultConfig) -> String {
     format!("{name} — {}", cfg.audience())
 }
 
+// ── push: decide, then act, then say (#1643) ─────────────────────────────────
+//
+// Each push is three steps. A **plan** says which artifacts go to which store and why each of
+// the rest does not; it reads committed files and nothing else, so it can be asserted on
+// without a store. A **walk** carries the plan out through a [`Transport`], the one way this
+// command reaches a store, and returns what it did as a value. **Rendering** prints that
+// value: each step as the walk takes it, so a long upload still shows its progress, and then
+// the summary.
+//
+// A dry run is a second walk over the same plan, never the sending one. For a catalog push it
+// opens each store to say where it is and what a `PUT` would sign, and asks it nothing; for a
+// derived artifact it packs and hashes, and opens no store at all.
+
+/// How a push reaches a store. The seam a test replaces with one that records what it was
+/// asked.
+trait Transport {
+    /// Open the store a vault names. For S3 this resolves that vault's credentials, which is
+    /// why a walk opens a store only when something is going to it.
+    fn open(&self, name: &str, cfg: &vault::VaultConfig) -> Result<Box<dyn vault::Store>>;
+}
+
+/// The stores the configuration declares, opened for real.
+struct Stores;
+
+impl Transport for Stores {
+    fn open(&self, name: &str, cfg: &vault::VaultConfig) -> Result<Box<dyn vault::Store>> {
+        vault::open(name, cfg)
+    }
+}
+
+/// The steps a walk has taken, each rendered as it is recorded.
+struct Log<'e, S> {
+    steps: Vec<S>,
+    emit: &'e mut dyn FnMut(&S),
+}
+
+impl<'e, S> Log<'e, S> {
+    fn new(emit: &'e mut dyn FnMut(&S)) -> Self {
+        Self {
+            steps: Vec::new(),
+            emit,
+        }
+    }
+
+    fn push(&mut self, step: S) {
+        (self.emit)(&step);
+        self.steps.push(step);
+    }
+}
+
+/// What a catalog push will do, settled before any store is opened.
+struct PushPlan<'a> {
+    /// Every artifact the plan counted, sent or not: the summary's denominator.
+    total: usize,
+    /// One section per vault that has artifacts routed to it, in name order.
+    vaults: Vec<VaultPush<'a>>,
+    /// The artifacts that reach no store, each under the heading that says why.
+    aside: Aside,
+}
+
+/// One vault's share of a catalog push.
+struct VaultPush<'a> {
+    name: &'a str,
+    cfg: &'a vault::VaultConfig,
+    /// The store and who reads it: the heading over its section and over its refusals.
+    heading: String,
+    /// What the guard allows, in catalog order.
+    allowed: Vec<vault::Named>,
+    /// What the guard refuses, one line each: the digest and every reason.
+    refused: Vec<String>,
+}
+
+/// Pair each routed artifact with the guard's verdict on it, by vault.
+///
+/// `refusal` is the guard: `None` lets an artifact through, `Some(why)` refuses it. It is asked
+/// once per artifact, those kept aside included, before anything is grouped — asking once per
+/// artifact keeps a refusal's reason attached to the artifact it is about.
+///
+/// Refusals are kept with the vault they were headed for, and each section carries that
+/// store's own audience. A reader learns what they were about to publish *to*, which is the
+/// fact that makes a refusal reassuring rather than merely obstructive — and with several
+/// vaults it is the only way to tell which boundary held.
+fn plan_push<'a>(
+    vaults: &'a Vaults,
+    planned: Vec<Routed>,
+    mut refusal: impl FnMut(&vault::Named) -> Result<Option<String>>,
+) -> Result<PushPlan<'a>> {
+    let mut verdicts: BTreeMap<String, Option<String>> = BTreeMap::new();
+    for r in &planned {
+        verdicts.insert(verdict_key(&r.a), refusal(&r.a)?);
+    }
+    let total = planned.len();
+    let (mut by_vault, aside) = group(planned);
+
+    // `vaults.iter()` is in name order, as `by_vault` is, and every key of `by_vault` is a
+    // name `vaults.route` returned, so walking the declared vaults visits every section.
+    let mut sections = Vec::new();
+    for (name, cfg) in vaults.iter() {
+        let Some(artifacts) = by_vault.remove(name) else {
+            continue;
+        };
+        let heading = heading(name, cfg);
+        let (mut allowed, mut refused) = (Vec::new(), Vec::new());
+        for a in artifacts {
+            match verdicts.get(&verdict_key(&a)).and_then(Option::as_deref) {
+                None => allowed.push(a),
+                Some(why) => refused.push(format!("{} — {why}", a.hash)),
+            }
+        }
+        sections.push(VaultPush {
+            name,
+            cfg,
+            heading,
+            allowed,
+            refused,
+        });
+    }
+    Ok(PushPlan {
+        total,
+        vaults: sections,
+        aside,
+    })
+}
+
+/// One thing a catalog push walk did, in the order it did it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PushStep {
+    /// A vault's store was opened: its section's heading, and where the store is.
+    Opened { heading: String, store: String },
+    /// Allowed, and not in this machine's cache, so there is nothing to send.
+    Uncached(vault::Named),
+    /// A dry run's answer: this would be sent, and here is what its `PUT` would sign.
+    WouldSend(vault::Named, Option<String>),
+    /// The store already holds it.
+    Present(vault::Named),
+    /// Sent.
+    Sent(vault::Named),
+    /// The end of one vault's section.
+    Closed,
+}
+
+/// What a catalog push walk did.
+#[derive(Debug, Default)]
+struct PushOutcome {
+    /// How many of the plan's vaults the walk reached. Their refusals are the ones reported.
+    reached: usize,
+    steps: Vec<PushStep>,
+    /// The error that ended the walk early, if one did.
+    stopped: Option<anyhow::Error>,
+}
+
+impl PushOutcome {
+    fn count(&self, which: impl Fn(&PushStep) -> bool) -> usize {
+        self.steps.iter().filter(|s| which(s)).count()
+    }
+
+    /// Sent, or for a dry run, would be.
+    fn sent(&self) -> usize {
+        self.count(|s| matches!(s, PushStep::Sent(_) | PushStep::WouldSend(..)))
+    }
+
+    fn present(&self) -> usize {
+        self.count(|s| matches!(s, PushStep::Present(_)))
+    }
+
+    fn uncached(&self) -> usize {
+        self.count(|s| matches!(s, PushStep::Uncached(_)))
+    }
+}
+
+/// What to do with one allowed, cached artifact, given its store.
+type Act<'f> = &'f mut dyn FnMut(&dyn vault::Store, &vault::Named) -> Result<PushStep>;
+
+/// Walk a plan vault by vault, opening a store only where something is going to it.
+///
+/// A transport failure part-way through leaves the store in a well-defined state — what was
+/// sent is stored, and a re-run sends the rest, because each artifact is asked about before it
+/// is sent. So the walk does not return early past its own record: the steps already taken
+/// come back with the error, and the summary can state how far it got.
+fn walk_push(
+    plan: &PushPlan<'_>,
+    transport: &dyn Transport,
+    cache: &Cache,
+    emit: &mut dyn FnMut(&PushStep),
+    act: Act<'_>,
+) -> PushOutcome {
+    let mut log = Log::new(emit);
+    let mut reached = 0usize;
+    let walked = (|| -> Result<()> {
+        for v in &plan.vaults {
+            reached += 1;
+            // Only what the licence and the private paths allow is worth opening a store for. A
+            // run in which every artifact is refused must not ask for credentials it will not use.
+            if v.allowed.is_empty() {
+                continue;
+            }
+            let store = transport.open(v.name, v.cfg)?;
+            // The audience first, the destination under it. Somebody about to move bytes should
+            // read who will be able to see them before they read where they are going.
+            log.push(PushStep::Opened {
+                heading: v.heading.clone(),
+                store: store.describe(),
+            });
+            for a in &v.allowed {
+                // Nothing to send. Not an error: a clone that has never fetched an artifact is a
+                // normal state, and reporting it as a failure would make `push` red on every
+                // fresh checkout.
+                let step = match cache.contains(&a.hash) {
+                    false => PushStep::Uncached(a.clone()),
+                    true => act(store.as_ref(), a)?,
+                };
+                log.push(step);
+            }
+            log.push(PushStep::Closed);
+        }
+        Ok(())
+    })();
+    PushOutcome {
+        reached,
+        steps: log.steps,
+        stopped: walked.err(),
+    }
+}
+
+/// `--dry-run`: say what would be sent and what its request would sign. A store is opened for
+/// that and asked nothing, and nothing is written anywhere.
+fn rehearse_push(
+    plan: &PushPlan<'_>,
+    transport: &dyn Transport,
+    cache: &Cache,
+    emit: &mut dyn FnMut(&PushStep),
+) -> PushOutcome {
+    walk_push(plan, transport, cache, emit, &mut |store, a| {
+        Ok(PushStep::WouldSend(a.clone(), store.explain_put(&a.hash)))
+    })
+}
+
+/// Send what each store lacks.
+fn send_push(
+    plan: &PushPlan<'_>,
+    transport: &dyn Transport,
+    cache: &Cache,
+    emit: &mut dyn FnMut(&PushStep),
+) -> PushOutcome {
+    walk_push(plan, transport, cache, emit, &mut |store, a| {
+        if store.has(&a.hash)? {
+            return Ok(PushStep::Present(a.clone()));
+        }
+        store.put(&a.hash, &cache.path_of(&a.hash))?;
+        Ok(PushStep::Sent(a.clone()))
+    })
+}
+
+fn render_push_step(step: &PushStep) {
+    match step {
+        PushStep::Opened { heading, store } => {
+            println!("{heading}");
+            println!("  → {store}");
+        }
+        PushStep::Uncached(a) => {
+            eprintln!("  not cached, nothing to send: {} ({})", a.hash, a.rel);
+        }
+        PushStep::WouldSend(a, explain) => {
+            println!("  would send {} ({})", a.hash, a.rel);
+            for line in explain.iter().flat_map(|e| e.lines()) {
+                println!("      {line}");
+            }
+            println!();
+        }
+        PushStep::Present(_) => {}
+        PushStep::Sent(a) => println!("  sent {} ({})", a.hash, a.rel),
+        PushStep::Closed => println!(),
+    }
+}
+
+/// The lines after the walk: the counts, then every refusal under the store it was headed for.
+///
+/// Refusals are reported for the vaults the walk reached, which is all of them unless it
+/// stopped early.
+fn push_summary(
+    plan: &PushPlan<'_>,
+    outcome: &PushOutcome,
+    dry_run: bool,
+    only: Option<&str>,
+) -> String {
+    let mut refused: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (heading, line) in &plan.aside {
+        refused.entry(heading).or_default().push(line);
+    }
+    for v in plan.vaults.iter().take(outcome.reached) {
+        for line in &v.refused {
+            refused.entry(&v.heading).or_default().push(line);
+        }
+    }
+    let refused_count: usize = refused.values().map(Vec::len).sum();
+
+    let total = plan.total;
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "{total} artifact{} {}; {} {}; {} already stored; {} not cached; \
+         {refused_count} refused",
+        if total == 1 { "" } else { "s" },
+        scope(only),
+        outcome.sent(),
+        if dry_run { "would be sent" } else { "sent" },
+        outcome.present(),
+        outcome.uncached(),
+    );
+    if !refused.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "Refused:");
+        for (heading, lines) in &refused {
+            let _ = writeln!(out, "  {heading}");
+            for l in lines {
+                let _ = writeln!(out, "    {l}");
+            }
+        }
+    }
+    out
+}
+
 fn push(
     at: Option<&Path>,
     dry_run: bool,
@@ -349,150 +671,48 @@ fn push(
         return Ok(());
     }
 
-    // Every verdict up front, because the filter below cannot hold a `&mut` engine and because
-    // asking once per artifact keeps a refusal's reason attached to the artifact it is about.
-    //
     // The rule moved out of this file in #440 and into `.yidam/policy/` (RFC-0024). What it
     // says is unchanged — `tests/gates/policy_equivalence.rs` holds the policy to `may_push` over
     // every combination of licence and path — and a repository may now disagree with it in a
     // file `yidam policy check` will name.
     let mut policies = crate::policy::Policies::load(&root)?;
-    let mut verdicts: BTreeMap<String, Option<String>> = BTreeMap::new();
-    for a in &planned {
+    let plan = plan_push(&vaults, planned, |a| {
         let v = policies.decide(
             "disclose/record",
-            &crate::policy::input::record(&root, &a.a, &private),
+            &crate::policy::input::record(&root, a, &private),
         )?;
-        verdicts.insert(
-            verdict_key(&a.a),
-            (!v.allow).then(|| {
-                v.deny
-                    .iter()
-                    .map(|d| d.msg.as_str())
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            }),
-        );
-    }
-    let total = planned.len();
-    let (by_vault, aside) = group(planned);
-
-    // Refusals are grouped by the store they were headed for, and each heading carries that
-    // store's own audience. A reader learns what they were about to publish *to*, which is
-    // the fact that makes a refusal reassuring rather than merely obstructive — and with
-    // several vaults it is the only way to tell which boundary held.
-    let mut refused: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut refused_count = aside.len();
-    for (heading, line) in aside {
-        refused.entry(heading.to_string()).or_default().push(line);
-    }
-
-    let (mut sent, mut present, mut uncached) = (0usize, 0usize, 0usize);
-    // The send loop is a closure so that an abort still reaches the summary below it.
-    //
-    // A transport failure part-way through a push leaves the store in a well-defined state —
-    // what was sent is stored, and a re-run sends the rest, because each artifact is HEADed
-    // before it is sent. The only thing that made that state unreadable was an early return
-    // jumping over the line that counts it: the per-artifact `sent …` lines scrolled past and
-    // nothing ever stated the total, so a script saw a non-zero exit and a human saw a bare
-    // transport error, and neither could tell that eighteen artifacts had landed.
-    let outcome: Result<()> = (|| {
-        for (name, artifacts) in &by_vault {
-            // Only what the licence and the private paths allow is worth opening a store for. A
-            // run in which every artifact is refused must not ask for credentials it will not use.
-            #[expect(
-                clippy::expect_used,
-                reason = "`name` is a key of `by_vault`, which `group` fills only from `Dest::Vault` names that `vaults.route` returned, so it is declared"
-            )]
-            let cfg = vaults.get(name).expect("routed to a declared vault");
-            let heading = heading(name, cfg);
-            let allowed: Vec<&vault::Named> = artifacts
+        Ok((!v.allow).then(|| {
+            v.deny
                 .iter()
-                .filter(
-                    |a| match verdicts.get(&verdict_key(a)).and_then(Option::as_deref) {
-                        None => true,
-                        Some(why) => {
-                            refused_count += 1;
-                            refused
-                                .entry(heading.clone())
-                                .or_default()
-                                .push(format!("{} — {why}", a.hash));
-                            false
-                        }
-                    },
-                )
-                .collect();
-            if allowed.is_empty() {
-                continue;
-            }
+                .map(|d| d.msg.as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        }))
+    })?;
 
-            let store = vault::open(name, cfg)?;
-            // The audience first, the destination under it. Somebody about to move bytes should
-            // read who will be able to see them before they read where they are going.
-            println!("{heading}");
-            println!("  → {}", store.describe());
-            for a in allowed {
-                if !cache.contains(&a.hash) {
-                    // Nothing to send. Not an error: a clone that has never fetched an artifact
-                    // is a normal state, and reporting it as a failure would make `push` red on
-                    // every fresh checkout.
-                    eprintln!("  not cached, nothing to send: {} ({})", a.hash, a.rel);
-                    uncached += 1;
-                    continue;
-                }
-                if dry_run {
-                    println!("  would send {} ({})", a.hash, a.rel);
-                    if let Some(explain) = store.explain_put(&a.hash) {
-                        for line in explain.lines() {
-                            println!("      {line}");
-                        }
-                    }
-                    println!();
-                    sent += 1;
-                    continue;
-                }
-                if store.has(&a.hash)? {
-                    present += 1;
-                    continue;
-                }
-                store.put(&a.hash, &cache.path_of(&a.hash))?;
-                println!("  sent {} ({})", a.hash, a.rel);
-                sent += 1;
-            }
-            println!();
-        }
-        Ok(())
-    })();
-
-    println!(
-        "{total} artifact{} {}; {sent} {}; {present} already stored; {uncached} not cached; \
-         {refused_count} refused",
-        if total == 1 { "" } else { "s" },
-        scope(only),
-        if dry_run { "would be sent" } else { "sent" },
-    );
-    if !refused.is_empty() {
-        println!();
-        println!("Refused:");
-        for (heading, lines) in &refused {
-            println!("  {heading}");
-            for l in lines {
-                println!("    {l}");
-            }
-        }
-    }
+    let outcome = match dry_run {
+        true => rehearse_push(&plan, &Stores, &cache, &mut render_push_step),
+        false => send_push(&plan, &Stores, &cache, &mut render_push_step),
+    };
+    // Printed on the error path too. The per-artifact `sent …` lines scroll past, and before
+    // the walk returned its record a script saw a non-zero exit and a human saw a bare
+    // transport error, and neither could tell that eighteen artifacts had landed.
+    print!("{}", push_summary(&plan, &outcome, dry_run, only));
     // Said on the error path because it is the one place it is not obvious. The transport has
     // already retried this request and given up on it, so what is left is a store that is
     // down or a network that is gone — and the useful thing to know then is that the work
     // already done is kept, not lost.
-    outcome.map_err(|e| {
-        e.context(format!(
+    let sent = outcome.sent();
+    let total = plan.total;
+    match outcome.stopped {
+        None => Ok(()),
+        Some(e) => Err(e.context(format!(
             "vault push stopped with {sent} of {total} artifact{} sent. The run is \
              resumable: `yidam vault push` again continues from here, sending only what \
              the store does not already hold.",
             if total == 1 { "" } else { "s" },
-        ))
-    })
+        ))),
+    }
 }
 
 fn pull(at: Option<&Path>, only: Option<&str>) -> Result<()> {
@@ -1500,97 +1720,262 @@ fn push_derived(
     let private = vault::read_private_paths(&root)?;
     let mut policies = crate::policy::Policies::load(&root)?;
     let mut lock = vault::load_lock(&root)?;
-    let mut changed = false;
 
-    // The loop is a closure for the reason `push`'s is: an artifact that fails must not jump
-    // over the lock save below it. Each entry is set only once its bytes are in the store, so
-    // what the lock holds after an abort is true, and dropping it would strand bytes that are
-    // already sent where nothing can find them (#1615).
-    let outcome: Result<()> = (|| {
-        for &d in picked {
-            let (name, cfg) = match vaults.route(d.kind(), None) {
-                Route::To(n, c) => (n, c),
-                Route::Local => {
-                    eprintln!("{}: routed to the local cache; nothing to send", d.kind());
-                    continue;
+    // Asked of the policy rather than computed here (RFC-0024). The rule is the same rule
+    // `release.yml` applies to a bundle, and until #440 the two were separate implementations
+    // kept agreeing by a test — which is how #443 happened.
+    let plan = plan_push_derived(&vaults, picked, only, |d| {
+        let verdict = policies.decide(
+            "disclose/derived",
+            &crate::policy::input::derived(&root, d, &private),
+        )?;
+        Ok((!verdict.allow).then(|| verdict.deny.iter().map(|x| x.msg.clone()).collect()))
+    })?;
+
+    let outcome = match dry_run {
+        true => rehearse_derived(&root, &plan, &cache, &lock, &mut render_derived_step),
+        false => send_derived(
+            &root,
+            &plan,
+            &Stores,
+            &cache,
+            &mut lock,
+            commit,
+            &mut render_derived_step,
+        ),
+    };
+    match outcome.stopped {
+        None => Ok(()),
+        Some(e) => Err(e),
+    }
+}
+
+/// A derived artifact's staging file, removed when the guard goes out of scope.
+struct Staging(PathBuf);
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// What a derived push will do with one artifact it was asked for, settled before anything is
+/// packed.
+#[derive(Debug)]
+enum DerivedItem<'a> {
+    /// Routed to the local cache, so there is nothing to send.
+    Local(vault::Derived),
+    /// No vault takes it, and why.
+    Unroutable(vault::Derived, String),
+    /// The guard refuses it, with every reason.
+    Refused(Vec<String>),
+    /// To be packed and sent to this vault.
+    Send {
+        d: vault::Derived,
+        name: &'a str,
+        cfg: &'a vault::VaultConfig,
+    },
+}
+
+/// Route each derived artifact and ask the guard about the ones that have somewhere to go.
+///
+/// `refusal` is the guard, as in [`plan_push`]: `None` lets an artifact through, `Some(why)`
+/// refuses it with every reason. It is asked before anything is packed. A refusal here is about
+/// what the artifact *encodes*, not about where it is going, so it costs nothing to ask first
+/// and avoids compressing a few hundred megabytes that were never going to be sent.
+///
+/// An artifact `--vault` excludes is left out of the plan silently; one with no route is kept
+/// in it, because saying so is the only thing a push does about it.
+fn plan_push_derived<'a>(
+    vaults: &'a Vaults,
+    picked: &[vault::Derived],
+    only: Option<&str>,
+    mut refusal: impl FnMut(vault::Derived) -> Result<Option<Vec<String>>>,
+) -> Result<Vec<DerivedItem<'a>>> {
+    let mut items = Vec::new();
+    for &d in picked {
+        let item = match vaults.route(d.kind(), None) {
+            Route::Local => DerivedItem::Local(d),
+            Route::Unroutable(why) => DerivedItem::Unroutable(d, why),
+            Route::To(name, _) if only.is_some_and(|o| o != name) => continue,
+            Route::To(name, cfg) => match refusal(d)? {
+                Some(why) => DerivedItem::Refused(why),
+                None => DerivedItem::Send { d, name, cfg },
+            },
+        };
+        items.push(item);
+    }
+    Ok(items)
+}
+
+/// One thing a derived push walk did, in the order it did it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DerivedStep {
+    Local(vault::Derived),
+    Unroutable(vault::Derived, String),
+    Refused(Vec<String>),
+    /// A dry run's answer, and whether `.yidam/index.lock` already records these bytes.
+    WouldSend {
+        d: vault::Derived,
+        hash: ContentHash,
+        bytes: u64,
+        vault: String,
+        recorded: bool,
+    },
+    /// The store already holds it.
+    Present {
+        d: vault::Derived,
+        hash: ContentHash,
+        vault: String,
+    },
+    Sent {
+        d: vault::Derived,
+        hash: ContentHash,
+        bytes: u64,
+        vault: String,
+    },
+    /// `--commit` authored this commit.
+    Committed {
+        sha: String,
+        subject: String,
+    },
+    /// The lock was written with what this run recorded. Its path, repository-relative.
+    LockSaved(String),
+}
+
+/// What a derived push walk did.
+#[derive(Debug, Default)]
+struct DerivedOutcome {
+    /// Rendered as each was taken; kept for a test to assert on.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "`push_derived` renders each step as the walk takes it"
+        )
+    )]
+    steps: Vec<DerivedStep>,
+    /// The error that ended the walk early, if one did.
+    stopped: Option<anyhow::Error>,
+}
+
+/// The step for an artifact the plan already settled, or `None` for one still to be packed.
+fn settled(item: &DerivedItem<'_>) -> Option<DerivedStep> {
+    match item {
+        DerivedItem::Local(d) => Some(DerivedStep::Local(*d)),
+        DerivedItem::Unroutable(d, why) => Some(DerivedStep::Unroutable(*d, why.clone())),
+        DerivedItem::Refused(why) => Some(DerivedStep::Refused(why.clone())),
+        DerivedItem::Send { .. } => None,
+    }
+}
+
+/// Pack a derived artifact into a staging file in the cache root, and hash it.
+///
+/// The staging file goes with its guard on every way out, an error from packing or hashing
+/// included: it is named for this process, so one left behind is never looked for again.
+fn pack(root: &Path, d: vault::Derived, cache: &Cache) -> Result<(Staging, ContentHash, u64)> {
+    let staging = Staging(cache.root().join(format!(
+        ".{}.{}.packing",
+        d.kind(),
+        std::process::id()
+    )));
+    vault::pack_to(root, d, &staging.0)?;
+    let (hash, bytes) = vault::hash_file(&staging.0)?;
+    Ok((staging, hash, bytes))
+}
+
+/// `--dry-run` with a derived flag: pack and hash, to name the digest that would be sent, and
+/// stop there. No store is opened and nothing is filed in the cache (#1615).
+fn rehearse_derived(
+    root: &Path,
+    plan: &[DerivedItem<'_>],
+    cache: &Cache,
+    lock: &vault::DerivedLock,
+    emit: &mut dyn FnMut(&DerivedStep),
+) -> DerivedOutcome {
+    let mut log = Log::new(emit);
+    let walked = (|| -> Result<()> {
+        for item in plan {
+            let DerivedItem::Send { d, name, .. } = *item else {
+                if let Some(step) = settled(item) {
+                    log.push(step);
                 }
-                Route::Unroutable(why) => {
-                    eprintln!("{}: {why}", d.kind());
-                    continue;
-                }
+                continue;
             };
-            if only.is_some_and(|o| o != name) {
-                continue;
-            }
+            let (staging, hash, bytes) = pack(root, d, cache)?;
+            drop(staging);
+            let recorded = lock.get(d).is_some_and(|e| e.sha256 == hash.as_str());
+            log.push(DerivedStep::WouldSend {
+                d,
+                hash,
+                bytes,
+                vault: name.to_string(),
+                recorded,
+            });
+        }
+        Ok(())
+    })();
+    DerivedOutcome {
+        steps: log.steps,
+        stopped: walked.err(),
+    }
+}
 
-            // The guard, before anything is packed. A refusal here is about what the artifact
-            // *encodes*, not about where it is going, so it costs nothing to ask first and
-            // avoids compressing a few hundred megabytes that were never going to be sent.
-            //
-            // Asked of the policy rather than computed here (RFC-0024). The rule is the same
-            // rule `release.yml` applies to a bundle, and until #440 the two were separate
-            // implementations kept agreeing by a test — which is how #443 happened.
-            let verdict = policies.decide(
-                "disclose/derived",
-                &crate::policy::input::derived(&root, d, &private),
-            )?;
-            if !verdict.allow {
-                // Every reason, not the first. `derived_may_push` could name only one
-                // overlapping path, and somebody about to fix this wants all of them.
-                for denial in &verdict.deny {
-                    println!("refused: {}", denial.msg);
+/// Pack each artifact into the cache, send it where its store lacks it, and record it in the
+/// lock.
+///
+/// The packed artifact is filed in the cache and pushed from there — the same path a catalog
+/// artifact takes, so `yidam vault verify` covers an index too.
+///
+/// An entry is set only once its bytes are in the store, so what the lock holds after an abort
+/// is true, and the lock is written whether or not the walk finished: dropping it would strand
+/// bytes that are already sent where nothing can find them (#1615). With `commit`, it is
+/// instead written and committed per artifact.
+fn send_derived(
+    root: &Path,
+    plan: &[DerivedItem<'_>],
+    transport: &dyn Transport,
+    cache: &Cache,
+    lock: &mut vault::DerivedLock,
+    commit: bool,
+    emit: &mut dyn FnMut(&DerivedStep),
+) -> DerivedOutcome {
+    let mut log = Log::new(emit);
+    let mut changed = false;
+    let walked = (|| -> Result<()> {
+        for item in plan {
+            let DerivedItem::Send { d, name, cfg } = *item else {
+                if let Some(step) = settled(item) {
+                    log.push(step);
                 }
                 continue;
-            }
-
-            // Packed into the cache, hashed, and pushed from there — the same path a catalog
-            // artifact takes, so `yidam vault verify` covers an index too. The staging file
-            // goes with its guard on every way out of this iteration: it is named for this
-            // process, so one left behind is never looked for again.
-            let staging = Staging(cache.root().join(format!(
-                ".{}.{}.packing",
-                d.kind(),
-                std::process::id()
-            )));
-            vault::pack_to(&root, d, &staging.0)?;
-            let (hash, bytes) = vault::hash_file(&staging.0)?;
-
-            // Before anything is filed: a dry run has its digest from the staging file and
-            // writes nothing, the cache included (#1615).
-            if dry_run {
-                let recorded = lock.get(d).filter(|e| e.sha256 == hash.as_str()).is_some();
-                println!(
-                    "would send {} {hash} ({}) to `{name}`{}",
-                    d.kind(),
-                    human_size(bytes),
-                    if recorded {
-                        " — already recorded"
-                    } else {
-                        ""
-                    }
-                );
-                continue;
-            }
+            };
+            let (staging, hash, bytes) = pack(root, d, cache)?;
             cache.put_file(&staging.0, &hash)?;
             drop(staging);
 
-            let store = vault::open(name, cfg)?;
+            let store = transport.open(name, cfg)?;
             if store.has(&hash)? {
-                println!("{} {hash} already in `{name}`", d.kind());
+                log.push(DerivedStep::Present {
+                    d,
+                    hash: hash.clone(),
+                    vault: name.to_string(),
+                });
             } else {
                 store.put(&hash, &cache.path_of(&hash))?;
-                println!(
-                    "sent {} {hash} ({}) to `{name}`",
-                    d.kind(),
-                    human_size(bytes)
-                );
+                log.push(DerivedStep::Sent {
+                    d,
+                    hash: hash.clone(),
+                    bytes,
+                    vault: name.to_string(),
+                });
             }
             let entry = vault::Entry {
                 sha256: hash.as_str().to_string(),
                 bytes,
                 vault: name.to_string(),
                 model: match d {
-                    vault::Derived::Index => index_meta(&root, "model_name"),
+                    vault::Derived::Index => index_meta(root, "model_name"),
                     _ => None,
                 },
             };
@@ -1602,15 +1987,18 @@ fn push_derived(
                 // the entry. That keeps `author`'s contract that nothing changed means no
                 // commit.
                 if commit {
-                    vault::save_lock(&root, &lock)?;
+                    vault::save_lock(root, lock)?;
                     if let Some(c) = crate::cmd::operational::author(
-                        &root,
+                        root,
                         WHO,
-                        &lock_subject(&root, d, &entry),
+                        &lock_subject(root, d, &entry),
                         &lock_body(&entry),
-                        &[lock_rel(&root)],
+                        &[lock_rel(root)],
                     )? {
-                        println!("committed {} {}", c.sha, c.subject);
+                        log.push(DerivedStep::Committed {
+                            sha: c.sha,
+                            subject: c.subject,
+                        });
                     }
                 }
             }
@@ -1618,31 +2006,73 @@ fn push_derived(
         Ok(())
     })();
 
-    // Written whether or not the loop finished. The loop's own error is the one returned: it
+    // Written whether or not the walk finished. The walk's own error is the one returned: it
     // is the cause, and a lock that then fails to write is its consequence.
-    let saved = if changed && !dry_run && !commit {
-        vault::save_lock(&root, &lock).map(|()| {
-            println!();
-            println!(
-                "{} updated — commit it, or nothing else can find these bytes.",
-                vault::lock_path(&root)
-                    .strip_prefix(&root)
-                    .unwrap_or(&vault::lock_path(&root))
-                    .display()
-            );
-        })
-    } else {
-        Ok(())
+    let saved = match changed && !commit {
+        true => vault::save_lock(root, lock).map(|()| {
+            let path = vault::lock_path(root);
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .display()
+                .to_string();
+            log.push(DerivedStep::LockSaved(rel));
+        }),
+        false => Ok(()),
     };
-    outcome.and(saved)
+    DerivedOutcome {
+        steps: log.steps,
+        stopped: walked.and(saved).err(),
+    }
 }
 
-/// A derived artifact's staging file, removed when the guard goes out of scope.
-struct Staging(PathBuf);
-
-impl Drop for Staging {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+fn render_derived_step(step: &DerivedStep) {
+    match step {
+        DerivedStep::Local(d) => {
+            eprintln!("{}: routed to the local cache; nothing to send", d.kind());
+        }
+        DerivedStep::Unroutable(d, why) => eprintln!("{}: {why}", d.kind()),
+        // Every reason, not the first. `derived_may_push` could name only one overlapping
+        // path, and somebody about to fix this wants all of them.
+        DerivedStep::Refused(why) => {
+            for msg in why {
+                println!("refused: {msg}");
+            }
+        }
+        DerivedStep::WouldSend {
+            d,
+            hash,
+            bytes,
+            vault,
+            recorded,
+        } => println!(
+            "would send {} {hash} ({}) to `{vault}`{}",
+            d.kind(),
+            human_size(*bytes),
+            if *recorded {
+                " — already recorded"
+            } else {
+                ""
+            }
+        ),
+        DerivedStep::Present { d, hash, vault } => {
+            println!("{} {hash} already in `{vault}`", d.kind());
+        }
+        DerivedStep::Sent {
+            d,
+            hash,
+            bytes,
+            vault,
+        } => println!(
+            "sent {} {hash} ({}) to `{vault}`",
+            d.kind(),
+            human_size(*bytes)
+        ),
+        DerivedStep::Committed { sha, subject } => println!("committed {sha} {subject}"),
+        DerivedStep::LockSaved(path) => {
+            println!();
+            println!("{path} updated — commit it, or nothing else can find these bytes.");
+        }
     }
 }
 
@@ -1772,5 +2202,378 @@ mod tests {
         std::fs::write(&p, Vec::new()).unwrap();
         assert_eq!(human_bytes(&p), "0 bytes");
         assert_eq!(human_bytes(Path::new("/nonexistent")), "unknown size");
+    }
+
+    // ── push through a fake transport (#1643) ────────────────────────────────
+
+    use std::cell::RefCell;
+    use std::collections::BTreeSet;
+    use std::rc::Rc;
+
+    /// A transport that records every question it is asked, and the stores it opens.
+    #[derive(Clone, Default)]
+    struct Fake {
+        calls: Rc<RefCell<Vec<String>>>,
+        held: Rc<RefCell<BTreeSet<ContentHash>>>,
+        /// A `put` of this digest fails, as a store that is down would.
+        refuse: Option<ContentHash>,
+    }
+
+    impl Fake {
+        fn calls(&self) -> Vec<String> {
+            self.calls.borrow().clone()
+        }
+
+        fn log(&self, call: String) {
+            self.calls.borrow_mut().push(call);
+        }
+    }
+
+    struct FakeStore {
+        name: String,
+        fake: Fake,
+    }
+
+    impl Transport for Fake {
+        fn open(&self, name: &str, _cfg: &vault::VaultConfig) -> Result<Box<dyn vault::Store>> {
+            self.log(format!("open {name}"));
+            Ok(Box::new(FakeStore {
+                name: name.to_string(),
+                fake: self.clone(),
+            }))
+        }
+    }
+
+    impl vault::Store for FakeStore {
+        fn describe(&self) -> String {
+            format!("fake://{}", self.name)
+        }
+
+        fn has(&self, hash: &ContentHash) -> Result<bool> {
+            self.fake
+                .log(format!("has {} {}", self.name, &hash.as_str()[..8]));
+            Ok(self.fake.held.borrow().contains(hash))
+        }
+
+        fn get(&self, _hash: &ContentHash, _dest: &Path) -> Result<()> {
+            bail!("a push never reads from a store")
+        }
+
+        fn put(&self, hash: &ContentHash, src: &Path) -> Result<()> {
+            self.fake
+                .log(format!("put {} {}", self.name, &hash.as_str()[..8]));
+            if self.fake.refuse.as_ref() == Some(hash) {
+                bail!("the store is down");
+            }
+            assert!(src.is_file(), "a put is sent from a file that exists");
+            self.fake.held.borrow_mut().insert(hash.clone());
+            Ok(())
+        }
+
+        fn explain_put(&self, hash: &ContentHash) -> Option<String> {
+            self.fake
+                .log(format!("explain {} {}", self.name, &hash.as_str()[..8]));
+            Some("PUT signed".to_string())
+        }
+    }
+
+    fn cfg(audience: &str, holds: &[&str]) -> vault::VaultConfig {
+        vault::VaultConfig {
+            url: "file:///nowhere".to_string(),
+            audience: Some(audience.to_string()),
+            holds: (!holds.is_empty()).then(|| holds.iter().map(|s| s.to_string()).collect()),
+            region: None,
+            endpoint: None,
+            path_style: None,
+        }
+    }
+
+    fn vaults(decl: &[(&str, &str, &[&str])]) -> Vaults {
+        let map = decl
+            .iter()
+            .map(|(n, a, h)| (n.to_string(), cfg(a, h)))
+            .collect();
+        vault::resolve(&map).unwrap()
+    }
+
+    /// A catalog artifact whose bytes are `body`, filed in `cache` when `cached`.
+    fn named(cache: &Cache, tmp: &Path, body: &str, vault: Option<&str>, cached: bool) -> Routed {
+        let hash = ContentHash::of_bytes(body.as_bytes());
+        if cached {
+            let src = tmp.join(format!("{}.src", &hash.as_str()[..8]));
+            std::fs::write(&src, body).unwrap();
+            cache.put_file(&src, &hash).unwrap();
+        }
+        let a = vault::Named {
+            hash,
+            kind: "catalog".to_string(),
+            rel: format!(".yidam/catalog/{body}.md"),
+            vault: vault.map(str::to_string),
+            redistributable: Some(true),
+            bytes: None,
+            media_type: None,
+        };
+        let dest = match vault {
+            Some("none") => Dest::Local,
+            Some(v) => Dest::Vault(v.to_string()),
+            None => Dest::Vault("default".to_string()),
+        };
+        Routed { a, dest }
+    }
+
+    /// A guard that refuses every artifact whose record path contains `word`.
+    fn refusing(word: &'static str) -> impl FnMut(&vault::Named) -> Result<Option<String>> {
+        move |a| Ok(a.rel.contains(word).then(|| format!("{word} is refused")))
+    }
+
+    fn quiet<S>(_: &S) {}
+
+    #[test]
+    fn a_push_plan_groups_by_vault_and_keeps_each_refusal_under_its_audience() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cache = Cache::at(tmp.path().join("cache"));
+        let v = vaults(&[
+            ("default", "anyone", &["catalog"]),
+            ("sources", "the sangha", &["index"]),
+        ]);
+        let planned = vec![
+            named(&cache, tmp.path(), "public", None, true),
+            named(&cache, tmp.path(), "secret", Some("sources"), true),
+            named(&cache, tmp.path(), "kept", Some("none"), true),
+            named(&cache, tmp.path(), "also-secret", None, true),
+        ];
+        let plan = plan_push(&v, planned, refusing("secret")).unwrap();
+
+        assert_eq!(plan.total, 4);
+        let names: Vec<_> = plan.vaults.iter().map(|s| s.name).collect();
+        assert_eq!(names, ["default", "sources"]);
+        assert_eq!(plan.vaults[0].heading, "default — anyone");
+        assert_eq!(plan.vaults[0].allowed.len(), 1);
+        assert_eq!(plan.vaults[0].refused.len(), 1);
+        assert!(plan.vaults[1].allowed.is_empty());
+        assert!(plan.vaults[1].refused[0].ends_with("— secret is refused"));
+        assert_eq!(plan.aside.len(), 1);
+        assert_eq!(plan.aside[0].0, KEPT_LOCAL);
+    }
+
+    #[test]
+    fn a_dry_run_asks_a_store_nothing_and_never_opens_one_with_nothing_allowed() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cache = Cache::at(tmp.path().join("cache"));
+        let v = vaults(&[
+            ("default", "anyone", &["catalog"]),
+            ("sources", "the sangha", &["index"]),
+        ]);
+        let planned = vec![
+            named(&cache, tmp.path(), "public", None, true),
+            named(&cache, tmp.path(), "secret", Some("sources"), true),
+        ];
+        let plan = plan_push(&v, planned, refusing("secret")).unwrap();
+        let fake = Fake::default();
+        let outcome = rehearse_push(&plan, &fake, &cache, &mut quiet);
+
+        let public = &plan.vaults[0].allowed[0].hash.as_str()[..8];
+        assert_eq!(
+            fake.calls(),
+            [
+                "open default".to_string(),
+                format!("explain default {public}")
+            ]
+        );
+        assert!(fake.held.borrow().is_empty());
+        assert!(outcome.stopped.is_none());
+        assert_eq!((outcome.sent(), outcome.present()), (1, 0));
+        let summary = push_summary(&plan, &outcome, true, None);
+        assert!(
+            summary.starts_with("2 artifacts named by the corpus; 1 would be sent; 0 already stored; 0 not cached; 1 refused\n"),
+            "{summary}"
+        );
+    }
+
+    #[test]
+    fn a_push_sends_only_what_the_store_lacks_and_skips_what_is_not_cached() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cache = Cache::at(tmp.path().join("cache"));
+        let v = vaults(&[("default", "anyone", &[])]);
+        let planned = vec![
+            named(&cache, tmp.path(), "held", None, true),
+            named(&cache, tmp.path(), "new", None, true),
+            named(&cache, tmp.path(), "never-fetched", None, false),
+        ];
+        let fake = Fake::default();
+        fake.held.borrow_mut().insert(planned[0].a.hash.clone());
+        let plan = plan_push(&v, planned, refusing("nothing")).unwrap();
+        let mut seen = Vec::new();
+        let outcome = send_push(&plan, &fake, &cache, &mut |s: &PushStep| {
+            seen.push(s.clone())
+        });
+
+        assert_eq!(seen, outcome.steps, "every step is rendered as it is taken");
+        assert!(matches!(outcome.steps[0], PushStep::Opened { .. }));
+        assert!(matches!(outcome.steps[1], PushStep::Present(_)));
+        assert!(matches!(outcome.steps[2], PushStep::Sent(_)));
+        assert!(matches!(outcome.steps[3], PushStep::Uncached(_)));
+        assert_eq!(outcome.steps[4], PushStep::Closed);
+        assert_eq!(
+            (outcome.sent(), outcome.present(), outcome.uncached()),
+            (1, 1, 1)
+        );
+        let puts = fake.calls().iter().filter(|c| c.starts_with("put")).count();
+        assert_eq!(puts, 1, "{:?}", fake.calls());
+    }
+
+    #[test]
+    fn an_aborted_push_keeps_what_it_sent_and_reports_only_the_vaults_it_reached() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cache = Cache::at(tmp.path().join("cache"));
+        let v = vaults(&[
+            ("default", "anyone", &["catalog"]),
+            ("sources", "the sangha", &["index"]),
+        ]);
+        let planned = vec![
+            named(&cache, tmp.path(), "a-lands", None, true),
+            named(&cache, tmp.path(), "b-fails", None, true),
+            named(&cache, tmp.path(), "secret", Some("sources"), true),
+        ];
+        let fake = Fake {
+            refuse: Some(planned[1].a.hash.clone()),
+            ..Fake::default()
+        };
+        let plan = plan_push(&v, planned, refusing("secret")).unwrap();
+        let outcome = send_push(&plan, &fake, &cache, &mut quiet);
+
+        assert!(outcome.stopped.is_some());
+        assert_eq!(outcome.reached, 1);
+        assert_eq!(outcome.sent(), 1);
+        assert_eq!(fake.held.borrow().len(), 1);
+        // The refusal headed for `sources` is not reported: the walk never got there. Today's
+        // output, kept as it is; the dry run over the same plan reports it.
+        let summary = push_summary(&plan, &outcome, false, None);
+        assert!(summary.contains("; 1 sent; 0 already stored; 0 not cached; 0 refused\n"));
+        let rehearsed = rehearse_push(&plan, &Fake::default(), &cache, &mut quiet);
+        assert!(push_summary(&plan, &rehearsed, true, None).contains("; 1 refused\n"));
+    }
+
+    /// A repository with a bundle and nothing else, and one vault that takes everything.
+    fn bundled(tmp: &Path, bytes: &str) -> (PathBuf, Cache, Vaults) {
+        let root = tmp.join("repo");
+        std::fs::create_dir_all(root.join(".yidam")).unwrap();
+        std::fs::write(root.join(".yidam").join("bundle.yiz"), bytes).unwrap();
+        let cache = Cache::at(tmp.join("cache"));
+        std::fs::create_dir_all(cache.root()).unwrap();
+        (root, cache, vaults(&[("default", "anyone", &[])]))
+    }
+
+    fn files_under(dir: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let p = e.path();
+            match p.is_dir() {
+                true => out.extend(files_under(&p)),
+                false => out.push(p),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_derived_plan_routes_and_asks_the_guard_only_about_what_has_somewhere_to_go() {
+        let v = vaults(&[
+            ("default", "anyone", &["catalog"]),
+            ("sources", "the sangha", &["index"]),
+        ]);
+        let picked = [vault::Derived::Index, vault::Derived::Bundle];
+        let mut asked = Vec::new();
+        let plan = plan_push_derived(&v, &picked, None, |d| {
+            asked.push(d);
+            Ok(Some(vec!["one".to_string(), "two".to_string()]))
+        })
+        .unwrap();
+        assert_eq!(asked, [vault::Derived::Index]);
+        assert!(matches!(&plan[0], DerivedItem::Refused(why) if why.len() == 2));
+        assert!(matches!(
+            &plan[1],
+            DerivedItem::Unroutable(vault::Derived::Bundle, _)
+        ));
+
+        // `--vault` leaves out what it excludes, before the guard is asked about it.
+        let mut asked = 0;
+        let plan = plan_push_derived(&v, &picked, Some("default"), |_| {
+            asked += 1;
+            Ok(None)
+        })
+        .unwrap();
+        assert_eq!(asked, 0);
+        assert_eq!(plan.len(), 1, "the unroutable bundle is still said");
+    }
+
+    #[test]
+    fn a_derived_dry_run_opens_no_store_and_files_nothing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let (root, cache, v) = bundled(tmp.path(), "a bundle");
+        let picked = [vault::Derived::Bundle];
+        let plan = plan_push_derived(&v, &picked, None, |_| Ok(None)).unwrap();
+        let outcome = rehearse_derived(
+            &root,
+            &plan,
+            &cache,
+            &vault::DerivedLock::default(),
+            &mut quiet,
+        );
+
+        assert!(outcome.stopped.is_none());
+        let want = ContentHash::of_bytes(b"a bundle");
+        assert!(matches!(
+            &outcome.steps[..],
+            [DerivedStep::WouldSend { hash, recorded: false, .. }] if *hash == want
+        ));
+        assert!(files_under(cache.root()).is_empty(), "nothing is filed");
+        assert!(!vault::lock_path(&root).exists(), "the lock is not written");
+    }
+
+    #[test]
+    fn a_derived_push_records_what_it_sent_and_a_rerun_records_nothing_new() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let (root, cache, v) = bundled(tmp.path(), "a bundle");
+        let picked = [vault::Derived::Bundle];
+        let plan = plan_push_derived(&v, &picked, None, |_| Ok(None)).unwrap();
+        let fake = Fake::default();
+        let mut lock = vault::DerivedLock::default();
+        let first = send_derived(&root, &plan, &fake, &cache, &mut lock, false, &mut quiet);
+
+        assert!(first.stopped.is_none());
+        let hash = ContentHash::of_bytes(b"a bundle");
+        assert!(matches!(&first.steps[0], DerivedStep::Sent { hash: h, .. } if *h == hash));
+        assert!(matches!(&first.steps[1], DerivedStep::LockSaved(p) if p == ".yidam/index.lock"));
+        assert!(cache.contains(&hash), "pushed from the cache");
+        assert_eq!(
+            lock.get(vault::Derived::Bundle).map(|e| e.sha256.as_str()),
+            Some(hash.as_str())
+        );
+        assert_eq!(vault::load_lock(&root).unwrap(), lock);
+
+        let again = send_derived(&root, &plan, &fake, &cache, &mut lock, false, &mut quiet);
+        assert!(matches!(&again.steps[..], [DerivedStep::Present { .. }]));
+        let puts = fake.calls().iter().filter(|c| c.starts_with("put")).count();
+        assert_eq!(puts, 1, "{:?}", fake.calls());
+    }
+
+    #[test]
+    fn a_derived_push_that_stops_keeps_the_lock_true() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let (root, cache, v) = bundled(tmp.path(), "a bundle");
+        let picked = [vault::Derived::Bundle];
+        let plan = plan_push_derived(&v, &picked, None, |_| Ok(None)).unwrap();
+        let fake = Fake {
+            refuse: Some(ContentHash::of_bytes(b"a bundle")),
+            ..Fake::default()
+        };
+        let mut lock = vault::DerivedLock::default();
+        let outcome = send_derived(&root, &plan, &fake, &cache, &mut lock, false, &mut quiet);
+
+        assert!(outcome.stopped.is_some());
+        assert!(outcome.steps.is_empty(), "{:?}", outcome.steps);
+        assert!(lock.get(vault::Derived::Bundle).is_none());
+        assert!(!vault::lock_path(&root).exists());
     }
 }

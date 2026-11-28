@@ -258,7 +258,8 @@ mise run verify          # Dafny specs and Lean 4 proofs (dafny + lake installed
 mise install             # provision toolchains (rust, python, uv, node)
 mise tasks               # everything available
 mise run yidam-build     # install the full-feature binary into .local/bin
-mise run ci              # fmt-check, clippy -D warnings, tests (harness + CLI)
+mise run ci              # what a pull request's CI runs, less jobs mise can't provision
+mise run ci-fast         # fmt-check, clippy -D warnings, tests (harness, CLI, domains)
 mise run docs-dev        # docs site on http://localhost:4321/yidam/
 ```
 

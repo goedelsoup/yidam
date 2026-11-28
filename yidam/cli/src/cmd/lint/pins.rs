@@ -14,15 +14,56 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use super::model::{Check, Severity, Violation};
+use super::model::{Check, CheckSpec, Severity, Violation};
 use crate::corpus::Source;
 use crate::parse::CatalogLocation;
 
-pub(crate) const UNRESOLVED: &str = "catalog-pin-unresolved";
-pub(crate) const AMBIGUOUS: &str = "catalog-pin-ambiguous";
-pub(crate) const ABBREVIATED: &str = "catalog-pin-abbreviated";
-pub(crate) const SYMBOL_MISSING: &str = "catalog-pin-symbol-missing";
-pub(crate) const UNCHECKED: &str = "catalog-pin-unchecked";
+pub(crate) const UNRESOLVED: CheckSpec = CheckSpec {
+    id: "catalog-pin-unresolved",
+    title: "Pinned read names a commit, repository or path that is not there",
+    severity: Severity::Error,
+    rationale: "A `file` location with a `commit` is a read of that file at that commit, in the \
+             repository `repo` names, or in this repository when `repo` is absent. A commit \
+             the repository does not have, a `repo` that `.yidam/tonpa.toml` does not \
+             declare, or a path that does not exist at the commit is a read of nothing, and \
+             every claim resting on it rests on nothing. The pin's fields belong to a `file` \
+             location only, `repo` and `symbol` need a `commit`, and the path is read from \
+             the repository's top level, so it cannot be absolute or climb out with `..`.",
+};
+pub(crate) const AMBIGUOUS: CheckSpec = CheckSpec {
+    id: "catalog-pin-ambiguous",
+    title: "Pinned commit is an abbreviation that matches more than one commit",
+    severity: Severity::Error,
+    rationale: "An abbreviated commit names a read only while its prefix is unique. Once two \
+             commits share it, the pin names neither, and which one a reader lands on depends \
+             on the clone. Write the commit in full.",
+};
+pub(crate) const ABBREVIATED: CheckSpec = CheckSpec {
+    id: "catalog-pin-abbreviated",
+    title: "Pinned commit is abbreviated",
+    severity: Severity::Info,
+    rationale: "A prefix unique today can stop being unique as history grows, and the pin then \
+             names nothing. An abbreviation of at least 7 digits still resolves; the finding \
+             gives the full 40-digit commit to write in its place.",
+};
+pub(crate) const SYMBOL_MISSING: CheckSpec = CheckSpec {
+    id: "catalog-pin-symbol-missing",
+    title: "Pinned symbol does not occur in the file at the commit",
+    severity: Severity::Warn,
+    rationale: "`symbol` says which part of the file was read. Its last segment, split on `::` \
+             and `.`, should occur as a whole word in the file at `commit`; when it does not, \
+             the symbol was renamed before the read, misspelled, or belongs to another file. \
+             The check is a presence check and needs no parser.",
+};
+pub(crate) const UNCHECKED: CheckSpec = CheckSpec {
+    id: "catalog-pin-unchecked",
+    title: "Pinned read cannot be checked in this clone",
+    severity: Severity::Info,
+    rationale: "A shallow clone that cannot see a commit has not shown that the commit is \
+             missing, and a `url` or `github` dependency has no checkout here to look in. \
+             These pins are reported apart from the error, so a CI checkout with shallow \
+             history does not fail on reads that a full clone would resolve.",
+};
 
 // ── the resolver ────────────────────────────────────────────────────────────────
 
@@ -164,9 +205,19 @@ struct Pending<'a> {
     symbol: Option<String>,
 }
 
-/// The five pin checks, in roster order: unresolved, ambiguous, abbreviated, symbol-missing,
+/// The group's checks, one field per spec and named for it, so the roster reaches each
+/// by the name of what it reports rather than by its place in a list (#1630).
+pub(crate) struct Checks {
+    pub(crate) unresolved: Check,
+    pub(crate) ambiguous: Check,
+    pub(crate) abbreviated: Check,
+    pub(crate) symbol_missing: Check,
+    pub(crate) unchecked: Check,
+}
+
+/// The five pin checks, one field each: unresolved, ambiguous, abbreviated, symbol-missing,
 /// unchecked.
-pub(crate) fn checks(root: &Path, sources: &[Source]) -> [Check; 5] {
+pub(crate) fn checks(root: &Path, sources: &[Source]) -> Checks {
     let mut found: [Vec<Violation>; 5] = Default::default();
     let [unresolved, ambiguous, abbreviated, symbol_missing, unchecked] = &mut found;
 
@@ -292,59 +343,13 @@ pub(crate) fn checks(root: &Path, sources: &[Source]) -> [Check; 5] {
     }
 
     let [unresolved, ambiguous, abbreviated, symbol_missing, unchecked] = found;
-    [
-        Check::new(
-            UNRESOLVED,
-            "Pinned read names a commit, repository or path that is not there",
-            Severity::Error,
-            "A `file` location with a `commit` is a read of that file at that commit, in the \
-             repository `repo` names, or in this repository when `repo` is absent. A commit \
-             the repository does not have, a `repo` that `.yidam/tonpa.toml` does not \
-             declare, or a path that does not exist at the commit is a read of nothing, and \
-             every claim resting on it rests on nothing. The pin's fields belong to a `file` \
-             location only, `repo` and `symbol` need a `commit`, and the path is read from \
-             the repository's top level, so it cannot be absolute or climb out with `..`.",
-            unresolved,
-        ),
-        Check::new(
-            AMBIGUOUS,
-            "Pinned commit is an abbreviation that matches more than one commit",
-            Severity::Error,
-            "An abbreviated commit names a read only while its prefix is unique. Once two \
-             commits share it, the pin names neither, and which one a reader lands on depends \
-             on the clone. Write the commit in full.",
-            ambiguous,
-        ),
-        Check::new(
-            ABBREVIATED,
-            "Pinned commit is abbreviated",
-            Severity::Info,
-            "A prefix unique today can stop being unique as history grows, and the pin then \
-             names nothing. An abbreviation of at least 7 digits still resolves; the finding \
-             gives the full 40-digit commit to write in its place.",
-            abbreviated,
-        ),
-        Check::new(
-            SYMBOL_MISSING,
-            "Pinned symbol does not occur in the file at the commit",
-            Severity::Warn,
-            "`symbol` says which part of the file was read. Its last segment, split on `::` \
-             and `.`, should occur as a whole word in the file at `commit`; when it does not, \
-             the symbol was renamed before the read, misspelled, or belongs to another file. \
-             The check is a presence check and needs no parser.",
-            symbol_missing,
-        ),
-        Check::new(
-            UNCHECKED,
-            "Pinned read cannot be checked in this clone",
-            Severity::Info,
-            "A shallow clone that cannot see a commit has not shown that the commit is \
-             missing, and a `url` or `github` dependency has no checkout here to look in. \
-             These pins are reported apart from the error, so a CI checkout with shallow \
-             history does not fail on reads that a full clone would resolve.",
-            unchecked,
-        ),
-    ]
+    Checks {
+        unresolved: Check::new(&UNRESOLVED, unresolved),
+        ambiguous: Check::new(&AMBIGUOUS, ambiguous),
+        abbreviated: Check::new(&ABBREVIATED, abbreviated),
+        symbol_missing: Check::new(&SYMBOL_MISSING, symbol_missing),
+        unchecked: Check::new(&UNCHECKED, unchecked),
+    }
 }
 
 // ── whether a read is still current (RFC-0051 §4) ──────────────────────────────
@@ -670,9 +675,23 @@ mod tests {
         git_out(dir, &["rev-parse", "HEAD"])
     }
 
-    /// Which checks fired, by index, and how often.
+    /// How often each check fired, in the order `Checks` declares them.
     fn fired(root: &Path, locs: Vec<CatalogLocation>) -> [usize; 5] {
-        checks(root, &[source(locs)]).map(|c| c.violations.len())
+        let Checks {
+            unresolved,
+            ambiguous,
+            abbreviated,
+            symbol_missing,
+            unchecked,
+        } = checks(root, &[source(locs)]);
+        [
+            unresolved,
+            ambiguous,
+            abbreviated,
+            symbol_missing,
+            unchecked,
+        ]
+        .map(|c| c.violations.len())
     }
 
     #[test]
@@ -729,7 +748,8 @@ mod tests {
         let c = &checks(
             tmp.path(),
             &[source(vec![pinned("src/lib.rs", Some(&head[..9]), None)])],
-        )[2];
+        )
+        .abbreviated;
         assert!(
             c.violations[0].detail.contains(&head),
             "{:?}",
@@ -770,7 +790,7 @@ mod tests {
             repo: Some("other".into()),
             ..pinned("x.rs", Some(&head), None)
         };
-        let c = &checks(tmp.path(), &[source(vec![loc])])[0];
+        let c = &checks(tmp.path(), &[source(vec![loc])]).unresolved;
         assert!(
             c.violations[0].detail.contains("`sib`"),
             "{:?}",

@@ -33,12 +33,22 @@ of those clobbered this.
 mise run ci
 ```
 
-`fmt --check`, `clippy -D warnings`, and tests across both workspaces — the harness and the CLI.
+This runs the task behind each pull-request job in `.github/workflows/ci.yml`: the harness,
+the CLI, the domain crates and their parity tests, the extension, the editor surface and its
+lint self-test, the SDK parity suite, the design lint, the supply-chain gate, the scaling bench
+and the feature-gated compile check. A gate fails when a pull-request job is missing from it.
 **Check it by exit code**, not by reading the output: a task that fails mid-pipeline still
 prints a lot of green.
 
-`mise run ci` is the wrong size between two edits, though: it formats, lints and tests both
-workspaces. For the CLI suite alone, with an optional filter:
+Five jobs are left out because mise does not install what they need. `verify` needs Lean and
+Dafny, `semver` needs the published crate, `receipt-compat` needs the last release,
+`cross` needs a cross-linker and `quality` needs the other jobs' artifacts. `mark-guard` is
+left out of the design job because it needs `rsvg-convert`. The npm-backed tasks install their
+packages on first run, so nothing has to be installed by hand.
+
+`mise run ci` is the wrong size between two edits. `mise run ci-fast` is the smaller pass:
+format, lint and tests for the harness, the CLI and the domain crates. For the CLI suite alone,
+with an optional filter:
 
 ```sh
 mise run test-cli                 # the whole CLI suite
@@ -51,15 +61,13 @@ held to it by a gate, so a filtered run is the gate on a subset.
 CI runs `ci-cli-cov`, not `ci-cli`: the same steps, with the test run measured for coverage
 instead of run twice. A gate holds the two equal, so `mise run ci` is still the gate you get.
 
-Two things `mise run ci` does *not* cover, and both have bitten:
+One thing `mise run ci` does *not* cover, and it has bitten:
 
 ```sh
 mise run docs-build   # the docs site — an unlisted page fails the build
-mise run ci-vscode    # the extension
 ```
 
-CI runs the harness and the light CLI build as parallel jobs on every PR, plus the extension,
-the parity suite, an aarch64 cross-compile and the scaling bench. A pull request also compiles
+CI runs those tasks as parallel jobs on every PR, plus the five left out above. A pull request also compiles
 the feature-gated code: `ci (cli · feature check)` runs the three clippy lines `ci-cli-full`
 runs: over the default set without `vector-read`, over `--all-features` and over
 `--no-default-features --features reports`. What it does not do is run their

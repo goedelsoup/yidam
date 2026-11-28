@@ -50,6 +50,7 @@ mod light_build;
 mod line_citations;
 mod lint_levels;
 mod lint_registry;
+mod local_ci;
 mod mcp_contract_digest;
 mod mutation_residue;
 mod packaging;
