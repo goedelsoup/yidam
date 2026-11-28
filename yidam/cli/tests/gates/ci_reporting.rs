@@ -813,9 +813,9 @@ fn the_runs_job_conclusions_are_fetched_and_reach_the_merge() {
 
 /// The body of one job in `ci.yml`, comments already stripped.
 ///
-/// Textual rather than parsed: this repository takes no YAML dependency, and the shape a
-/// guard needs is unambiguous here — every job is a two-space key, every job property a
-/// four-space one, so a job ends at the next line whose indent is exactly two.
+/// Textual rather than parsed: the guards below match on the job's own text and indent, which a
+/// parsed document would not keep, and the shape is unambiguous here — every job is a two-space
+/// key, every job property a four-space one, so a job ends at the next line indented exactly two.
 fn job_block(name: &str) -> String {
     let yml = ci_yml();
     let mut out: Vec<&str> = Vec::new();
