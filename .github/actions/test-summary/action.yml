@@ -191,8 +191,8 @@ runs:
 
     # Only on failure, and it is the whole of the evidence: the JUnit carries each failing
     # test's captured output, so a fix can start from the diff rather than from a local
-    # re-run. `report_goldens.rs` and `query_goldens.rs` both honour `UPDATE_GOLDENS=1`,
-    # which is the one command a golden failure needs once its diff is in hand.
+    # re-run. Every golden honours `UPDATE_GOLDENS=1` (#1634), which is the one command a
+    # golden failure needs once its diff is in hand.
     - name: Keep the results when the gate failed
       if: failure()
       uses: actions/upload-artifact@v4

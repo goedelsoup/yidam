@@ -2077,23 +2077,7 @@ fn the_documented_workflow_is_what_the_generator_writes() {
             String::from_utf8_lossy(&o.stderr)
         );
         let actual = String::from_utf8_lossy(&o.stdout).to_string();
-        let path = dir.join(file);
-        if std::env::var("UPDATE_GOLDENS").is_ok() {
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(&path, &actual).unwrap();
-            continue;
-        }
-        let expected = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-            panic!(
-                "missing {}. Run with UPDATE_GOLDENS=1 to write it.",
-                path.display()
-            )
-        });
-        assert_eq!(
-            expected, actual,
-            "\n{file} drifted from what `yidam cluster workflow` writes. If the change is \
-             intended, re-run with UPDATE_GOLDENS=1 and review the diff.\n"
-        );
+        common::golden::assert(&dir.join(file), &actual);
         for doc in serde_yaml::Deserializer::from_str(&actual) {
             Value::deserialize(doc).unwrap_or_else(|e| panic!("{file} is not YAML: {e}"));
         }

@@ -743,7 +743,6 @@ fn derived_filter(walk: &Walk, leg: usize) -> (String, usize) {
 #[test]
 fn the_feature_test_filters_are_the_ones_the_attributes_derive() {
     let walk = walk();
-    let update = std::env::var("UPDATE_GOLDENS").is_ok();
     let mut stale = Vec::new();
     for (i, (leg, flags)) in LEGS.iter().enumerate() {
         let (derived, count) = derived_filter(&walk, i);
@@ -753,31 +752,14 @@ fn the_feature_test_filters_are_the_ones_the_attributes_derive() {
              would compile a build to run nothing. Drop the leg from LEGS and from mise.toml."
         );
         let path = golden(leg);
-        let committed = std::fs::read_to_string(&path).unwrap_or_default();
-        if committed == derived {
-            continue;
-        }
-        if update {
-            std::fs::create_dir_all(path.parent().expect("a golden has a directory"))
-                .expect("the goldens directory can be made");
-            std::fs::write(&path, &derived).expect("the filter can be written");
-        } else {
-            let old: BTreeSet<&str> = committed.lines().collect();
-            let new: BTreeSet<&str> = derived.lines().collect();
-            let added: Vec<&&str> = new.difference(&old).collect();
-            let removed: Vec<&&str> = old.difference(&new).collect();
-            stale.push(format!(
-                "  {}: {count} tests derived\n    missing: {added:?}\n    no longer derived: \
-                 {removed:?}",
-                rel(&path)
-            ));
+        if let Err(failure) = crate::common::golden::check(&path, &derived) {
+            stale.push(format!("{}: {count} tests derived. {failure}", rel(&path)));
         }
     }
     assert!(
         stale.is_empty(),
         "a test's feature attributes changed, so what a pull request runs under a non-default \
-         build changed with them, and the committed filter did not. Re-run with \
-         UPDATE_GOLDENS=1 and review the diff:\n{}",
+         build changed with them, and the committed filter did not:\n{}",
         stale.join("\n")
     );
 }

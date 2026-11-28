@@ -71,7 +71,7 @@ const FIX_MODE: &str = "Re-running with UPDATE_GOLDENS=1 rewrites, in place, eac
 fn citations() -> Vec<yidam::LineCitation> {
     static REPAIRED: OnceLock<()> = OnceLock::new();
     let root = repo_root();
-    if std::env::var("UPDATE_GOLDENS").is_ok() {
+    if crate::common::golden::updating() {
         REPAIRED.get_or_init(|| repair_in_place(&root));
     }
     yidam::collect_line_citations(&root)
@@ -285,7 +285,7 @@ fn the_unanchored_population_does_not_grow() {
     let added = multiset_minus(&found, &listed);
     let retired = multiset_minus(&listed, &found);
 
-    if std::env::var("UPDATE_GOLDENS").is_ok() && added.is_empty() && !retired.is_empty() {
+    if crate::common::golden::updating() && added.is_empty() && !retired.is_empty() {
         let path = unanchored_baseline_path();
         let text = std::fs::read_to_string(&path).expect("read baseline");
         let mut drop = retired.clone();

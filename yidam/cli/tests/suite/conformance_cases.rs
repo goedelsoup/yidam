@@ -150,22 +150,13 @@ fn every_case_produces_what_it_records() {
             serde_json::to_string_pretty(&observe(staged.path())).unwrap()
         );
         let path = conformance().join("cases").join(case).join("expected.json");
-        if std::env::var("UPDATE_GOLDENS").is_ok() {
-            std::fs::write(&path, &actual).unwrap();
-            continue;
-        }
-        match std::fs::read_to_string(&path) {
-            Ok(expected) if expected == actual => {}
-            Ok(expected) => drifted.push(format!(
-                "{case}:\n--- expected\n{expected}--- actual\n{actual}"
-            )),
-            Err(_) => drifted.push(format!("{case}: no expected.json")),
+        if let Err(failure) = crate::common::golden::check(&path, &actual) {
+            drifted.push(format!("{case}: {failure}"));
         }
     }
     assert!(
         drifted.is_empty(),
-        "\nconformance cases drifted from what the binary produces. If the change is intended, \
-         re-run with UPDATE_GOLDENS=1 and review the diff.\n\n{}",
+        "\nconformance cases drifted from what the binary produces.\n\n{}",
         drifted.join("\n")
     );
 }

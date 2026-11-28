@@ -3215,18 +3215,12 @@ decision := {"allow": true, "deny": []}
             .map(|e| serde_json::json!({ "id": e.spec.id, "rationale": e.spec.rationale }))
             .collect();
         let actual = serde_json::to_string_pretty(&entries).unwrap() + "\n";
-        if std::env::var_os("UPDATE_GOLDENS").is_some() {
-            fs::write(&path, &actual).unwrap();
+        let Err(failure) = crate::golden::check(&path, &actual) else {
             return;
-        }
-        let expected = fs::read_to_string(&path).unwrap_or_else(|_| {
-            panic!(
-                "missing golden {}. Run with UPDATE_GOLDENS=1 to create it.",
-                path.display()
-            )
-        });
-        let golden: Vec<serde_json::Value> =
-            serde_json::from_str(&expected).expect("checks.json is a JSON array");
+        };
+        // The diff shows the lines; the ids name the checks, which a rationale line does not.
+        let committed = fs::read_to_string(&path).unwrap_or_default();
+        let recorded: Vec<serde_json::Value> = serde_json::from_str(&committed).unwrap_or_default();
         let rationale_of = |rows: &[serde_json::Value], id: &str| -> Option<String> {
             rows.iter()
                 .find(|r| r["id"] == id)
@@ -3237,21 +3231,16 @@ decision := {"allow": true, "deny": []}
         };
         let mut drifted: Vec<String> = ids(&entries)
             .into_iter()
-            .chain(ids(&golden))
+            .chain(ids(&recorded))
             .map(|id| id.trim_matches('"').to_string())
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
-            .filter(|id| rationale_of(&entries, id) != rationale_of(&golden, id))
+            .filter(|id| rationale_of(&entries, id) != rationale_of(&recorded, id))
             .collect();
-        if drifted.is_empty() && expected != actual {
+        if drifted.is_empty() {
             drifted.push("(no rationale differs: the order or the formatting does)".into());
         }
-        assert!(
-            drifted.is_empty(),
-            "the rationale of {drifted:?} drifted from {}. If the change is intended, re-run \
-             with UPDATE_GOLDENS=1 and review the diff.",
-            path.display()
-        );
+        panic!("\nthe rationale of {drifted:?} drifted.\n{failure}");
     }
 
     use crate::git::fixture::commit as commit_all;

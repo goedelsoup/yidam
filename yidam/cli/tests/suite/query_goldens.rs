@@ -320,9 +320,6 @@ fn run_case(dir: &Path, case: &Case) -> (String, i32) {
 #[test]
 fn every_case_matches_its_golden() {
     let dir = stage();
-    let update = std::env::var("UPDATE_GOLDENS").is_ok();
-    std::fs::create_dir_all(goldens_dir()).unwrap();
-
     let mut failures = Vec::new();
     for case in CASES {
         let (stdout, code) = run_case(dir.path(), case);
@@ -330,18 +327,8 @@ fn every_case_matches_its_golden() {
 
         let actual = redact_run(&redact(&stdout, dir.path()));
         let path = goldens_dir().join(format!("{}.json", case.name));
-        if update {
-            std::fs::write(&path, &actual).unwrap();
-            continue;
-        }
-        let expected = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-            panic!("no golden for `{}` — run with UPDATE_GOLDENS=1", case.name)
-        });
-        if expected != actual {
-            failures.push(format!(
-                "--- {} ---\nexpected:\n{expected}\nactual:\n{actual}",
-                case.name
-            ));
+        if let Err(failure) = crate::common::golden::check(&path, &actual) {
+            failures.push(format!("{}: {failure}", case.name));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));

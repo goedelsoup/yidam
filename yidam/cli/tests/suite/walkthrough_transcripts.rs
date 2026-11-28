@@ -47,9 +47,10 @@
 //!
 //! # Updating
 //!
-//! `UPDATE_TRANSCRIPTS=1 cargo test --test suite walkthrough_transcripts::` rewrites every block in
-//! place from a fresh run, following `query_goldens`' `UPDATE_GOLDENS=1`. The page is the
-//! golden; the diff is the review.
+//! `UPDATE_GOLDENS=1 cargo test --test suite walkthrough_transcripts::` rewrites every block
+//! in place from a fresh run, as it rewrites every other golden (#1634). The page is the
+//! golden; the diff is the review. It is not `common::golden::assert`: the golden is a block
+//! inside a page rather than a whole file, and it is compared after redaction.
 
 use crate::common;
 
@@ -149,7 +150,7 @@ fn transcripts(block: &str) -> Vec<Transcript> {
             None => {
                 if let Some(last) = out.last_mut() {
                     // Trailing spaces are normalised away here rather than at comparison, so
-                    // a block rewritten by UPDATE_TRANSCRIPTS cannot keep whitespace that
+                    // a block rewritten by UPDATE_GOLDENS cannot keep whitespace that
                     // compared equal and would be stripped by the next editor to open it.
                     last.output.push_str(line.trim_end());
                     last.output.push('\n');
@@ -426,7 +427,7 @@ fn a_walkthrough_with_no_corpus_records_no_transcript() {
 fn every_walkthrough_transcript_is_still_the_output() {
     let root = repo_root();
     let known = examples();
-    let update = std::env::var("UPDATE_TRANSCRIPTS").is_ok();
+    let update = common::golden::updating();
     let mut checked = 0usize;
 
     for rel in pages() {
@@ -496,7 +497,7 @@ fn every_walkthrough_transcript_is_still_the_output() {
                         want,
                         have,
                         "\n{rel}: `$ {}` no longer produces what the page records.\n\
-                         Re-run with UPDATE_TRANSCRIPTS=1 to rewrite the block, and read the \
+                         Re-run with UPDATE_GOLDENS=1 to rewrite the block, and read the \
                          diff — a changed transcript is either a corpus that moved or a page \
                          that was wrong.\n\n--- the page says ---\n{}\n\n--- it now says \
                          ---\n{}\n",
@@ -537,9 +538,5 @@ fn every_walkthrough_transcript_is_still_the_output() {
     assert!(
         checked > 0,
         "no transcript was run — every corpus-backed walkthrough has stopped being recognised"
-    );
-    assert!(
-        !update,
-        "UPDATE_TRANSCRIPTS rewrote the pages; re-run without it to check them"
     );
 }

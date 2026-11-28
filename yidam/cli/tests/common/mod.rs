@@ -8,6 +8,7 @@
 #![allow(dead_code)] // each test binary uses a different part of this
 
 pub mod git;
+pub mod golden;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

@@ -423,21 +423,10 @@ mod tests {
     #[test]
     fn the_fixture_renders_to_its_golden() {
         for (path, body) in rendered() {
-            let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            let at = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures/warehouse")
                 .join(&path);
-            if std::env::var_os("YIDAM_BLESS").is_some() {
-                std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
-                std::fs::write(&golden, &body).unwrap();
-                continue;
-            }
-            let want = std::fs::read_to_string(&golden).unwrap_or_else(|_| {
-                panic!(
-                    "missing golden {}; run with YIDAM_BLESS=1 to write it",
-                    golden.display()
-                )
-            });
-            assert_eq!(body, want, "{path} differs from its golden");
+            crate::golden::assert(&at, &body);
         }
     }
 
@@ -457,21 +446,10 @@ mod tests {
     #[test]
     fn the_textql_folder_renders_to_its_golden() {
         for (path, body) in textql().files {
-            let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            let at = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures/textql")
                 .join(&path);
-            if std::env::var_os("YIDAM_BLESS").is_some() {
-                std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
-                std::fs::write(&golden, &body).unwrap();
-                continue;
-            }
-            let want = std::fs::read_to_string(&golden).unwrap_or_else(|_| {
-                panic!(
-                    "missing golden {}; run with YIDAM_BLESS=1 to write it",
-                    golden.display()
-                )
-            });
-            assert_eq!(body, want, "{path} differs from its golden");
+            crate::golden::assert(&at, &body);
         }
     }
 
