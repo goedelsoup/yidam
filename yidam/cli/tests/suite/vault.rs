@@ -1478,6 +1478,93 @@ fn a_dry_run_leaves_the_cache_as_it_found_it() {
     assert_eq!(cache_files(&cache), Vec::<String>::new(), "{said}");
 }
 
+/// **`--vault` says what it left out, and where that goes (#1731).** The index routes to
+/// `sources`; `--vault default` excludes it. Before, the push and its dry run printed nothing
+/// and exited 0, which reads as a push that had nothing new to send.
+#[test]
+fn a_derived_push_names_the_vault_of_an_artifact_the_vault_flag_leaves_out() {
+    let (pub_, priv_) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let tmp = repo(Some(&two_vaults(
+        pub_.path(),
+        "catalog",
+        priv_.path(),
+        "index",
+    )));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"vectors");
+
+    let line = "index: routed to `sources`, which `--vault` leaves out; nothing to send";
+    for dry in [true, false] {
+        let mut args = vec!["vault", "push", "--index", "--vault", "default"];
+        if dry {
+            args.push("--dry-run");
+        }
+        let r = run(tmp.path(), &cache, &args);
+        r.ok();
+        // On stderr, beside "routed to the local cache; nothing to send".
+        assert!(r.stderr.contains(line), "dry run {dry}: {}", r.said());
+        assert!(!r.stdout.contains("index"), "dry run {dry}: {}", r.said());
+    }
+    assert!(!pub_.path().join("sha256").exists(), "nothing re-routed");
+    assert!(!priv_.path().join("sha256").exists(), "and nothing sent");
+    assert!(!tmp.path().join(".yidam/index.lock").exists());
+}
+
+/// One asked-for artifact in the named vault and one not: the one is sent, the other is said.
+#[test]
+fn a_derived_push_sends_what_the_vault_flag_names_and_says_what_it_left_out() {
+    let (pub_, priv_) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let config = format!(
+        "[vault.default]\nurl = \"file://{}\"\naudience = \"anyone\"\n\
+         holds = [\"catalog\", \"bundle\"]\n\
+         [vault.sources]\nurl = \"file://{}\"\naudience = \"the sangha only\"\n\
+         holds = [\"index\"]\n",
+        pub_.path().display(),
+        priv_.path().display()
+    );
+    let tmp = repo(Some(&config));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"vectors");
+    write(&tmp.path().join(".yidam/bundle.yiz"), b"a bundle");
+
+    let line = "index: routed to `sources`, which `--vault` leaves out; nothing to send";
+    let dry = run(
+        tmp.path(),
+        &cache,
+        &[
+            "vault",
+            "push",
+            "--index",
+            "--bundle",
+            "--vault",
+            "default",
+            "--dry-run",
+        ],
+    );
+    dry.ok();
+    assert!(dry.stderr.contains(line), "{}", dry.said());
+    assert!(
+        dry.stdout.contains("would send bundle") && dry.stdout.contains("to `default`"),
+        "{}",
+        dry.said()
+    );
+
+    let r = run(
+        tmp.path(),
+        &cache,
+        &["vault", "push", "--index", "--bundle", "--vault", "default"],
+    );
+    r.ok();
+    assert!(r.stderr.contains(line), "{}", r.said());
+    assert!(r.stdout.contains("sent bundle"), "{}", r.said());
+    assert!(!priv_.path().join("sha256").exists(), "the index stays put");
+    let lock = std::fs::read_to_string(tmp.path().join(".yidam/index.lock")).unwrap();
+    assert!(
+        lock.contains("[bundle]") && !lock.contains("[index]"),
+        "{lock}"
+    );
+}
+
 /// **A pack that fails leaves no staging file behind (#1615).** The staging file sits in the
 /// cache root under this process's id, so nothing would ever look for it again.
 #[cfg(unix)]
