@@ -93,20 +93,36 @@ export const CLAIM_TOKENS = [
   '[open]',
 ] as const
 
+/** A class definition that does not parse as one YAML mapping. */
+export class ClassParseError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ClassParseError'
+  }
+}
+
 /**
- * Read a class definition. `name` is the fallback when the file does not name itself.
+ * Read a class definition. `name` is the class: the `<class>.ont.yml` file stem.
  *
- * A file that does not parse yields a class that declares nothing, which under the silence
- * rule constrains nothing — the same direction `lint` degrades in.
+ * **The stem names the class, whatever a `class:` field inside says (#1636).** It is the
+ * name every CLI route keys by, so a field that disagrees is not read.
+ *
+ * **A document that does not parse throws** `ClassParseError`: a YAML syntax error, more
+ * than one document, or a top level that is not a mapping. An empty document is not an
+ * error; it is a class declaring nothing. Every key is read on its own, and one of the wrong
+ * shape reads as absent. The Rust SDK is the reference.
  */
 export function parseClass(name: string, content: string): OntologyClass {
-  let doc: Record<string, unknown> = {}
+  let parsed: unknown
   try {
-    const parsed = parseYaml(content) as unknown
-    if (parsed && typeof parsed === 'object') doc = parsed as Record<string, unknown>
-  } catch {
-    doc = {}
+    parsed = parseYaml(content) as unknown
+  } catch (e) {
+    throw new ClassParseError(e instanceof Error ? e.message : String(e))
   }
+  if (parsed !== null && parsed !== undefined && (typeof parsed !== 'object' || Array.isArray(parsed))) {
+    throw new ClassParseError('a class definition is a mapping, and this document is not one')
+  }
+  const doc = (parsed ?? {}) as Record<string, unknown>
   const str = (v: unknown): string => (typeof v === 'string' ? v : '')
   const list = (v: unknown): Record<string, unknown>[] =>
     Array.isArray(v) ? v.filter((i): i is Record<string, unknown> => !!i && typeof i === 'object') : []
@@ -127,9 +143,8 @@ export function parseClass(name: string, content: string): OntologyClass {
       fields: properties(p.fields),
     }))
 
-  const declared = str(doc.class)
   return {
-    name: declared !== '' ? declared : name,
+    name,
     label: str(doc.label),
     description: str(doc.description),
     properties: properties(doc.properties),

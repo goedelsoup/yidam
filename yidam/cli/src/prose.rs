@@ -364,8 +364,8 @@ mod tests {
         assert!(f.for_class("finding").contains(&"description".to_string()));
     }
 
-    /// A file that does not parse declares nothing rather than taking the corpus down —
-    /// the direction `parse_class` already degrades in.
+    /// A file that does not parse declares nothing rather than taking the corpus down;
+    /// `lint` reports it as `malformed-yaml`.
     #[test]
     fn an_unparseable_declaration_declares_nothing() {
         let f = fields("", &[("broken", "class: [this is: not: a class\n")]);

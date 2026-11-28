@@ -66,7 +66,7 @@ Each SDK exports the same eight modules.
 | `git` | `CommitKind`, `CommitEvent`; commit classification and the verb vocabulary |
 | `graph` | `GraphEdge`; reachability and citation over a list of edges |
 | `markers` | `Marker`, `MalformedBlock`, `Fault`, `RegenSpan`, `Scan`; marker parsing and `update_regen` |
-| `ontology` | `OntologyClass`, `OntologyProperty`, `OntologyEdge`; `parse_class`, `source_classes`, `compile_class_schema` |
+| `ontology` | `OntologyClass`, `OntologyProperty`, `OntologyEdge`, `ClassParseError`; `parse_class`, `source_classes`, `compile_class_schema` |
 | `prose` | `ALWAYS`; what a node says, given the keys its class declared |
 | `uri` | `Kind`, `Reference`; the reference grammar of RFC-0032 |
 
@@ -172,7 +172,11 @@ OntologyEdge
   description  : string
 ```
 
-`parse_class(name, content)` reads one `.ont.yml` into an `OntologyClass`.
+`parse_class(name, content)` reads one `.ont.yml` into an `OntologyClass`. `name` is the
+file's stem, and it names the class: a `class:` field inside the document is not read. A
+document that does not parse, or whose top level is not a mapping, is refused with a
+`ClassParseError` rather than read as an empty class. An empty document declares nothing.
+A top-level key of the wrong shape reads as absent, and the rest of the class is kept.
 `compile_class_schema` turns one into a JSON Schema for its instances. It is deliberately
 **no stricter than `yidam lint`**: declared properties are typed, and listed as `required`
 for exactly those the class declared `required: true` — the same declaration
@@ -380,9 +384,10 @@ pub struct OntologyClass { pub name, pub label, pub description, pub properties,
 pub struct OntologyProperty { pub name, pub property_type, pub description, pub required,
                               pub unit, pub values, pub items, pub fields }
 pub struct OntologyEdge { pub relationship, pub target, pub direction, pub description }
+pub struct ClassParseError  // .reason() -> &str
 pub const LIST_ITEM_TYPES: [&str; 6]
 pub const CLAIM_TOKENS: [&str; 6]
-pub fn parse_class(name: &str, content: &str) -> OntologyClass
+pub fn parse_class(name: &str, content: &str) -> Result<OntologyClass, ClassParseError>
 pub fn source_classes(classes: &[OntologyClass]) -> BTreeSet<String>
 pub fn compile_class_schema(class: &OntologyClass) -> Value
 
@@ -471,7 +476,8 @@ export interface OntologyClass { name, label, description, properties, edges }
 export interface OntologyProperty { name, type, description, required, unit, values, items, fields }
 export interface OntologyEdge { relationship, target, direction, description }
 export const LIST_ITEM_TYPES, CLAIM_TOKENS
-export function parseClass(name: string, content: string): OntologyClass
+export class ClassParseError extends Error
+export function parseClass(name: string, content: string): OntologyClass  // throws ClassParseError
 export function sourceClasses(classes: OntologyClass[]): Set<string>
 export function compileClassSchema(cls: OntologyClass): Record<string, unknown>
 
@@ -540,10 +546,11 @@ def update_regen(text: str, command: str, new_content: str) -> str: ...
 # Also TemplateMarker, RegenMarker, Fault, MalformedBlock, RegenSpan and Scan.
 
 # yidam_core.ontology
-def parse_class(name: str, content: str) -> OntologyClass: ...
+def parse_class(name: str, content: str) -> OntologyClass: ...  # raises ClassParseError
 def source_classes(classes: list[OntologyClass]) -> set[str]: ...
 def compile_class_schema(cls: OntologyClass) -> dict: ...
-# Also OntologyClass, OntologyProperty, OntologyEdge, LIST_ITEM_TYPES and CLAIM_TOKENS.
+# Also OntologyClass, OntologyProperty, OntologyEdge, ClassParseError (a ValueError),
+# LIST_ITEM_TYPES and CLAIM_TOKENS.
 
 # yidam_core.prose — what a node says, given the keys its class declared
 ALWAYS = "description"

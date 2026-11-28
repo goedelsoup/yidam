@@ -12,7 +12,7 @@ import {
 import { classifyCommit, isRecognizedVerb } from '../src/git.ts'
 import { findReachable, findCitations, type GraphEdge } from '../src/graph.ts'
 import { scanMarkers, updateRegen } from '../src/markers.ts'
-import { parseClass, compileClassSchema } from '../src/ontology.ts'
+import { parseClass, compileClassSchema, ClassParseError } from '../src/ontology.ts'
 import {
   parseReference,
   renderReference,
@@ -157,12 +157,19 @@ describe('parity: compile_class_schema', () => {
 
   for (const fx of fixtures) {
     const inp = fx['input'] as Record<string, string>
-    const exp = fx['expected'] as Record<string, string>
+    const exp = fx['expected'] as Record<string, unknown>
     it(fx['description'] as string, () => {
+      // A fixture either refuses the document or compiles it; one that says neither is
+      // ungraded, so it fails here rather than passing on whatever the parser did.
+      if ('refused' in exp) {
+        expect(exp['refused']).toBe(true)
+        expect(() => parseClass(inp['name'], inp['content'])).toThrow(ClassParseError)
+        return
+      }
       const got = compileClassSchema(parseClass(inp['name'], inp['content']))
       // Compared as parsed JSON, not as text: key order and whitespace are not part of the
       // contract, and three languages will not agree on either.
-      expect(got).toEqual(JSON.parse(exp['schema']))
+      expect(got).toEqual(JSON.parse(exp['schema'] as string))
     })
   }
 })

@@ -1,0 +1,36 @@
+function = "compile_class_schema"
+description = "A top-level key of the wrong shape reads as absent and the rest of the class is kept: a `label` that is a number, an `edges` that is a mapping. One wrong key must not empty the class (#1636)"
+
+[input]
+name = "reach"
+content = """
+label: 7
+description: A length of channel.
+edges:
+  relationship: flows into
+properties:
+  - name: length_km
+    type: number
+"""
+
+[expected]
+schema = """
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yidam corpus node — reach",
+  "description": "A length of channel.",
+  "type": "object",
+  "properties": {
+    "class": { "const": "reach" },
+    "properties": {
+      "type": "object",
+      "properties": {
+        "length_km": { "type": "number" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["class"],
+  "additionalProperties": true
+}
+"""

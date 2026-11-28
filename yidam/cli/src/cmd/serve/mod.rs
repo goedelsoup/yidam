@@ -114,7 +114,11 @@ pub(crate) struct ServerState {
     /// what the gate keys on: `load_classes` uses the stem always, and `unknown-class`
     /// compares an instance's `class:` against the set of stems. Where the two disagree,
     /// answering from the field would license edges for a class no instance belongs to.
-    pub classes: Vec<(String, yidam_core::ontology::OntologyClass)>,
+    ///
+    /// The contract is [`crate::corpus::Class::contract`], so a file `lint` reports as
+    /// `malformed-yaml` is the error it is here too, with its reason, and not a class that
+    /// declares nothing (#1636).
+    pub classes: Vec<(String, Result<yidam_core::ontology::OntologyClass, String>)>,
     /// The corpus as `yidam query` reads it, loaded once.
     ///
     /// A second parse of the same directory, and deliberately not a projection of `nodes`.
@@ -347,10 +351,11 @@ impl ServerState {
             .classes
             .iter()
             .map(|c| {
-                let name = stem(&c.filename).replace(".ont", "");
-                let text = String::from_utf8_lossy(&c.content);
-                let class = yidam_core::ontology::parse_class(&name, &text);
-                (name, class)
+                let class = crate::corpus::Class::parse(
+                    c.filename.clone(),
+                    String::from_utf8_lossy(&c.content).into_owned(),
+                );
+                (class.name.clone(), class.contract())
             })
             .collect();
         let citations = load_citations(root, &nodes);
@@ -1108,14 +1113,22 @@ mod tests {
             classes: vec![
                 (
                     "concept".to_string(),
-                    yidam_core::ontology::parse_class(
-                        "concept",
+                    crate::corpus::Class::parse(
+                        "concept.ont.yml",
                         "class: concept\nedges:\n  - relationship: enables\n    target: concept\n    direction: out\n",
-                    ),
+                    )
+                    .contract(),
                 ),
                 (
                     "silent".to_string(),
-                    yidam_core::ontology::parse_class("silent", "class: silent\n"),
+                    crate::corpus::Class::parse("silent.ont.yml", "class: silent\n").contract(),
+                ),
+                // A class file that does not parse: an error naming its reason, not a
+                // class that has said nothing (#1636).
+                (
+                    "broken".to_string(),
+                    crate::corpus::Class::parse("broken.ont.yml", "label: \"unclosed\n")
+                        .contract(),
                 ),
             ],
             citations: Default::default(),
@@ -1434,5 +1447,46 @@ mod tests {
         state.reload().unwrap();
         assert!(!state.act);
         assert_eq!(state.act_withheld.as_deref(), Some("withheld for the test"));
+    }
+
+    /// The loader `yidam serve` starts from reads each class file through
+    /// `corpus::Class::contract` (#1636): the stem names the class, and a file that does not
+    /// parse is an `Err` carrying its reason rather than an empty class. `test_state` builds
+    /// its classes by hand, so only this test reaches the loader itself.
+    #[test]
+    fn the_loader_names_classes_by_stem_and_keeps_a_parse_failure() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+        let corpus = root.join(".yidam/corpus");
+        std::fs::create_dir_all(&corpus).unwrap();
+        for args in [
+            &["init", "-q"][..],
+            &["config", "user.email", "t@t.co"],
+            &["config", "user.name", "T"],
+        ] {
+            crate::git::fixture::git(root, args);
+        }
+        std::fs::write(
+            corpus.join("gage.ont.yml"),
+            "class: station\nlabel: Gage\nedges:\n  - relationship: feeds\n    target: reach\n",
+        )
+        .unwrap();
+        std::fs::write(corpus.join("reach.ont.yml"), "label: \"unclosed\n").unwrap();
+
+        let state = ServerState::load(root).unwrap();
+        let entry = |name: &str| {
+            state
+                .classes
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, c)| c.clone())
+                .unwrap_or_else(|| panic!("no class `{name}` in {:?}", state.classes))
+        };
+        let gage = entry("gage").expect("gage.ont.yml parses");
+        assert_eq!(gage.name, "gage", "the stem names it, not `class: station`");
+        assert_eq!(gage.edges.len(), 1);
+        assert!(state.classes.iter().all(|(n, _)| n != "station"));
+        let reason = entry("reach").expect_err("reach.ont.yml does not parse");
+        assert!(!reason.is_empty(), "the refusal carries a reason");
     }
 }

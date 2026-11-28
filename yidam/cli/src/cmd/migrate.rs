@@ -790,10 +790,13 @@ fn plan_property_rename(
     if !check_class(corpus, class, report) {
         return;
     }
+    let Some(contract) = read_declaration(corpus, class, report) else {
+        return;
+    };
     if old == new {
         report.blocked.push("the two names are the same".into());
     }
-    let declared = declared_properties(corpus, class);
+    let declared = declared_properties(&contract);
     if !declared.iter().any(|(n, _)| n == old) {
         report
             .blocked
@@ -845,13 +848,16 @@ fn plan_value_rename(
     if !check_class(corpus, class, report) {
         return;
     }
+    let Some(contract) = read_declaration(corpus, class, report) else {
+        return;
+    };
     if from == to {
         report.blocked.push("the two values are the same".into());
     }
     if to.is_empty() {
         report.blocked.push("the new value is empty".into());
     }
-    if !declared_properties(corpus, class)
+    if !declared_properties(&contract)
         .iter()
         .any(|(n, _)| n == property)
     {
@@ -862,7 +868,7 @@ fn plan_value_rename(
     }
     // The set as the gate reads it, so a value the declaration spells in a form this cannot
     // locate is refused below rather than half-renamed.
-    let set = declared_values(corpus, class, property);
+    let set = declared_values(&contract, property);
     if set.is_empty() {
         report.blocked.push(format!(
             "`{class}.{property}` declares no `values:` — there is no set to rename within"
@@ -1089,7 +1095,10 @@ fn plan_property_retype(
     if !check_class(corpus, class, report) {
         return;
     }
-    let declared = declared_properties(corpus, class);
+    let Some(contract) = read_declaration(corpus, class, report) else {
+        return;
+    };
+    let declared = declared_properties(&contract);
     let Some((_, current)) = declared.iter().find(|(n, _)| n == property) else {
         report
             .blocked
@@ -1119,7 +1128,7 @@ fn plan_property_retype(
     // instance outside the set would be a migration into a failing build. Read once, here,
     // and empty on every other type.
     let set = match new_type {
-        "string" => declared_values(corpus, class, property),
+        "string" => declared_values(&contract, property),
         _ => vec![],
     };
     for path in instances_of(corpus, class) {
@@ -1233,7 +1242,10 @@ fn plan_edge_retarget(
              not exist would make every edge a violation"
         ));
     }
-    let Some(old_target) = declared_edge_target(corpus, class, relationship) else {
+    let Some(contract) = read_declaration(corpus, class, report) else {
+        return;
+    };
+    let Some(old_target) = declared_edge_target(&contract, relationship) else {
         if report.blocked.is_empty() {
             report.blocked.push(format!(
                 "`{class}` declares no relationship `{relationship}`"
@@ -1307,36 +1319,60 @@ fn plan_edge_retarget(
     }
 }
 
+/// The class's declaration, or `None` with the reason pushed onto `blocked`.
+///
+/// **A class file that does not parse blocks the plan (#1636).** It was read as a class
+/// declaring nothing, so a property rename reported "declares no property" about a property
+/// the file plainly declares. Read through [`crate::corpus::Class`], so the verdict is the
+/// one `lint` reports as `malformed-yaml`.
+fn read_declaration(
+    corpus: &Path,
+    class: &str,
+    report: &mut MigrateReport,
+) -> Option<yidam_core::ontology::OntologyClass> {
+    let path = ont_path(corpus, class);
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    match crate::corpus::Class::parse(path.to_string_lossy().into_owned(), text).contract() {
+        Ok(declared) => Some(declared),
+        Err(reason) => {
+            report.blocked.push(format!(
+                "`{class}.ont.yml` does not parse ({reason}) — fix it first; `yidam lint` \
+                 reports it as malformed-yaml"
+            ));
+            None
+        }
+    }
+}
+
 /// `(name, type)` for each property the class declares.
-fn declared_properties(corpus: &Path, class: &str) -> Vec<(String, String)> {
-    let text = std::fs::read_to_string(ont_path(corpus, class)).unwrap_or_default();
-    let parsed = yidam_core::ontology::parse_class(class, &text);
-    parsed
+fn declared_properties(declared: &yidam_core::ontology::OntologyClass) -> Vec<(String, String)> {
+    declared
         .properties
-        .into_iter()
-        .map(|p| (p.name, p.property_type))
+        .iter()
+        .map(|p| (p.name.clone(), p.property_type.clone()))
         .collect()
 }
 
 /// The closed set a property declares (RFC-0044), or empty.
-fn declared_values(corpus: &Path, class: &str, property: &str) -> Vec<String> {
-    let text = std::fs::read_to_string(ont_path(corpus, class)).unwrap_or_default();
-    yidam_core::ontology::parse_class(class, &text)
+fn declared_values(declared: &yidam_core::ontology::OntologyClass, property: &str) -> Vec<String> {
+    declared
         .properties
-        .into_iter()
+        .iter()
         .find(|p| p.name == property)
-        .map(|p| p.values)
+        .map(|p| p.values.clone())
         .unwrap_or_default()
 }
 
 /// The class a relationship declares as its other end.
-fn declared_edge_target(corpus: &Path, class: &str, relationship: &str) -> Option<String> {
-    let text = std::fs::read_to_string(ont_path(corpus, class)).unwrap_or_default();
-    yidam_core::ontology::parse_class(class, &text)
+fn declared_edge_target(
+    declared: &yidam_core::ontology::OntologyClass,
+    relationship: &str,
+) -> Option<String> {
+    declared
         .edges
-        .into_iter()
+        .iter()
         .find(|e| e.relationship == relationship)
-        .map(|e| e.target)
+        .map(|e| e.target.clone())
 }
 
 fn instances_of(corpus: &Path, class: &str) -> Vec<PathBuf> {
@@ -2258,6 +2294,59 @@ mod tests {
             old: old.into(),
             new: new.into(),
         }
+    }
+
+    /// A class file that does not parse blocks every plan that reads its declaration, with
+    /// the reason, rather than reporting it declares nothing (#1636). A class rename reads
+    /// no declaration and is not blocked by it.
+    #[test]
+    fn an_unparseable_class_blocks_every_plan_that_reads_it() {
+        let (_t, root, corpus) = corpus();
+        std::fs::write(
+            corpus.join("gauge.ont.yml"),
+            "label: \"unclosed\nproperties:\n  - name: units\n    type: string\n",
+        )
+        .unwrap();
+        let ops = [
+            Operation::PropertyRename {
+                class: "gauge".into(),
+                old: "units".into(),
+                new: "unit".into(),
+            },
+            Operation::PropertyRetype {
+                class: "gauge".into(),
+                property: "units".into(),
+                new_type: "text".into(),
+            },
+            Operation::ValueRename {
+                class: "gauge".into(),
+                property: "units".into(),
+                from: "cfs".into(),
+                to: "cumecs".into(),
+            },
+            Operation::EdgeRetarget {
+                class: "gauge".into(),
+                relationship: "near".into(),
+                new_target: "concept".into(),
+            },
+        ];
+        for op in &ops {
+            let r = plan(&root, &corpus, op);
+            assert!(
+                r.blocked
+                    .iter()
+                    .any(|b| b.contains("`gauge.ont.yml` does not parse")),
+                "{:?}",
+                r.blocked
+            );
+            assert!(
+                !r.blocked.iter().any(|b| b.contains("declares no")),
+                "an unreadable class is not one that declares nothing: {:?}",
+                r.blocked
+            );
+        }
+        let r = plan(&root, &corpus, &class_rename("gauge", "station"));
+        assert!(r.blocked.is_empty(), "{:?}", r.blocked);
     }
 
     /// Each moved instance names the path it left, as a node `rename` moves does (#1192). A
