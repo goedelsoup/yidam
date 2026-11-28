@@ -200,13 +200,13 @@ pub use cmd::{
     run_policy, run_practice, run_score, run_source, run_vault, samudaya_audit, sangha, schema,
     serve_lsp, serve_mcp, signal, skills_index, slid_line_citation, status,
     unverified_line_citation, vault_status, vocabulary, BenchGoal, BenchGoalSet, ClusterCommand,
-    CohortOptions, CycleRounds, DeriveCommand, DispatchOptions, EmbedOptions, ExportFormat,
-    ExportOptions, ExtractOptions, FetchOptions, GatherOptions, HookEvent, KutenCommand,
-    LineCitation, LineFragment, LintCheck, LintOptions, LintViolation, LogFilter, MigrateOperation,
-    ModelCommand, PhaseCommand, PolicyCommand, PreludeNorm, ProposeOptions, RdfFormat,
-    ReconcileOptions, Relocation, RetrieveOptions, RunOptions, SourceCommand, VaultArgs,
-    VaultCommand, ACT_KINDS, BRIEF_BUDGET, COMMIT_KINDS, CYCLE_SOURCES, DEFAULT_CLASSES,
-    LINT_SEVERITIES, PRELUDE_NORMS,
+    CohortOptions, CycleRounds, DeriveCommand, DispatchOptions, EmbedOptions, ExportArgs,
+    ExportFormat, ExportOptions, ExtractOptions, FetchOptions, FormatArg, GatherOptions, HookEvent,
+    KutenCommand, LineCitation, LineFragment, LintCheck, LintOptions, LintViolation, LogFilter,
+    MigrateOperation, ModelCommand, PhaseCommand, PolicyCommand, PreludeNorm, ProposeOptions,
+    RdfFormat, ReconcileOptions, RegenArgs, Relocation, RetrieveOptions, RootArg, RunOptions,
+    ServeArgs, SourceCommand, VaultArgs, VaultCommand, ACT_KINDS, BRIEF_BUDGET, COMMIT_KINDS,
+    CYCLE_SOURCES, DEFAULT_CLASSES, LINT_SEVERITIES, PRELUDE_NORMS,
 };
 
 /// The remote transport (#423). Gated because the feature is what pulls the server, and

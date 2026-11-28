@@ -299,7 +299,7 @@ reading command since #918, whose shared declaration says why:
 > `examples/streamflow` in this one, or any checkout inside a larger workspace — could be read
 > only by copying it somewhere else and running `git init` on the copy.
 >
-> — [`main.rs:135-139`](../../yidam/cli/src/main.rs#L135-L139)
+> — [`args.rs:48-52`](../../yidam/cli/src/cmd/args.rs#L48-L52)
 
 The five commands this surface spawns did not have the flag when this design was chosen, so
 `yidam-edit --root DIR` sets the child's working directory and inherits exactly the behaviour

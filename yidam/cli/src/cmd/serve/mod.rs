@@ -994,6 +994,237 @@ fn handle(state: &mut ServerState, method: &str, params: &Value) -> Result<Value
     }
 }
 
+/// `yidam serve`'s arguments (#1629).
+///
+/// Which transport to serve is a decision over three flags, and clap holds only part of it
+/// (`--http` requires `--mcp`); the rest is [`ServeArgs::transport`], beside the flags it reads.
+#[derive(clap::Args, Debug)]
+pub struct ServeArgs {
+    #[command(flatten)]
+    root: crate::cmd::RootArg,
+    /// Serve MCP over stdio — the agent surface. In the light default; `--features
+    /// index` upgrades `retrieve` from keyword to semantic.
+    #[arg(long)]
+    mcp: bool,
+    /// Serve LSP over stdio — the editor surface. In the light default.
+    #[arg(long)]
+    lsp: bool,
+    /// Serve MCP over HTTP instead of stdio — the remote agent surface (#423).
+    ///
+    /// Every platform that reaches a corpus by URL needs this; none of them can spawn a
+    /// subprocess on someone else's machine. Read-only and one corpus. With no token it
+    /// authenticates nobody; set YIDAM_SERVE_TOKEN or `--token-file` to require one.
+    #[cfg(feature = "serve-http")]
+    #[arg(long, requires = "mcp")]
+    http: bool,
+    /// IP address to bind `--http` to; a name such as `localhost` is refused. Defaults to
+    /// loopback, which the MCP spec asks for:
+    /// a server on 0.0.0.0 is reachable by anything on the network, and this one
+    /// authenticates nobody. Any other address prints a warning naming the tools it exposes.
+    #[cfg(feature = "serve-http")]
+    #[arg(long, default_value = "127.0.0.1", requires = "http")]
+    bind: String,
+    /// Port for `--http`.
+    #[cfg(feature = "serve-http")]
+    #[arg(long, default_value_t = 8787, requires = "http")]
+    port: u16,
+    /// A browser origin that may reach `--http`. Repeatable.
+    ///
+    /// The spec requires Origin validation against DNS rebinding, where a page on another
+    /// site drives a server bound to localhost. A request carrying no Origin — curl, and
+    /// every server-to-server client — is not a cross-origin request and passes without
+    /// this flag.
+    #[cfg(feature = "serve-http")]
+    #[arg(long, value_name = "URL", requires = "http")]
+    allow_origin: Vec<String>,
+    /// A file holding the bearer token `--http` requires on every request.
+    ///
+    /// Or set YIDAM_SERVE_TOKEN; not both. There is no flag taking the token itself,
+    /// because argv is visible in `ps` and in shell history. A token does not lift the
+    /// loopback rule for `[serve] act`.
+    #[cfg(feature = "serve-http")]
+    #[arg(long, value_name = "PATH", requires = "http")]
+    token_file: Option<std::path::PathBuf>,
+    /// Serve an exported bundle instead of a checkout: a `.yiz` file, or its sha256 to
+    /// fetch from `--vault-url`.
+    ///
+    /// Unpacked into scratch, which has no git and no config, so the server is read-only
+    /// by construction. A digest is verified before anything is unpacked (#1238).
+    #[cfg(feature = "serve-http")]
+    #[arg(long, value_name = "DIGEST|PATH", requires = "http")]
+    bundle: Option<String>,
+    /// The vault a `--bundle` digest is fetched from — `file:///path` or
+    /// `s3://bucket/prefix`
+    #[cfg(feature = "serve-http")]
+    #[arg(long = "vault-url", value_name = "URL", requires = "bundle")]
+    vault_url: Option<String>,
+    /// The vault's name, which decides which credential variables are read
+    #[cfg(feature = "serve-http")]
+    #[arg(
+        long,
+        value_name = "NAME",
+        default_value = "default",
+        requires = "vault_url"
+    )]
+    vault: String,
+    /// The S3 region, where `--vault-url` is an S3 one
+    #[cfg(feature = "serve-http")]
+    #[arg(long = "vault-region", value_name = "REGION", requires = "vault_url")]
+    vault_region: Option<String>,
+    /// An S3-compatible endpoint, for a store that is not AWS
+    #[cfg(feature = "serve-http")]
+    #[arg(long = "vault-endpoint", value_name = "URL", requires = "vault_url")]
+    vault_endpoint: Option<String>,
+    /// Address the bucket in the path rather than the host, for endpoints that need it
+    #[cfg(feature = "serve-http")]
+    #[arg(long = "vault-path-style", requires = "vault_url")]
+    vault_path_style: bool,
+}
+
+/// The transport `yidam serve`'s flags select.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Transport {
+    /// `--lsp`: the editor surface, over stdio.
+    Lsp,
+    /// `--mcp`: the agent surface, over stdio.
+    Mcp,
+    /// `--mcp --http`: the agent surface, over HTTP.
+    #[cfg(feature = "serve-http")]
+    McpHttp,
+}
+
+impl ServeArgs {
+    /// The transport these flags select, or why there is none: both stdio transports at
+    /// once, or neither.
+    pub(crate) fn transport(&self) -> Result<Transport> {
+        if self.lsp && self.mcp {
+            anyhow::bail!("pick one transport — `--lsp` or `--mcp`")
+        }
+        if self.lsp {
+            return Ok(Transport::Lsp);
+        }
+        #[cfg(feature = "serve-http")]
+        if self.mcp && self.http {
+            return Ok(Transport::McpHttp);
+        }
+        if self.mcp {
+            return Ok(Transport::Mcp);
+        }
+        anyhow::bail!("name a transport — `yidam serve --lsp` or `yidam serve --mcp`")
+    }
+
+    /// Serve as these arguments ask. Blocks until the transport closes.
+    //
+    // Neither transport is gated any more, and that is the point: an agent surface only the
+    // ML build carried was one almost nobody could reach. MCP's *semantic* retrieval still
+    // needs `index`; every tool it serves does not, and the server reports the difference on
+    // the handshake and on every `retrieve`.
+    pub fn run(self) -> Result<()> {
+        let transport = self.transport()?;
+        let root = self.root.as_deref();
+        match transport {
+            Transport::Lsp => crate::cmd::serve_lsp(root),
+            Transport::Mcp => serve_mcp(root),
+            #[cfg(feature = "serve-http")]
+            Transport::McpHttp => {
+                let vault = self
+                    .vault_url
+                    .map(|vault_url| crate::cmd::cluster::VaultArgs {
+                        vault: self.vault,
+                        vault_url,
+                        vault_region: self.vault_region,
+                        vault_endpoint: self.vault_endpoint,
+                        vault_path_style: self.vault_path_style,
+                    });
+                serve_mcp_http(
+                    root,
+                    &self.bind,
+                    self.port,
+                    self.allow_origin,
+                    self.token_file.as_deref(),
+                    self.bundle.as_deref(),
+                    vault.as_ref(),
+                )
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod args_tests {
+    use super::{ServeArgs, Transport};
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Harness {
+        #[command(flatten)]
+        args: ServeArgs,
+    }
+
+    fn parse(argv: &[&str]) -> ServeArgs {
+        Harness::try_parse_from(std::iter::once("serve").chain(argv.iter().copied()))
+            .unwrap()
+            .args
+    }
+
+    #[test]
+    fn lsp_alone_is_the_editor_surface() {
+        assert_eq!(parse(&["--lsp"]).transport().unwrap(), Transport::Lsp);
+    }
+
+    #[test]
+    fn mcp_alone_is_stdio() {
+        assert_eq!(parse(&["--mcp"]).transport().unwrap(), Transport::Mcp);
+    }
+
+    #[test]
+    fn both_stdio_transports_are_refused_by_name() {
+        let err = parse(&["--lsp", "--mcp"]).transport().unwrap_err();
+        assert_eq!(err.to_string(), "pick one transport — `--lsp` or `--mcp`");
+    }
+
+    #[test]
+    fn no_transport_is_refused_by_name() {
+        let err = parse(&[]).transport().unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "name a transport — `yidam serve --lsp` or `yidam serve --mcp`"
+        );
+    }
+
+    #[cfg(feature = "serve-http")]
+    #[test]
+    fn mcp_over_http() {
+        let args = parse(&["--mcp", "--http"]);
+        assert_eq!(args.transport().unwrap(), Transport::McpHttp);
+    }
+
+    #[cfg(feature = "serve-http")]
+    #[test]
+    fn http_does_not_lift_the_one_transport_rule() {
+        let err = parse(&["--lsp", "--mcp", "--http"])
+            .transport()
+            .unwrap_err();
+        assert_eq!(err.to_string(), "pick one transport — `--lsp` or `--mcp`");
+    }
+
+    #[cfg(feature = "serve-http")]
+    #[test]
+    fn http_is_not_a_transport_without_mcp() {
+        // Clap requires `--mcp` beside `--http`; set directly, `--http` alone names nothing
+        // and `--lsp --http` is the editor surface.
+        let mut args = parse(&[]);
+        args.http = true;
+        let err = args.transport().unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "name a transport — `yidam serve --lsp` or `yidam serve --mcp`"
+        );
+        args.lsp = true;
+        assert_eq!(args.transport().unwrap(), Transport::Lsp);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
