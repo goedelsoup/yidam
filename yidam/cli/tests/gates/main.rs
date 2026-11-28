@@ -58,6 +58,7 @@ mod mcp_contract_digest;
 mod mutation_residue;
 mod packaging;
 mod parity_implementations;
+mod path_separators;
 mod policy_equivalence;
 mod prelude_commit_vocabulary;
 mod prelude_glossary;

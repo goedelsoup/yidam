@@ -175,11 +175,11 @@ fn installed_export(root: &Path, name: &str) -> Result<(String, PathBuf)> {
              run `yidam tonpa install`"
         );
     };
-    let rel = file
-        .strip_prefix(root)
-        .map_or_else(|_| file.clone(), Path::to_path_buf)
-        .to_string_lossy()
-        .replace('\\', "/");
+    let rel = crate::paths::slash(
+        &file
+            .strip_prefix(root)
+            .map_or_else(|_| file.clone(), Path::to_path_buf),
+    );
     Ok((rel, tonpa.join(name).join("corpus")))
 }
 

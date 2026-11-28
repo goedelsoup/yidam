@@ -149,7 +149,7 @@ struct ExcludedEntry {
 
 /// Trim a declared or scanned path to the form [`Authorship::covering`] compares on.
 fn normalize(p: &str) -> String {
-    p.replace('\\', "/")
+    crate::paths::slash_str(p)
         .trim_start_matches("./")
         .trim_matches('/')
         .to_string()

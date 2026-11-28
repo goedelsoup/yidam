@@ -1262,7 +1262,7 @@ fn files_under(dir: &Path) -> Vec<String> {
 }
 
 fn slash(p: &Path) -> String {
-    p.to_string_lossy().replace('\\', "/")
+    crate::paths::slash(p)
 }
 
 /// The hosts a pack's own addresses name literally: each scheme's template, listing, catalog

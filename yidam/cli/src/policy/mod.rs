@@ -1094,12 +1094,7 @@ mod tests {
             .filter(|e| e.file_type().is_file())
             .map(|e| e.into_path())
             .filter(|p| p.extension().is_some_and(|x| x == "rego"))
-            .map(|p| {
-                p.strip_prefix(&dir)
-                    .unwrap()
-                    .to_string_lossy()
-                    .replace('\\', "/")
-            })
+            .map(|p| crate::paths::slash(p.strip_prefix(&dir).unwrap()))
             .collect();
         on_disk.sort();
         assert!(!on_disk.is_empty(), "{} holds no policy", dir.display());

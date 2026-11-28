@@ -520,6 +520,37 @@ pub fn running_binary_note() -> String {
     note
 }
 
+/// A path as the forward-slash string a report, an id or a comparison reads (#1637).
+///
+/// Lossy first, then every `\` becomes `/` — the conversion forty-three call sites wrote
+/// inline. It is not a normalization: `./`, `..` and a trailing separator survive, and on a
+/// Unix filesystem a backslash that is part of a file name is rewritten too, exactly as the
+/// inline form did. `tests/gates/path_separators.rs` holds the inline form to the one copy
+/// in [`slash_str`].
+pub fn slash(p: &Path) -> String {
+    slash_str(&p.to_string_lossy())
+}
+
+/// [`slash`] for a path already held as a string, such as a node's `rel` or a declared path
+/// read from a file. Kept separate so that a string is not round-tripped through [`Path`] to
+/// reach the same `replace`.
+pub fn slash_str(s: &str) -> String {
+    s.replace('\\', "/")
+}
+
+#[cfg(test)]
+mod slash_tests {
+    use super::*;
+
+    #[test]
+    fn both_entry_points_turn_every_backslash_and_nothing_else() {
+        assert_eq!(slash_str(r"a\b\c.yml"), "a/b/c.yml");
+        assert_eq!(slash_str("./a/../b/"), "./a/../b/");
+        assert_eq!(slash(Path::new(r"x\y")), "x/y");
+        assert_eq!(slash(Path::new("")), "");
+    }
+}
+
 #[cfg(test)]
 mod pinned_tests {
     use super::*;

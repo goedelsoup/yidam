@@ -160,7 +160,7 @@ pub fn corpus(nodes: &[Node]) -> Corpus {
     nodes
         .iter()
         .filter_map(|n| {
-            let rel = n.rel.replace('\\', "/");
+            let rel = crate::paths::slash_str(&n.rel);
             let tail = rel.strip_prefix(CORPUS_PREFIX)?;
             Some((tail.strip_suffix(".yml")?.to_string(), n.text.clone()))
         })

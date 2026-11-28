@@ -124,7 +124,7 @@ fn claimed_by(m: &Manifest, root: &Path, manifest_path: &Path, name: &str) -> Ve
     let dir = manifest_path
         .parent()
         .and_then(|p| p.strip_prefix(root).ok())
-        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .map(crate::paths::slash)
         .unwrap_or_default();
     m.capability
         .iter()
@@ -178,7 +178,7 @@ fn link(dir: &Path, manifest: &Path) -> String {
     };
     match parent.strip_prefix(dir) {
         Ok(rel) if rel.as_os_str().is_empty() => "./".to_string(),
-        Ok(rel) => format!("{}/", rel.to_string_lossy().replace('\\', "/")),
+        Ok(rel) => format!("{}/", crate::paths::slash(rel)),
         Err(_) => "./".to_string(),
     }
 }

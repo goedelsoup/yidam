@@ -780,7 +780,7 @@ mod tests {
                     .expect("malformed-yaml reports even when it passes")
                     .violations
                     .iter()
-                    .map(|v| v.node.replace('\\', "/"))
+                    .map(|v| crate::paths::slash_str(&v.node))
                     .collect();
 
             let r = check(root);

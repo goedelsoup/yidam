@@ -445,12 +445,12 @@ fn record(path: &Path, command: &str) {
 /// Best-effort repository-relative path, for a report a person reads.
 fn repo_relative(path: &Path) -> String {
     let absolute: PathBuf = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    crate::paths::working_root()
-        .ok()
-        .and_then(|root| absolute.strip_prefix(&root).ok().map(|p| p.to_path_buf()))
-        .unwrap_or(absolute)
-        .to_string_lossy()
-        .replace('\\', "/")
+    crate::paths::slash(
+        &crate::paths::working_root()
+            .ok()
+            .and_then(|root| absolute.strip_prefix(&root).ok().map(|p| p.to_path_buf()))
+            .unwrap_or(absolute),
+    )
 }
 
 // The one implementation, and it is not here.

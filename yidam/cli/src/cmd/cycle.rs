@@ -435,9 +435,7 @@ fn blocked(root: &Path) -> (Vec<Blocked>, Vec<Finding>) {
     // `lint`'s own gate, so the two cannot disagree about one baseline (#1613). A baseline
     // that does not parse fails `yidam lint`, so it blocks here too. Reading it as an empty
     // baseline would report every finding it forgives as introduced.
-    let baseline_file = crate::cmd::lint::baseline::path(Path::new(""))
-        .to_string_lossy()
-        .replace('\\', "/");
+    let baseline_file = crate::paths::slash(&crate::cmd::lint::baseline::path(Path::new("")));
     let diff = match crate::cmd::lint::baseline::gate(root, &checks) {
         Ok(g) => g.diff,
         Err(e) => {

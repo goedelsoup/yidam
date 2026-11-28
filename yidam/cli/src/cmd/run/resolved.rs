@@ -241,9 +241,7 @@ fn render(
             let resolved = if target.is_empty() {
                 String::new()
             } else {
-                resolve_target(std::path::Path::new(id), &target)
-                    .to_string_lossy()
-                    .replace('\\', "/")
+                crate::paths::slash(&resolve_target(std::path::Path::new(id), &target))
             };
             let _ = writeln!(
                 out,
@@ -285,12 +283,8 @@ pub fn build(
         return None;
     }
     let classes: Vec<&Class> = read.classes().iter().filter(|c| keep(&c.rel)).collect();
-    let corpus_dir = read
-        .dir()
-        .strip_prefix(read.root())
-        .unwrap_or(read.dir())
-        .to_string_lossy()
-        .replace('\\', "/");
+    let corpus_dir =
+        crate::paths::slash(read.dir().strip_prefix(read.root()).unwrap_or(read.dir()));
     Some(render(&corpus_dir, &nodes, &classes, exists))
 }
 

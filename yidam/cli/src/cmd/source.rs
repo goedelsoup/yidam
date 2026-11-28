@@ -259,7 +259,7 @@ fn list(root: &Path, format: Format) -> Result<()> {
                     name: p.name.clone(),
                     version: m.pack.version.clone(),
                     origin: p.origin,
-                    path: p.dir.to_string_lossy().replace('\\', "/"),
+                    path: crate::paths::slash(&p.dir),
                     description: m.pack.description.clone(),
                     schemes: m
                         .scheme
@@ -281,7 +281,7 @@ fn list(root: &Path, format: Format) -> Result<()> {
         unreadable_packs: packs
             .iter()
             .filter(|p| p.manifest.is_err())
-            .map(|p| p.dir.to_string_lossy().replace('\\', "/"))
+            .map(|p| crate::paths::slash(&p.dir))
             .collect(),
     };
     crate::report::finish(root, format, report, render_list)

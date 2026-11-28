@@ -34,7 +34,6 @@ docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/lib.rs#L27
 docs/rfcs/0016-editor-surface.md → ../../yidam/cli/src/main.rs#L27-L155
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/export_llms.rs#L34
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/graph.rs#L12
-docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/history.rs#L241-L283
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/history.rs#L41-L62
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/history.rs#L82
 docs/rfcs/0018-query-surface.md → ../../yidam/cli/src/cmd/lint/model.rs#L17
@@ -65,8 +64,6 @@ docs/rfcs/0028-kuten-layer.md → ../../yidam/sdks/rust/src/git.rs#L75-L76
 docs/rfcs/0028-kuten-layer.md → ../../yidam/sdks/rust/src/git.rs#L81
 docs/rfcs/0028-kuten-layer.md → ../../yidam/sdks/spec/graph.dfy#L5
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/export_web.rs#L12-L21
-docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L257
-docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/lsp.rs#L454
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/propose/write.rs#L110
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/serve/http.rs#L9
 docs/rfcs/0030-standalone-editor.md → ../../yidam/cli/src/cmd/serve/tools.rs#L302

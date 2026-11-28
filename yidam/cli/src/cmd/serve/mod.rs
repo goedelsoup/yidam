@@ -647,11 +647,7 @@ fn load_citations(root: &Path, nodes: &[Node]) -> std::collections::HashMap<Stri
     let sources: Vec<(String, std::path::PathBuf)> = crate::walk::walk_md_files(&catalog_dir)
         .into_iter()
         .map(|p| {
-            let rel = p
-                .strip_prefix(root)
-                .unwrap_or(&p)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let rel = crate::paths::slash(p.strip_prefix(root).unwrap_or(&p));
             (rel, crate::corpus::normalize(&p))
         })
         .collect();
@@ -667,11 +663,7 @@ fn load_citations(root: &Path, nodes: &[Node]) -> std::collections::HashMap<Stri
         .filter(|n| n.is_local())
         .map(|n| {
             let path = corpus_dir.join(format!("{}.yml", n.id));
-            let rel = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let rel = crate::paths::slash(path.strip_prefix(root).unwrap_or(&path));
             let linked = crate::cmd::lint::checks::linked_paths(
                 &path,
                 &rel,

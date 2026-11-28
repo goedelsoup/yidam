@@ -160,12 +160,7 @@ fn files_on_disk(root: &Path) -> Vec<String> {
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_file())
-        .filter_map(|e| {
-            e.path()
-                .strip_prefix(root)
-                .ok()
-                .map(|p| p.to_string_lossy().replace('\\', "/"))
-        })
+        .filter_map(|e| e.path().strip_prefix(root).ok().map(crate::paths::slash))
         .collect();
     out.sort();
     out
