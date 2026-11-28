@@ -2154,6 +2154,13 @@ fn pull_derived(at: Option<&Path>, picked: &[vault::Derived], only: Option<&str>
             );
         };
         if only.is_some_and(|o| o != entry.vault) {
+            // Said, not skipped: a pull that printed nothing read as one with nothing to do
+            // (#1751). Not counted missing, so the exit code stays 0, as on the push.
+            eprintln!(
+                "{}: recorded in `{}`, which `--vault` leaves out; nothing to fetch",
+                d.kind(),
+                entry.vault
+            );
             continue;
         }
         let hash = ContentHash::parse(&entry.sha256)?;

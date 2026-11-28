@@ -1565,6 +1565,109 @@ fn a_derived_push_sends_what_the_vault_flag_names_and_says_what_it_left_out() {
     );
 }
 
+/// **A pull says what `--vault` left out, and where the lock records it (#1751).** The lock
+/// records the index in `sources`; `--vault default` excludes it. Before, the pull printed
+/// nothing and exited 0, which reads as a pull that had nothing to do.
+#[test]
+fn a_derived_pull_names_the_vault_of_an_artifact_the_vault_flag_leaves_out() {
+    let (pub_, priv_) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let tmp = repo(Some(&two_vaults(
+        pub_.path(),
+        "catalog",
+        priv_.path(),
+        "index",
+    )));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"vectors");
+    run(tmp.path(), &cache, &["vault", "push", "--index"]).ok();
+    std::fs::remove_dir_all(tmp.path().join(".yidam/index")).unwrap();
+
+    let line = "index: recorded in `sources`, which `--vault` leaves out; nothing to fetch";
+    let r = run(
+        tmp.path(),
+        &cache,
+        &["vault", "pull", "--index", "--vault", "default"],
+    );
+    r.ok();
+    assert!(r.stderr.contains(line), "{}", r.said());
+    assert!(!r.stdout.contains("index"), "{}", r.said());
+    assert!(
+        !tmp.path().join(".yidam/index").exists(),
+        "nothing unpacked"
+    );
+
+    // Naming the right vault still unpacks it, and says nothing of the sort.
+    let r = run(
+        tmp.path(),
+        &cache,
+        &["vault", "pull", "--index", "--vault", "sources"],
+    );
+    r.ok();
+    assert!(!r.stderr.contains("leaves out"), "{}", r.said());
+    assert!(tmp.path().join(".yidam/index/corpus.arrow").is_file());
+}
+
+/// One asked-for artifact in the named vault and one not: the one is unpacked, the other said.
+#[test]
+fn a_derived_pull_unpacks_what_the_vault_flag_names_and_says_what_it_left_out() {
+    let (pub_, priv_) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let config = format!(
+        "[vault.default]\nurl = \"file://{}\"\naudience = \"anyone\"\n\
+         holds = [\"catalog\", \"bundle\"]\n\
+         [vault.sources]\nurl = \"file://{}\"\naudience = \"the sangha only\"\n\
+         holds = [\"index\"]\n",
+        pub_.path().display(),
+        priv_.path().display()
+    );
+    let tmp = repo(Some(&config));
+    let cache = tmp.path().join("cache");
+    index_at(tmp.path(), b"vectors");
+    write(&tmp.path().join(".yidam/bundle.yiz"), b"a bundle");
+    run(
+        tmp.path(),
+        &cache,
+        &["vault", "push", "--index", "--bundle"],
+    )
+    .ok();
+    std::fs::remove_dir_all(tmp.path().join(".yidam/index")).unwrap();
+    std::fs::remove_file(tmp.path().join(".yidam/bundle.yiz")).unwrap();
+
+    let r = run(
+        tmp.path(),
+        &cache,
+        &["vault", "pull", "--index", "--bundle", "--vault", "default"],
+    );
+    r.ok();
+    assert!(
+        r.stderr
+            .contains("index: recorded in `sources`, which `--vault` leaves out"),
+        "{}",
+        r.said()
+    );
+    assert!(r.stdout.contains("bundle"), "{}", r.said());
+    assert!(tmp.path().join(".yidam/bundle.yiz").is_file());
+    assert!(!tmp.path().join(".yidam/index").exists());
+
+    // The other way round: the line names the artifact it is about, and the lock's vault.
+    std::fs::remove_file(tmp.path().join(".yidam/bundle.yiz")).unwrap();
+    let r = run(
+        tmp.path(),
+        &cache,
+        &["vault", "pull", "--index", "--bundle", "--vault", "sources"],
+    );
+    r.ok();
+    assert!(
+        r.stderr.contains(
+            "bundle: recorded in `default`, which `--vault` leaves out; nothing to fetch"
+        ),
+        "{}",
+        r.said()
+    );
+    assert!(!r.stderr.contains("index: recorded"), "{}", r.said());
+    assert!(tmp.path().join(".yidam/index/corpus.arrow").is_file());
+    assert!(!tmp.path().join(".yidam/bundle.yiz").exists());
+}
+
 /// **A pack that fails leaves no staging file behind (#1615).** The staging file sits in the
 /// cache root under this process's id, so nothing would ever look for it again.
 #[cfg(unix)]
