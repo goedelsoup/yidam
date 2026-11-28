@@ -104,6 +104,7 @@ for pkg in yidam/editors/vscode yidam/editors/web yidam/web/docs; do
   # never read. `astro.config.mjs` sat outside both Astro packages' lists exactly that way.
 
   # The extensions actually present under the linted directories, whatever they are.
+  # shellcheck disable=SC2086 # `$dirs` is a space-separated list, split into arguments on purpose
   exts=$(cd "$root/$pkg" && find $dirs \
            \( -name node_modules -o -name dist -o -name out -o -name .astro -o -name .git \) -prune -o \
            -type f -name '*.*' -print \
@@ -127,6 +128,7 @@ for pkg in yidam/editors/vscode yidam/editors/web yidam/web/docs; do
     fi
 
     set +e
+    # shellcheck disable=SC2086 # as above: one argument per linted directory
     result=$( (cd "$root/$pkg" && "$bin" $dirs 2>&1) )
     code=$?
     set -e

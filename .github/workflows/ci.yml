@@ -427,6 +427,8 @@ jobs:
       - run: mise run ts-typecheck
       - run: mise run py-lint
         if: ${{ !cancelled() }}
+      - run: mise run sh-lint
+        if: ${{ !cancelled() }}
 
   semver:
     # What a release of `yidam-core` would break, asked while it is still a question.

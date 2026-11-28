@@ -510,6 +510,33 @@ cd yidam/sdks/python
 uv sync --locked --extra dev --quiet
 pyright
 """
+
+# shellcheck over every tracked shell script, then actionlint over both sets of workflows:
+# this repository's own, and the ones `yidam init` gives a derived repository. actionlint
+# runs shellcheck over each `run:` block itself, which is why the two share a task.
+[tasks.sh-lint]
+description = "Lint every tracked shell script with shellcheck and every workflow with actionlint."
+tools = { "aqua:koalaman/shellcheck" = "0.11.0", "aqua:rhysd/actionlint" = "1.7.12" }
+run = """
+set -eu
+scripts=$(git ls-files -- '*.sh')
+if [ -z "$scripts" ]; then
+  echo "ERROR: git ls-files matched no shell scripts; the pattern is wrong, not the tree clean"
+  exit 1
+fi
+# shellcheck disable=SC2086 # one argument per path; no tracked script has a space in its name
+shellcheck $scripts
+echo "sh-lint: shellcheck passes over $(echo "$scripts" | wc -l | tr -d ' ') scripts"
+
+actionlint
+# The derived repository's workflows, less two rules. All eight findings are in the binary
+# installer that four jobs repeat: a `sed` rewriting the origin URL (SC2001) and the awk tag
+# resolver in single quotes (SC2016). suite/derived_ci_binary.rs holds the four copies equal,
+# and the resolver equal to mise.yidam.toml's, so a rewrite is of five copies at once, which
+# is its own change.
+actionlint -ignore 'SC2001' -ignore 'SC2016' sadhana/github/workflows/*.yml
+echo "sh-lint: actionlint passes over both sets of workflows"
+"""
 # ── design system (#465) ──────────────────────────────────────────────────
 #
 # `_adherence.oxlintrc.json` forbids raw hex, raw px, off-system fonts and undeclared
@@ -1364,6 +1391,7 @@ depends = [
   "parity",
   "ts-typecheck",
   "py-lint",
+  "sh-lint",
   "design-lint",
   "supply-chain",
   "bench-scaling",

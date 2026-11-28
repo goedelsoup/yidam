@@ -83,6 +83,7 @@ declared=$(printf '%s\nyidam/editors/vscode/resources/icon.png\n' "$declared" | 
 stray=$(comm -23 <(echo "$found") <(echo "$declared") || true)
 if [ -n "$stray" ]; then
   echo "::error::asset files that no generator produces:"
+  # shellcheck disable=SC2001 # indents every line of a list, which ${stray//} cannot anchor
   echo "$stray" | sed 's/^/    /'
   echo "Every logo asset is generated from one geometry so that there is exactly one mark."
   echo "Add it to scripts/mark-generate.mjs, or delete it."
@@ -111,6 +112,7 @@ for kind in mark lockup wordmark; do
     > "$tmp/scores-$kind.json"
 done
 
+# shellcheck disable=SC2016 # JavaScript: its `${}` is node's to expand, not the shell's
 node -e '
   const fs = require("fs");
   const tmp = process.argv[1];
