@@ -1,3 +1,4 @@
+mod args;
 mod backfill;
 mod bench;
 mod build;
@@ -97,6 +98,7 @@ mod vault;
 mod vocabulary;
 mod web;
 
+pub use args::{FormatArg, RootArg};
 pub use backfill::backfill;
 pub use bench::{
     bench, parse_goals as parse_bench_goals, Goal as BenchGoal, GoalSet as BenchGoalSet,
@@ -120,7 +122,9 @@ pub use doctor::doctor;
 pub use due::{due, ACT_KINDS};
 pub use embed::{embed, EmbedOptions};
 pub use estimate::estimate;
-pub use export::{export, list_formats, run_export, ExportFormat, ExportOptions, RdfFormat};
+pub use export::{
+    export, list_formats, run_export, ExportArgs, ExportFormat, ExportOptions, RdfFormat,
+};
 pub use gates::gates;
 pub use graph::{graph, neighbors};
 pub use hook::{hook, HookEvent};
@@ -153,8 +157,8 @@ pub use practice::run as run_practice;
 pub use propose::{propose, Options as ProposeOptions};
 pub use query::paths::paths as query_paths;
 pub use query::query;
-pub use regen::regen;
 pub use regen::Mode as RegenMode;
+pub use regen::{regen, RegenArgs};
 // For `help.rs`'s guard that every generator carries the write marker — see
 // `regen::generator_names`.
 pub use regen::generator_names as regen_generator_names;
@@ -173,9 +177,9 @@ pub use samudaya_audit::{samudaya_audit, VALID_KINDS as SAMUDAYA_KINDS};
 pub use sangha::sangha;
 pub use schema::{all as schema_all, class_schemas, render as schema_render, schema};
 pub use score::score as run_score;
-pub use serve::serve_mcp;
 #[cfg(feature = "serve-http")]
 pub use serve::serve_mcp_http;
+pub use serve::{serve_mcp, ServeArgs};
 pub use signal::signal;
 pub use source::{run as run_source, SourceCommand};
 pub use status::{index_status, status};

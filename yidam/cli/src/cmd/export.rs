@@ -467,6 +467,149 @@ pub(crate) fn unix_to_iso(secs: u64) -> String {
     format!("{year:04}-{month:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
 }
 
+/// `yidam export`'s arguments (#1629).
+///
+/// `--format` is optional to clap only because `--list` stands in for it, so reading it is a
+/// decision — [`ExportArgs::action`] — and not an `unwrap` in the binary.
+#[derive(clap::Args, Debug)]
+pub struct ExportArgs {
+    #[command(flatten)]
+    root: crate::cmd::RootArg,
+    /// Output format (use --list to see available formats and their status)
+    #[arg(long, value_enum, required_unless_present = "list")]
+    format: Option<ExportFormat>,
+    /// Output path (default: format-specific, e.g. .yidam/bundle.yiz for bundle; stdout for llms)
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// WebLLM model id for the web format's chat panel (default: Llama-3.2-1B-Instruct)
+    #[arg(long, value_name = "MODEL_ID")]
+    webllm_model: Option<String>,
+    /// RDF serialization for the rdf format (default: both Turtle and JSON-LD)
+    #[arg(long, value_enum, value_name = "FORMAT")]
+    rdf_format: Option<RdfFormat>,
+    /// Approximate token budget for the llms format (1 token ≈ 4 chars; default: unlimited)
+    #[arg(long, value_name = "TOKENS")]
+    token_budget: Option<usize>,
+    /// Overwrite generated files edited since the last export (warehouse, textql).
+    /// A file yidam did not generate is never touched.
+    #[arg(long)]
+    force: bool,
+    /// Where the folder sits in the TextQL repository, for the navigation row the textql
+    /// format prints (default: the output folder's name)
+    #[arg(long, value_name = "DIR")]
+    prefix: Option<String>,
+    /// Write a breaking contract change (a removed or retyped column, a removed value) to
+    /// ddl/bigquery/breaking/ for review instead of refusing it (warehouse)
+    #[arg(long)]
+    allow_breaking: bool,
+    /// Add the corpus's own nodes as the feed `corpus`: NDJSON rows, their BigQuery schemas
+    /// and a load script, under feeds/corpus/ (warehouse)
+    #[arg(long)]
+    with_corpus: bool,
+    /// List available export formats and their implementation status
+    #[arg(long)]
+    list: bool,
+}
+
+/// What `yidam export`'s flags ask for.
+#[derive(Debug)]
+pub(crate) enum Action {
+    /// `--list`: print the formats this build has.
+    List,
+    /// Export in this format.
+    Write(ExportFormat),
+}
+
+impl ExportArgs {
+    /// The action these flags select. `--list` wins over a `--format` beside it.
+    ///
+    /// Clap requires `--format` unless `--list` is present, so the refusal is for a caller
+    /// that skipped clap; it is the sentence the `unwrap` it replaced never had.
+    pub(crate) fn action(&self) -> Result<Action> {
+        if self.list {
+            return Ok(Action::List);
+        }
+        match &self.format {
+            Some(format) => Ok(Action::Write(format.clone())),
+            None => {
+                anyhow::bail!("`yidam export` needs `--format`, or `--list` to see the formats")
+            }
+        }
+    }
+
+    /// Run `yidam export` as these arguments ask.
+    pub fn run(self) -> Result<()> {
+        match self.action()? {
+            Action::List => {
+                list_formats();
+                Ok(())
+            }
+            Action::Write(format) => {
+                let options = ExportOptions {
+                    webllm_model: self.webllm_model,
+                    rdf_format: self.rdf_format,
+                    token_budget: self.token_budget,
+                    force: self.force,
+                    prefix: self.prefix,
+                    allow_breaking: self.allow_breaking,
+                    with_corpus: self.with_corpus,
+                };
+                run_export(self.root.as_deref(), format, self.out.as_deref(), &options)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod args_tests {
+    use super::{Action, ExportArgs, ExportFormat};
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Harness {
+        #[command(flatten)]
+        args: ExportArgs,
+    }
+
+    fn parse(argv: &[&str]) -> ExportArgs {
+        Harness::try_parse_from(std::iter::once("export").chain(argv.iter().copied()))
+            .unwrap()
+            .args
+    }
+
+    #[test]
+    fn list_is_its_own_action() {
+        assert!(matches!(parse(&["--list"]).action(), Ok(Action::List)));
+    }
+
+    #[test]
+    fn list_wins_over_a_format_beside_it() {
+        let args = parse(&["--list", "--format", "llms"]);
+        assert!(matches!(args.action(), Ok(Action::List)));
+    }
+
+    #[test]
+    fn a_format_is_written() {
+        let args = parse(&["--format", "rdf"]);
+        assert!(matches!(
+            args.action(),
+            Ok(Action::Write(ExportFormat::Rdf))
+        ));
+    }
+
+    #[test]
+    fn no_format_and_no_list_is_refused_by_name() {
+        // Clap refuses this invocation before it gets here; set directly.
+        let mut args = parse(&["--list"]);
+        args.list = false;
+        let err = args.action().unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "`yidam export` needs `--format`, or `--list` to see the formats"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{unix_to_iso, write_llms, ExportFormat, LlmsPack};

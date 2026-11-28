@@ -13,7 +13,7 @@ use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-use yidam::ExportFormat;
+use yidam::{FormatArg, RootArg};
 
 mod help;
 
@@ -92,96 +92,6 @@ fn command_with(listing: fn(&[(String, String)]) -> String) -> clap::Command {
 /// The parser as every invocation but `--help-all` sees it.
 fn command() -> clap::Command {
     command_with(help::render_short)
-}
-
-/// `--format`, declared once for the thirty-two commands that take it (#927).
-///
-/// The flag is one contract — RFC-0016's report envelope, or the prose this CLI has always
-/// printed — and it was written out thirty-two times, which is thirty-two chances for the
-/// spelling, the default, or the sentence describing it to drift apart. They had already
-/// begun to: three copies described the same flag in three different wordings.
-///
-/// `#[command(flatten)]` puts the declaration in one place and leaves `<command> --help`
-/// unchanged, which matters more than the line count. `report_goldens.rs` builds its roster
-/// by scanning each subcommand's help for a `--format` line; a refactor that moved the flag
-/// out of that output would empty the roster without failing anything.
-///
-/// Two commands keep their own declaration because they say something the shared sentence
-/// cannot: `pack`, whose `text` is the artefact rather than a rendering of it, and `replay`,
-/// whose `json` carries rows the prose summarises. A flattened struct has no per-command
-/// override, and inventing one to absorb two exceptions would cost more than the exceptions.
-#[derive(clap::Args, Debug, Clone, Copy)]
-struct FormatArg {
-    /// Output format. `json` emits the machine-readable report contract
-    /// (RFC-0016); `text` is unchanged and remains the default.
-    //
-    // `long` and `value_name` are spelled out because the field is not called `format`:
-    // clap derives both from the field name, and `format.format` at thirty-two call sites
-    // is the duplication this struct exists to remove said once more. A `///` here would
-    // be a second paragraph of help, which promotes the whole thing to clap's long form and
-    // prints this note to every reader of `yidam <command> --help`.
-    #[arg(
-        long = "format",
-        value_name = "FORMAT",
-        value_enum,
-        default_value_t = yidam::Format::Text
-    )]
-    value: yidam::Format,
-}
-
-/// `--root`, declared once for every command that names a corpus (#918).
-///
-/// `serve` took this flag first (#421) and `export` second (#236, #428), and both wrote out
-/// their own declaration with a paragraph of reasoning attached. The reasoning generalised
-/// long before the flag did: *every* command resolved its corpus from the working directory,
-/// so a corpus that lives inside another git repository — `examples/streamflow` in this one,
-/// or any checkout inside a larger workspace — could be read only by copying it somewhere
-/// else and running `git init` on the copy. `docs/quickstart.md` spent a paragraph of a
-/// reader's first twenty minutes on exactly that, and the paragraph was about the tool rather
-/// than about corpora.
-///
-/// What the flag *means* is [`yidam::paths::resolve_root`]'s and is documented there — one
-/// place, so the next command to take it cannot quietly disagree with the rest. What this
-/// struct adds is that the flag is now *spelled* once: a copy of the `#[arg]` and its help
-/// sentence per command is a chance per command for the value name or the wording to drift,
-/// and the two copies that already existed had already begun to.
-///
-/// The commands that do **not** take it are the ones for which a corpus you are not standing
-/// in is not a coherent thing to act on. Three kinds: those that author a commit into the
-/// corpus, those that write a build artefact into its `.yidam/`, and those that derive or
-/// maintain a repository and already name their target positionally. They refuse `--root` as
-/// an unknown argument, which is clap's own answer and needs no code here.
-///
-/// **The REGEN generators are on this side of the line, not that one**, although every one of
-/// them writes a tracked file. `yidam regen` runs the whole list in one pass, so a generator
-/// that refused the flag would be a block `regen --root X` refreshes and `<generator> --root X`
-/// will not — and `regen` would then be writing into a corpus through commands that deny they
-/// can. The write is a block regenerated from what the corpus already says, which is a report
-/// that happens to be stored; that is a different act from authoring a commit.
-///
-/// `root_flag.rs` is what keeps that division honest, and it checks the half a reviewer
-/// cannot: for every command whose `--help` lists the flag, that passing it actually reads
-/// the named corpus. A declaration that is never threaded through to `resolve_root` compiles,
-/// accepts the flag, and reports on the wrong repository — which is the silent failure
-/// `export` was measured against in #428 and the only one worth a gate.
-#[derive(clap::Args, Debug, Clone, Default)]
-struct RootArg {
-    /// The corpus to act on. Defaults to `YIDAM_ROOT`, then to wherever this process started.
-    //
-    // `long` and `value_name` are spelled out for the reason `FormatArg` gives: the field is
-    // not called `root`, because `root.root` at thirty-nine call sites is the duplication
-    // this struct exists to remove, said once more. A `///` here would be a second paragraph
-    // of help, which promotes the whole thing to clap's long form and prints this note to
-    // every reader of `yidam <command> --help`.
-    #[arg(long = "root", value_name = "DIR")]
-    dir: Option<PathBuf>,
-}
-
-impl RootArg {
-    /// The flag as every command function takes it, and as `resolve_root` reads it.
-    fn as_deref(&self) -> Option<&std::path::Path> {
-        self.dir.as_deref()
-    }
 }
 
 #[derive(Subcommand)]
@@ -520,28 +430,7 @@ enum Command {
         event: yidam::HookEvent,
     },
     /// Refresh every REGEN block in one pass.
-    Regen {
-        #[command(flatten)]
-        root: RootArg,
-        /// Report which blocks are stale and write nothing. Exits nonzero when any is.
-        #[arg(long)]
-        check: bool,
-        /// Refresh the blocks and author the `regen:` commit for exactly the files that changed.
-        /// Refuses if one of those files has uncommitted edits.
-        #[arg(long, conflicts_with = "check")]
-        commit: bool,
-        /// Refresh the blocks into HEAD by amending it, keeping its author and subject and
-        /// adding a `Regen:` trailer. Refuses a merge, a commit any other ref holds, or a block
-        /// file with uncommitted edits.
-        #[arg(long, conflicts_with_all = ["check", "commit"])]
-        fold: bool,
-        /// Check the tree the next commit would hold — the index — not the working tree.
-        /// Needs a commit at HEAD.
-        #[arg(long, requires = "check")]
-        staged: bool,
-        #[command(flatten)]
-        format: FormatArg,
-    },
+    Regen(yidam::RegenArgs),
     /// Rename a corpus node or a catalog entry, rewriting every edge into it
     Rename {
         /// Node to rename, e.g. `concept/old.yml` or `concept/old`; or a catalog entry, `catalog/old`
@@ -836,44 +725,7 @@ enum Command {
         root: RootArg,
     },
     /// Export the domain model in the specified format
-    Export {
-        #[command(flatten)]
-        root: RootArg,
-        /// Output format (use --list to see available formats and their status)
-        #[arg(long, value_enum, required_unless_present = "list")]
-        format: Option<ExportFormat>,
-        /// Output path (default: format-specific, e.g. .yidam/bundle.yiz for bundle; stdout for llms)
-        #[arg(long)]
-        out: Option<PathBuf>,
-        /// WebLLM model id for the web format's chat panel (default: Llama-3.2-1B-Instruct)
-        #[arg(long, value_name = "MODEL_ID")]
-        webllm_model: Option<String>,
-        /// RDF serialization for the rdf format (default: both Turtle and JSON-LD)
-        #[arg(long, value_enum, value_name = "FORMAT")]
-        rdf_format: Option<yidam::RdfFormat>,
-        /// Approximate token budget for the llms format (1 token ≈ 4 chars; default: unlimited)
-        #[arg(long, value_name = "TOKENS")]
-        token_budget: Option<usize>,
-        /// Overwrite generated files edited since the last export (warehouse, textql).
-        /// A file yidam did not generate is never touched.
-        #[arg(long)]
-        force: bool,
-        /// Where the folder sits in the TextQL repository, for the navigation row the textql
-        /// format prints (default: the output folder's name)
-        #[arg(long, value_name = "DIR")]
-        prefix: Option<String>,
-        /// Write a breaking contract change (a removed or retyped column, a removed value) to
-        /// ddl/bigquery/breaking/ for review instead of refusing it (warehouse)
-        #[arg(long)]
-        allow_breaking: bool,
-        /// Add the corpus's own nodes as the feed `corpus`: NDJSON rows, their BigQuery schemas
-        /// and a load script, under feeds/corpus/ (warehouse)
-        #[arg(long)]
-        with_corpus: bool,
-        /// List available export formats and their implementation status
-        #[arg(long)]
-        list: bool,
-    },
+    Export(yidam::ExportArgs),
     /// Extract embedding text from corpus instances to .yidam/embeddings/
     Embed {
         #[command(flatten)]
@@ -1031,87 +883,7 @@ enum Command {
         format: yidam::Format,
     },
     /// Serve the domain computer over a stdio protocol
-    Serve {
-        #[command(flatten)]
-        root: RootArg,
-        /// Serve MCP over stdio — the agent surface. In the light default; `--features
-        /// index` upgrades `retrieve` from keyword to semantic.
-        #[arg(long)]
-        mcp: bool,
-        /// Serve LSP over stdio — the editor surface. In the light default.
-        #[arg(long)]
-        lsp: bool,
-        /// Serve MCP over HTTP instead of stdio — the remote agent surface (#423).
-        ///
-        /// Every platform that reaches a corpus by URL needs this; none of them can spawn a
-        /// subprocess on someone else's machine. Read-only and one corpus. With no token it
-        /// authenticates nobody; set YIDAM_SERVE_TOKEN or `--token-file` to require one.
-        #[cfg(feature = "serve-http")]
-        #[arg(long, requires = "mcp")]
-        http: bool,
-        /// IP address to bind `--http` to; a name such as `localhost` is refused. Defaults to
-        /// loopback, which the MCP spec asks for:
-        /// a server on 0.0.0.0 is reachable by anything on the network, and this one
-        /// authenticates nobody. Any other address prints a warning naming the tools it exposes.
-        #[cfg(feature = "serve-http")]
-        #[arg(long, default_value = "127.0.0.1", requires = "http")]
-        bind: String,
-        /// Port for `--http`.
-        #[cfg(feature = "serve-http")]
-        #[arg(long, default_value_t = 8787, requires = "http")]
-        port: u16,
-        /// A browser origin that may reach `--http`. Repeatable.
-        ///
-        /// The spec requires Origin validation against DNS rebinding, where a page on another
-        /// site drives a server bound to localhost. A request carrying no Origin — curl, and
-        /// every server-to-server client — is not a cross-origin request and passes without
-        /// this flag.
-        #[cfg(feature = "serve-http")]
-        #[arg(long, value_name = "URL", requires = "http")]
-        allow_origin: Vec<String>,
-        /// A file holding the bearer token `--http` requires on every request.
-        ///
-        /// Or set YIDAM_SERVE_TOKEN; not both. There is no flag taking the token itself,
-        /// because argv is visible in `ps` and in shell history. A token does not lift the
-        /// loopback rule for `[serve] act`.
-        #[cfg(feature = "serve-http")]
-        #[arg(long, value_name = "PATH", requires = "http")]
-        token_file: Option<std::path::PathBuf>,
-        /// Serve an exported bundle instead of a checkout: a `.yiz` file, or its sha256 to
-        /// fetch from `--vault-url`.
-        ///
-        /// Unpacked into scratch, which has no git and no config, so the server is read-only
-        /// by construction. A digest is verified before anything is unpacked (#1238).
-        #[cfg(feature = "serve-http")]
-        #[arg(long, value_name = "DIGEST|PATH", requires = "http")]
-        bundle: Option<String>,
-        /// The vault a `--bundle` digest is fetched from — `file:///path` or
-        /// `s3://bucket/prefix`
-        #[cfg(feature = "serve-http")]
-        #[arg(long = "vault-url", value_name = "URL", requires = "bundle")]
-        vault_url: Option<String>,
-        /// The vault's name, which decides which credential variables are read
-        #[cfg(feature = "serve-http")]
-        #[arg(
-            long,
-            value_name = "NAME",
-            default_value = "default",
-            requires = "vault_url"
-        )]
-        vault: String,
-        /// The S3 region, where `--vault-url` is an S3 one
-        #[cfg(feature = "serve-http")]
-        #[arg(long = "vault-region", value_name = "REGION", requires = "vault_url")]
-        vault_region: Option<String>,
-        /// An S3-compatible endpoint, for a store that is not AWS
-        #[cfg(feature = "serve-http")]
-        #[arg(long = "vault-endpoint", value_name = "URL", requires = "vault_url")]
-        vault_endpoint: Option<String>,
-        /// Address the bucket in the path rather than the host, for endpoints that need it
-        #[cfg(feature = "serve-http")]
-        #[arg(long = "vault-path-style", requires = "vault_url")]
-        vault_path_style: bool,
-    },
+    Serve(yidam::ServeArgs),
     /// Run corpus quality checks against the baseline ratchet
     Lint {
         #[command(flatten)]
@@ -1816,26 +1588,7 @@ fn run() -> Result<()> {
             format.value,
         ),
         Command::Hook { root, event } => yidam::hook(root.as_deref(), event),
-        Command::Regen { root, staged, .. } if staged => {
-            yidam::staged::rerun(root.as_deref(), std::env::args_os().skip(1).collect())
-        }
-        Command::Regen {
-            root,
-            check,
-            commit,
-            fold,
-            format,
-            staged: _,
-        } => yidam::regen(
-            root.as_deref(),
-            match (check, commit, fold) {
-                (true, _, _) => yidam::RegenMode::Check,
-                (_, true, _) => yidam::RegenMode::Commit,
-                (_, _, true) => yidam::RegenMode::Fold,
-                _ => yidam::RegenMode::Write,
-            },
-            format.value,
-        ),
+        Command::Regen(args) => args.run(),
         Command::Cohort {
             root,
             repos,
@@ -2026,39 +1779,7 @@ fn run() -> Result<()> {
             format,
         } => yidam::check_diff(root.as_deref(), range, format.value),
         Command::Bundle { root } => yidam::bundle(root.as_deref()),
-        #[expect(
-            clippy::unwrap_used,
-            reason = "`format` is a required argument of `export` unless `--list` is given, and the `list` branch above returns before this arm reads it"
-        )]
-        Command::Export {
-            root,
-            format,
-            out,
-            webllm_model,
-            rdf_format,
-            token_budget,
-            force,
-            prefix,
-            allow_breaking,
-            with_corpus,
-            list,
-        } => {
-            if list {
-                yidam::list_formats();
-                Ok(())
-            } else {
-                let options = yidam::ExportOptions {
-                    webllm_model,
-                    rdf_format,
-                    token_budget,
-                    force,
-                    prefix,
-                    allow_breaking,
-                    with_corpus,
-                };
-                yidam::run_export(root.as_deref(), format.unwrap(), out.as_deref(), &options)
-            }
-        }
+        Command::Export(args) => args.run(),
         Command::Embed {
             root,
             no_catalog,
@@ -2123,68 +1844,7 @@ fn run() -> Result<()> {
             every,
             format,
         } => yidam::replay(root.as_deref(), format, every),
-        // Neither transport is gated any more, and that is the point: an agent surface
-        // only the ML build carried was one almost nobody could reach. MCP's *semantic*
-        // retrieval still needs `index`; every tool it serves does not, and the server
-        // reports the difference on the handshake and on every `retrieve`.
-        Command::Serve {
-            root,
-            mcp,
-            lsp,
-            #[cfg(feature = "serve-http")]
-            http,
-            #[cfg(feature = "serve-http")]
-            bind,
-            #[cfg(feature = "serve-http")]
-            port,
-            #[cfg(feature = "serve-http")]
-            allow_origin,
-            #[cfg(feature = "serve-http")]
-            token_file,
-            #[cfg(feature = "serve-http")]
-            bundle,
-            #[cfg(feature = "serve-http")]
-            vault_url,
-            #[cfg(feature = "serve-http")]
-            vault,
-            #[cfg(feature = "serve-http")]
-            vault_region,
-            #[cfg(feature = "serve-http")]
-            vault_endpoint,
-            #[cfg(feature = "serve-http")]
-            vault_path_style,
-        } => {
-            if lsp && mcp {
-                anyhow::bail!("pick one transport — `--lsp` or `--mcp`")
-            }
-            let root = root.as_deref();
-            if lsp {
-                return yidam::serve_lsp(root);
-            }
-            #[cfg(feature = "serve-http")]
-            if mcp && http {
-                let vault = vault_url.map(|vault_url| yidam::VaultArgs {
-                    vault,
-                    vault_url,
-                    vault_region,
-                    vault_endpoint,
-                    vault_path_style,
-                });
-                return yidam::serve_mcp_http(
-                    root,
-                    &bind,
-                    port,
-                    allow_origin,
-                    token_file.as_deref(),
-                    bundle.as_deref(),
-                    vault.as_ref(),
-                );
-            }
-            if mcp {
-                return yidam::serve_mcp(root);
-            }
-            anyhow::bail!("name a transport — `yidam serve --lsp` or `yidam serve --mcp`")
-        }
+        Command::Serve(args) => args.run(),
         Command::Lint { root, staged, .. } if staged => {
             yidam::staged::rerun(root.as_deref(), std::env::args_os().skip(1).collect())
         }

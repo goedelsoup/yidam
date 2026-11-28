@@ -702,6 +702,125 @@ fn report_check(
     })
 }
 
+/// `yidam regen`'s arguments (#1629).
+///
+/// The variant, the dispatch and the decision below are one file, so the precedence among
+/// `--check`, `--commit` and `--fold`, and the `--staged` guard ahead of all three, are a
+/// function a unit test can call rather than a match in the binary that none could reach.
+#[derive(clap::Args, Debug)]
+pub struct RegenArgs {
+    #[command(flatten)]
+    root: crate::cmd::RootArg,
+    /// Report which blocks are stale and write nothing. Exits nonzero when any is.
+    #[arg(long)]
+    check: bool,
+    /// Refresh the blocks and author the `regen:` commit for exactly the files that changed.
+    /// Refuses if one of those files has uncommitted edits.
+    #[arg(long, conflicts_with = "check")]
+    commit: bool,
+    /// Refresh the blocks into HEAD by amending it, keeping its author and subject and
+    /// adding a `Regen:` trailer. Refuses a merge, a commit any other ref holds, or a block
+    /// file with uncommitted edits.
+    #[arg(long, conflicts_with_all = ["check", "commit"])]
+    fold: bool,
+    /// Check the tree the next commit would hold — the index — not the working tree.
+    /// Needs a commit at HEAD.
+    #[arg(long, requires = "check")]
+    staged: bool,
+    #[command(flatten)]
+    format: crate::cmd::FormatArg,
+}
+
+/// What `yidam regen`'s flags ask for, decided before anything is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Plan {
+    /// `--staged`: this same invocation again, over the tree the next commit would hold
+    /// ([`crate::staged::rerun`]).
+    Staged,
+    /// Run here, in this mode.
+    Here(Mode),
+}
+
+impl RegenArgs {
+    /// The plan these flags select. `--staged` is decided first, whatever else is set: the
+    /// rerun carries the other flags to the child, which decides again without it.
+    ///
+    /// Clap refuses `--commit` or `--fold` beside `--check`, and `--fold` beside `--commit`;
+    /// the order here is what a caller that skipped clap would get, `check` first.
+    pub(crate) fn plan(&self) -> Plan {
+        if self.staged {
+            return Plan::Staged;
+        }
+        Plan::Here(match (self.check, self.commit, self.fold) {
+            (true, _, _) => Mode::Check,
+            (_, true, _) => Mode::Commit,
+            (_, _, true) => Mode::Fold,
+            _ => Mode::Write,
+        })
+    }
+
+    /// Run `yidam regen` as these arguments ask.
+    pub fn run(self) -> Result<()> {
+        match self.plan() {
+            Plan::Staged => {
+                crate::staged::rerun(self.root.as_deref(), std::env::args_os().skip(1).collect())
+            }
+            Plan::Here(mode) => regen(self.root.as_deref(), mode, self.format.value),
+        }
+    }
+}
+
+#[cfg(test)]
+mod args_tests {
+    use super::{Mode, Plan, RegenArgs};
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Harness {
+        #[command(flatten)]
+        args: RegenArgs,
+    }
+
+    fn parse(argv: &[&str]) -> RegenArgs {
+        Harness::try_parse_from(std::iter::once("regen").chain(argv.iter().copied()))
+            .unwrap()
+            .args
+    }
+
+    #[test]
+    fn no_flag_writes() {
+        assert_eq!(parse(&[]).plan(), Plan::Here(Mode::Write));
+    }
+
+    #[test]
+    fn each_flag_selects_its_mode() {
+        assert_eq!(parse(&["--check"]).plan(), Plan::Here(Mode::Check));
+        assert_eq!(parse(&["--commit"]).plan(), Plan::Here(Mode::Commit));
+        assert_eq!(parse(&["--fold"]).plan(), Plan::Here(Mode::Fold));
+    }
+
+    #[test]
+    fn staged_is_decided_before_the_mode() {
+        assert_eq!(parse(&["--check", "--staged"]).plan(), Plan::Staged);
+        // Clap requires `--check` beside `--staged`; the guard does not depend on it.
+        let mut args = parse(&[]);
+        args.staged = true;
+        assert_eq!(args.plan(), Plan::Staged);
+    }
+
+    #[test]
+    fn check_outranks_commit_and_commit_outranks_fold() {
+        // Combinations clap refuses, set directly: the order is the decision's, not clap's.
+        let mut args = parse(&[]);
+        args.check = true;
+        args.commit = true;
+        args.fold = true;
+        assert_eq!(args.plan(), Plan::Here(Mode::Check));
+        args.check = false;
+        assert_eq!(args.plan(), Plan::Here(Mode::Commit));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
